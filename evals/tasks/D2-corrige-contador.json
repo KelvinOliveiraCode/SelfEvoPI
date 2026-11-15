@@ -1,0 +1,13 @@
+{
+  "id": "D2-corrige-contador",
+  "group": "D",
+  "title": "PI corrige bug de off-by-one em contador.mjs",
+  "description": "Correção de bug com verificação por execução: o modelo recebe um arquivo com defeito e precisa alterar só o comportamento errado.",
+  "prompt": "O arquivo contador.mjs tem um bug: a função proximo(n) deveria devolver n + 1, mas está devolvendo n. Corrija apenas esse bug, mantendo a exportação e o resto do arquivo.",
+  "fixture": "D2-contador",
+  "profile": "worker",
+  "checker": "node evals/checks/check-d2-contador.mjs",
+  "timeoutMs": 180000,
+  "checkerTimeoutMs": 30000,
+  "tags": ["modelo-real", "correcao-de-bug", "grupo-d"]
+}
