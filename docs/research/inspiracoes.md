@@ -142,11 +142,18 @@ Fontes: <https://pi.dev/packages/> (5.339 pacotes), <https://awesome-pi.site/ext
 | `@tintinweb/pi-subagents` | 66,7K/mo | listado | Backup. |
 | `@quintinshaw/pi-dynamic-workflows` | 65,2K/mo | listado | Backup (já tem worktree + cost accounting). |
 | `pi-harness` | ativo | repo `wangmiaozero/pi-harness` | Desktop superset. |
-| `pi-native-app` | snippet: desktop macOS Apple Silicon | `[SECUNDÁRIO]` awesome-pi | **Incompatível com Windows** → descartar. |
-| `pi-agent-orchestrator` | `[NÃO VERIFICADO]` | — | Verificar existência antes do bake-off. |
-| `@arhen/pi-core-subagent` | `[NÃO VERIFICADO]` (snippet "fast in-process subagents") | `[SECUNDÁRIO]` | Verificar antes do bake-off. |
-| `@rahularya01/pi-essentials` | `[NÃO VERIFICADO]` | — | Baixa prioridade. |
-| `pi-agent-extensions` | `[NÃO VERIFICADO]` | — | Baixa prioridade. |
+| `pi-native-app` | **0.2.2** (MIT) | registro npm + repo | **Corrigido**: virou cliente web AG-UI; desktop Tauri antigo só em `0.1.15`. |
+| `pi-harness` | ativo | repo `wangmiaozero/pi-harness` | Superset desktop; **roda em Windows x64**. |
+| `pi-graph` | **0.2.3** (MIT, HeathHe) | registro npm | DAG durável com child agents Pi — **nome colide com `@shying/pi-graph`**. |
+| `pi-agent-computer-use` | **0.1.5** (MIT, 77,6 MB) | pi.dev | Automação de apps Windows via árvore de acessibilidade. |
+| `pi-agent-orchestrator` | **0.2.1** (MIT, tungbach12) | registro npm | Jobs de shell em background + child agents + activity dock. |
+| `@arhen/pi-core-subagent` | **1.4.3** (MIT, arhen) | registro npm | Subagentes in-process com scheduler por grafo de dependências + mailbox. |
+| `@tintinweb/pi-subagents` | 66,7K/mo | listado | Variante Claude-Code-like com fleet view. |
+| `@quintinshaw/pi-dynamic-workflows` | 65,2K/mo | listado | Já traz worktree isolation e token accounting. |
+| `pi-continual` | **0.1.0** (MIT, pi-pod) | registro npm | REPL Python persistente + `/refine` + metas autônomas limitadas. |
+| `pi-agent-extensions` | **0.5.6** (MIT) | registro npm | 17 extensões + 4 temas. |
+| `@rahularya01/pi-essentials` | **0.1.0** (MIT) | registro npm | Bundle: MCP, web, subagentes, todos, ask-user. |
+| `pi-webapp` | **0.1.56** (MIT) | registro npm | Workspace web: chat, arquivos, terminais, review Git. |
 | `pi-acp` | 1,15M/mo | listado | Adapter ACP para handoff desktop. |
 | `@gotgenes/pi-permission-system` | 42,6K/mo | listado | **Relevante**: enforcement de permissões para Pi. |
 | `cc-safety-net` | 45,4K/mo | listado | Hook que bloqueia comandos destrutivos/segredos. |
@@ -373,7 +380,7 @@ Nenhuma fonte primária localizável nesta auditoria (busca retornou vazia). **A
 | 3 | Roteador com 3 perfis fixos | Perfis **+ seleção por modelo** | Harness Leaderboard: melhor harness varia por modelo. |
 | 4 | Telemetria autoral | **ADOTAR `@earendil-works/pi-telemetry`** + ledger JSONL | Já existe no core do PI. |
 | 5 | `/refine` autoral | **ADAPTAR `pi-continual-harness`** | Já implementado com deltas estruturados. |
-| 6 | Desktop via `pi-native-app` | `Pi-Harness` ou shell próprio + **integrar OpenDesign** | `pi-native-app` é macOS Apple Silicon. |
+| 6 | Desktop via `pi-native-app` | **Pi-Harness** (Windows x64) + **integrar OpenDesign** | `pi-native-app` virou cliente web; Pi-Harness já cobre Fases 3 e 4. |
 | 7 | AutoGen como referência de orquestração | Padrão Magentic-One via **Microsoft Agent Framework** | AutoGen arquivado. |
 | 8 | "cold-start < 500 ms" sem métrica | Medir **TTFT + cold start + tokens/tarefa + US$/tarefa** no baseline | Harness Leaderboard / OTel. |
 | 9 | Sandbox encerra árvore de processos | Encerramento **configurável por tarefa** (`kill-tree` vs `keep-alive`) | DSH perdeu 1,5–1,7 ponto por isso. |
@@ -385,9 +392,11 @@ Nenhuma fonte primária localizável nesta auditoria (busca retornou vazia). **A
 
 | Risco | Severidade | Como resolver |
 | :--- | :--- | :--- |
-| `pi-agent-orchestrator` e `@arhen/pi-core-subagent` não confirmados | Médio | Verificar existência/versão antes do bake-off (Fase 1). |
 | `billion-context` pode degradar qualidade | Médio | Teste empírico contra evals da Fase 0; só manter com ganho. |
-| `pi-native-app` macOS-only deixa Fase 4 sem caminho pronto | Alto | Decidir cedo: `Pi-Harness` vs shell próprio. |
+| `pi-native-app` mudou de arquitetura (desktop → web) | Baixo | Fixar `0.1.15` se o desktop Tauri for desejado; caso contrário usar Pi-Harness. |
+| `billion-context` depende de `mysql2` | Médio | Revisar código antes de adotar; driver MySQL fere o objetivo de leveza. |
+| Colisão de nomes `@shying/pi-graph` vs `pi-graph` | Médio | Comparar ambos no bake-off; fixar versão exata por nome completo. |
+| `pi-agent-orchestrator` e `@arhen/pi-core-subagent` | ~~Médio~~ Resolvido | Confirmados em 2026-11-15: 0.2.1 e 1.4.3, ambos MIT. |
 | Node Permission Model não é sandbox de segurança | Alto | Nunca usá-lo isolado; combinar com token restrito + gate. |
 | Pacotes de terceiros executam código | Médio | Revisão de código obrigatória antes de produção. |
 | Kimi Code / MiniMax Code sem fonte primária | Baixo | Reauditar com doc oficial. |

@@ -18,12 +18,12 @@ O [Harness Leaderboard](https://huggingface.co/spaces/joelniklaus/harness-leader
 
 | Fase | Status |
 |:---|:---|
-| P — Pesquisa e auditoria | concluída — ver `docs/research/` |
-| 0 — Fundação Windows, Git e providers | em andamento |
+| P — Pesquisa e auditoria | concluída e tagada `v0.0-research` |
+| 0 — Fundação Windows, Git e providers | em andamento — Git, GitHub e PI prontos |
 | 1 — CLI, bake-off e memória | pendente |
 | 2 — Núcleo de auto-evolução | pendente |
 | 3 — Grafo de execução | pendente |
-| 4 — Desktop Windows | pendente |
+| 4 — Desktop Windows | pendente — base escolhida: Pi-Harness |
 
 ## Ambiente
 
@@ -35,6 +35,7 @@ O [Harness Leaderboard](https://huggingface.co/spaces/joelniklaus/harness-leader
 ## Documentação
 
 - [`docs/research/inspiracoes.md`](docs/research/inspiracoes.md) — auditoria das fontes, 41 decisões, 10 correções ao plano.
+- [`docs/research/alternativas-windows.md`](docs/research/alternativas-windows.md) — o que existe para Windows, versões confirmadas e o que muda no plano.
 - [`docs/research/backlog-fase1.md`](docs/research/backlog-fase1.md) — backlog derivado, com comando de verificação por item.
 - [`scripts/verify-urls.mjs`](scripts/verify-urls.mjs) — gate de integridade das fontes citadas.
 

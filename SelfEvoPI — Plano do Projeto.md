@@ -1,6 +1,6 @@
 # 🧬 SelfEvoPI — Especificação Completa & Master Prompt de Construção
 
-> **Propósito deste documento:** Consolidar toda a visão arquitetural, o plano de engenharia faseado, as metas de **alta velocidade e baixo consumo de contexto**, as adaptações obrigatórias para **Windows Nativo (sem Docker/VM)**, a **governança completa de Git e publicação no GitHub**, e o **Master Prompt executável** para ser entregue ao **Traycer** orquestrando os agentes do **OpenCode** (`baidu/ernie-5.5-flash-preview:free` nos providers `k1`–`k4` e `or1`–`or4`).
+> **Propósito deste documento:** Consolidar toda a visão arquitetural, o plano de engenharia faseado, as metas de **alta velocidade e baixo consumo de contexto**, as adaptações obrigatórias para **Windows Nativo (sem Docker/VM)**, a **governança completa de Git e publicação no GitHub**, e o **Master Prompt executável** para ser entregue ao **Traycer** orquestrando os agentes do **OpenCode** (`baidu/ernie-5.5-flash-preview:free` nos providers `kilo1`–`kilo4` e `or1`–`or4`).
 
 ---
 
@@ -50,7 +50,7 @@ Como o projeto roda 100% nativamente no Windows, o isolamento da Fase 2 utiliza 
 
 * **Promptfoo (`promptfoo/promptfoo`) ou Inspect AI (`UKGovernmentBEIS/inspect_ai`)** — Referências de runners declarativos para suítes de avaliação reproduzíveis, comparação A/B (antes/depois de um artefato gerado) e regressão.
 
-* **OpenTelemetry (OTel) + JSONL Local Ledger** — Padrão leve para registrar trajetórias, latência (`TTFT` e tempo total por tarefa), consumo de tokens por provider (`k1–k4`, `or1–or4`) e taxa de sucesso localmente.
+* **OpenTelemetry (OTel) + JSONL Local Ledger** — Padrão leve para registrar trajetórias, latência (`TTFT` e tempo total por tarefa), consumo de tokens por provider (`kilo1–kilo4`, `or1–or4`) e taxa de sucesso localmente.
 
 ---
 
@@ -64,7 +64,7 @@ O **SelfEvoPI** acopla-se ao **PI Coding Agent** (`https://github.com/earendil-w
 | :--- | :--- | :--- | :--- |
 | **0. Base** | PI Coding Agent (`earendil-works/pi`) | Upstream (sem fork) | TUI, loop base, 4 tools nativas (`read`, `write`, `edit`, `bash`), sessões |
 | **1. Essenciais** | `pi-mcp-adapter`, `pi-web-access`, `billion-context` (validado) | Comunidade PI (versões fixadas) | MCP sob demanda (*lazy-loaded*), busca/leitura web, compressão reversível |
-| **2. Roteador** | `selfevopi-router` | **Construir (fino)** | Perfis (`orchestrator`, `worker`, `reviewer`), pool `k1-k4`/`or1-or4`, fallback e limites |
+| **2. Roteador** | `selfevopi-router` | **Construir (fino)** | Perfis (`orchestrator`, `worker`, `reviewer`), pool `kilo1-kilo4`/`or1-or4`, fallback e limites |
 | **3. Orquestração** | Vencedor do bake-off (`pi-agent-orchestrator` / `pi-subagents` / `@arhen/pi-core-subagent`) | Comunidade PI + adaptação | Fila de subagentes, worktrees isolados, handoffs estruturados curtos |
 | **4. Núcleo Evolutivo** | `selfevopi-forge` + `selfevopi-sandbox` | **Construir (Principal)** | Detector de lacunas, spec, gerador de artefatos, sandbox Windows, gatekeeper, rollback |
 | **5. Evals & Telemetria** | `evals/` + JSONL Ledger | **Construir (Principal)** | 30–50 tarefas determinísticas, baseline (acurácia + latência + tokens), bloqueio por regressão |
@@ -118,7 +118,7 @@ Para garantir que qualquer erro de código, mutação defeituosa da auto-evoluç
 
 Você é o **Arquiteto Principal e Orquestrador** responsável por construir o **SelfEvoPI**: um harness de agente de código **ultraleve, rápido, econômico em contexto** e **auto-evolutivo**, construído **sobre** o **PI Coding Agent** (`https://github.com/earendil-works/pi`).
 
-Você está operando no **Traycer**, coordenando agentes executores do **OpenCode** utilizando exclusivamente o modelo `baidu/ernie-5.5-flash-preview:free` (com nível de raciocínio `high` quando suportado), distribuído entre 1 agente coordenador e **8 subagentes paralelos** configurados nas contas/providers `k1`, `k2`, `k3`, `k4` (Kilo Gateway) e `or1`, `or2`, `or3`, `or4` (OpenRouter).
+Você está operando no **Traycer**, coordenando agentes executores do **OpenCode** utilizando exclusivamente o modelo `baidu/ernie-5.5-flash-preview:free` (com nível de raciocínio `high` quando suportado), distribuído entre 1 agente coordenador e **8 subagentes paralelos** configurados nas contas/providers `kilo1`, `kilo2`, `kilo3`, `kilo4` (Kilo Gateway) e `or1`, `or2`, `or3`, `or4` (OpenRouter).
 
 ---
 
@@ -176,10 +176,10 @@ Cada subagente opera em seu próprio **Git Worktree** (`.worktrees/A1` .. `.work
 
 | Subagente | Provider | Escopo de Engenharia | Entrega Principal | Ativação |
 | :--- | :--- | :--- | :--- | :--- |
-| **A1** | `k1` | **Fundação, Git/GitHub & Providers** | Setup Windows 1-comando, Git/GitHub (`gh`), `.gitignore`, tradutor OpenCode (`k1-k4`, `or1-or4`) → PI | Fase P & 0 |
-| **A2** | `k2` | **Evals, Latência & Telemetria** | Suíte determinística de 30–50 tarefas, runner, ledger JSONL (acurácia + tokens + tempo) e baseline | Fase P & 0 |
-| **A3** | `k3` | **Roteador de Modelos** | Perfis (`orchestrator`, `worker`, `reviewer`), pool de 8 contas, fallback rápido e teto de tokens | Fase 0 |
-| **A4** | `k4` | **Integração & Bake-off** | Testes comparativos de extensões PI (medindo overhead de contexto/latência), fixação de pacotes | Fase P & 1 |
+| **A1** | `kilo1` | **Fundação, Git/GitHub & Providers** | Setup Windows 1-comando, Git/GitHub (`gh`), `.gitignore`, tradutor OpenCode (`kilo1-kilo4`, `or1-or4`) → PI | Fase P & 0 |
+| **A2** | `kilo2` | **Evals, Latência & Telemetria** | Suíte determinística de 30–50 tarefas, runner, ledger JSONL (acurácia + tokens + tempo) e baseline | Fase P & 0 |
+| **A3** | `kilo3` | **Roteador de Modelos** | Perfis (`orchestrator`, `worker`, `reviewer`), pool de 8 contas, fallback rápido e teto de tokens | Fase 0 |
+| **A4** | `kilo4` | **Integração & Bake-off** | Testes comparativos de extensões PI (medindo overhead de contexto/latência), fixação de pacotes | Fase P & 1 |
 | **A5** | `or1` | **Núcleo Evolutivo (Forge)** | Detector de lacunas, especificador de contratos, gerador de skills/CLIs/extensões/MCPs | Fase 2 |
 | **A6** | `or2` | **Sandbox Windows & Governança** | Sandbox Node `--permission` + Windows Job Objects, análise estática, aprovações e auto-rollback git | Fase 2 |
 | **A7** | `or3` | **Memória & Refine** | Memória em 3 níveis (`.pi/harness/`), `/refine` evidenciado, compressão e arquivamento de skills | Fase 2 |
@@ -216,13 +216,13 @@ Antes de escrever código de produção, dispare os subagentes para auditar as i
    - Criar o repositório no GitHub do usuário via `gh repo create`, configurar branches `main` e `dev`, criar `.pi/harness/last-known-good.json` e os 8 worktrees (`.worktrees/A1` .. `.worktrees/A8`).
 2. **Importação Exclusiva de Providers do OpenCode no Windows (`A1`):**
    - Varrer os diretórios locais do OpenCode no Windows (`%USERPROFILE%\.config\opencode`, `%APPDATA%\opencode`, `%LOCALAPPDATA%\opencode`).
-   - Extrair **apenas** as 8 contas: `or1`–`or4` (OpenRouter) e `k1`–`k4` (Kilo Gateway). Nenhum outro provider deve ser importado.
+   - Extrair **apenas** as 8 contas: `or1`–`or4` (OpenRouter) e `kilo1`–`kilo4` (Kilo Gateway). Nenhum outro provider deve ser importado.
    - Consultar `https://pi.dev/` para traduzir cada conta para o formato de providers do PI, apontando para `baidu/ernie-5.5-flash-preview:free` com raciocínio `high` quando suportado.
    - Salvar chaves fora do repositório e blindar o arquivo destino com `icacls "<arquivo>" /inheritance:r /grant:r "%USERNAME%:F"`. Versionar apenas `config/providers.example.json`.
    - Executar teste mínimo (resposta curta + 1 tool call + streaming) nas 8 contas e salvar o resultado sem chaves em `docs/providers-check.md`.
 3. **Roteador de Modelos (`A3`):**
    - Implementar extensão/módulo fino com 3 perfis: `orchestrator`, `worker` e `reviewer` (obrigando o revisor a usar provider diferente do worker).
-   - Incluir balanceamento de baixa latência entre `k1`–`k4` e `or1`–`or4`, *circuit breaker*, retry rápido com *backoff* exponencial para 429/timeout, fallback automático e teto de tokens por tarefa.
+   - Incluir balanceamento de baixa latência entre `kilo1`–`kilo4` e `or1`–`or4`, *circuit breaker*, retry rápido com *backoff* exponencial para 429/timeout, fallback automático e teto de tokens por tarefa.
 4. **Suíte de Evals e Linha de Base (`A2`):**
    - Criar em `evals/` **30 a 50 tarefas reais** com verificador automático determinístico (compatível com Windows/PowerShell), divididas em:
      - *Grupo A (Código):* correção de bugs, pequenas features e refatoração.
@@ -289,6 +289,6 @@ Implementar o loop autônomo de criação e validação de capacidades em 7 etap
 ## 5. INSTRUÇÃO DE PARTIDA IMEDIATA
 
 1. Estruture o plano no **Traycer** com estas fases exatas e crie os worktrees isolados no Windows para os subagentes (`A1`–`A8`).
-2. Inicie imediatamente a **FASE P (Pesquisa Prévia, incluindo o `joelniklaus/harness-leaderboard`)** e prepare a **FASE 0 (Git/GitHub via `gh`, Importação de `k1-k4`/`or1-or4` do OpenCode no Windows + Suíte de Evals com métricas de acurácia, tokens e latência)**.
+2. Inicie imediatamente a **FASE P (Pesquisa Prévia, incluindo o `joelniklaus/harness-leaderboard`)** e prepare a **FASE 0 (Git/GitHub via `gh`, Importação de `kilo1-kilo4`/`or1-or4` do OpenCode no Windows + Suíte de Evals com métricas de acurácia, tokens e latência)**.
 3. Ao concluir cada fase, entregue o relatório objetivo contendo: **artefatos gerados**, **comandos de teste executados**, **resultados obtidos**, **link/status do push no GitHub** e **tag git criada**, aguardando validação antes de avançar.
 ```
