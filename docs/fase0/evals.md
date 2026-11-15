@@ -20,6 +20,9 @@ Cada tarefa roda em um **workspace temporário** (não no repo), com `EVAL_WORKD
 | **A** | código: roteador, retry, circuit breaker | `A1-router-reviewer` |
 | **B** | lacunas de ferramenta resolvidas | `B1-providers-present` |
 | **C** | regressão: nada essencial pode degradar | `C1-gitignore-secrets` |
+| **D** | modelo real: gera e corrige código | `D1-cria-soma`, `D2-corrige-contador` |
+
+Os grupos A–C são **estruturais**: verificam a integridade do projeto sem chamar modelo. O grupo D é o único que **executa o PI de verdade**, mede tokens e depois valida o código gerado rodando o arquivo — não olhando para a aparência dele.
 
 ## Ledger
 
@@ -68,13 +71,23 @@ Regras:
 
 ## Estado atual
 
-12 tarefas, 9 checkers, 100% de acerto em 27 execuções (~149 ms de latência média).
+14 tarefas, 11 checkers, 14/14 nesta execução (~6,2 s).
 
 | Grupo | Tarefas | Cobre |
 |:---|:---|:---|
 | A | A1–A4 | roteador: reviewer, backoff, circuit breaker, retry |
 | B | B1–B4 | providers: presença, schema, idempotência, rejeição |
 | C | C1–C4 | regressão: segredos, testes unitários, documentação |
+| D | D1–D2 | modelo real: geração de código e correção de bug |
+
+Medição real por tarefa do grupo D (exemplo): D1 = 5,4 s / 8.167 tokens; D2 = 7,3 s / 8.360 tokens.
+
+## Armadilhas de Windows que o executor resolveu
+
+1. **`pi` é um shim `.cmd`** — `execFile` não executa esse formato. A solução é rodar `dist/bundle/cli.js` com o próprio Node.
+2. **O processo filho congela até o timeout** quando a stdout vai para um pipe e o pai tem event loop ativo. A saída vai para arquivo temporário e o stdin é fechado (`ignore`).
+
+Sem esses dois, nenhuma tarefa de modelo real funciona.
 
 ## Meta
 
@@ -82,7 +95,7 @@ Regras:
 
 ## Pendências
 
-- [ ] Executor que realmente chama o PI (hoje os checkers são diretos).
-- [ ] Medição de tokens por tarefa com modelo real.
-- [ ] Baseline oficial no PI puro.
+- [ ] Gatekeeper: rodar a suíte com e sem o artefato e exigir zero regressão.
+- [ ] Baseline oficial no PI puro (números publicados em `docs/baseline-f0.md`).
+- [ ] Mais tarefas do grupo D cobrindo refatoração e leitura de código.
 - [ ] Bloqueio por regressão no gate de merge.
