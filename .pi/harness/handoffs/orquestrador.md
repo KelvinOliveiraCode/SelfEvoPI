@@ -28,6 +28,29 @@ Fase P concluída e tagada `v0.0-research`. Fase 0 quase completa.
 - **Modelo real**: tarefas com `prompt` copiam `evals/fixtures/<fixture>`, chamam o PI e rodam o checker
   no mesmo workspace. `evals/lib/pi.mjs` faz a ponte.
 
+## Equipe ativa (A2–A8)
+
+| Agente | Provider | Lane | Área exclusiva |
+|:---|:---|:---|:---|
+| A2 | `kilo2` | evals | `evals/gate.mjs`, `evals/baseline.json`, `docs/baseline-f0.md` |
+| A3 | `kilo3` | roteador | `core/router/budget.mjs`, `core/router/budget.test.mjs`, `docs/fase0/router.md` |
+| A4 | `kilo4` | bake-off | `scripts/bakeoff.mjs`, `docs/bakeoff-orquestracao.md` |
+| A5 | `or1` | forge | `core/forge/*`, `docs/fase2/forge.md` |
+| A6 | `or2` | sandbox | `core/sandbox/*`, `docs/fase2/sandbox.md` |
+| A7 | `or3` | memória | `core/memory/*`, `docs/fase2/memoria.md` |
+| A8 | `or4` | grafo/desktop | `core/graph/*`, `docs/fase3/grafo-desktop.md` |
+
+Eu fico com `kilo1` (A1: fundação, git, providers) e a coordenação.
+
+## Auditoria
+
+```powershell
+node scripts/agents-status.mjs          # painel de cada worktree
+node scripts/agents-status.mjs --porcelain
+```
+
+Nada é aceito sem eu ler o código. Cada agente entrega arquivos + comando de verificação; eu rodo, reviso, commito.
+
 ## Armadilhas já resolvidas (não repetir)
 
 1. `pi` no Windows é shim `.cmd` → rodar `dist/bundle/cli.js` com Node.
