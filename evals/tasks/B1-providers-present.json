@@ -1,0 +1,9 @@
+{
+  "id": "B1-providers-present",
+  "group": "B",
+  "title": "As 8 contas existem e respondem",
+  "description": "Lacuna de ferramenta resolvida: os providers kilo1-kilo4 e or1-or4 precisam existir no models.json com baseUrl, apiKey e modelos.",
+  "checker": "node evals/checks/check-providers-present.mjs",
+  "timeoutMs": 30000,
+  "tags": ["providers", "setup"]
+}
