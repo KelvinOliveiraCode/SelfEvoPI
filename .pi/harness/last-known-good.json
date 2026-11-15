@@ -1,34 +1,34 @@
 {
   "version": 1,
-  "sha": "c9c7e45",
+  "sha": "8dd4f2f",
   "branch": "main",
   "verifiedAt": "2026-11-15",
-  "phase": "0",
+  "phase": "1",
   "checks": [
     {
-      "name": "evals",
-      "command": "node evals/run.mjs",
+      "name": "unit-tests",
+      "command": "node --test core/router/*.test.mjs core/forge/*.test.mjs core/memory/*.test.mjs core/graph/*.test.mjs core/sandbox/*.test.mjs",
       "result": "pass",
-      "detail": "14/14 tarefas; inclui grupo D com modelo real (16.608 tokens medidos)"
+      "detail": "101 testes em 6 arquivos (router, budget, forge, memory, graph, sandbox)"
     },
     {
-      "name": "router-unit",
-      "command": "node --test core/router/router.test.mjs",
+      "name": "evals-estruturais",
+      "command": "node evals/run.mjs --group A/B/C",
       "result": "pass",
-      "detail": "12/12 testes"
+      "detail": "12/12"
     },
     {
-      "name": "verify-urls",
-      "command": "node scripts/verify-urls.mjs",
+      "name": "evals-modelo-real",
+      "command": "node evals/run.mjs --group D",
       "result": "pass",
-      "detail": "ok=33 wall=0 fail=0 error=0"
+      "detail": "2/2 com fallback de provider (17.452 tokens medidos)"
     },
     {
       "name": "providers",
       "command": "node scripts/check-providers.mjs",
       "result": "pass",
-      "detail": "8/8 provedores HTTP 200, 48 modelos, 8 chaves distintas"
+      "detail": "8/8 HTTP 200"
     }
   ],
-  "notes": "Fase 0 quase completa: Git/GitHub, 8 worktrees, providers, roteador, evals estruturais + modelo real. Falta gatekeeper e baseline."
+  "notes": "Primeira leva de subagentes integrada: A3 orcamento, A4 bake-off, A5 forge, A6 sandbox, A7 memoria, A8 grafo. Segunda leva em curso."
 }
