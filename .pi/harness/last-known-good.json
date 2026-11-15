@@ -1,16 +1,22 @@
 {
   "version": 1,
-  "sha": "9e10bed",
+  "sha": "fe5a8ba",
   "branch": "main",
   "verifiedAt": "2026-11-15",
   "phase": "P",
   "checks": [
     {
-      "name": "verify-urls",
+      "name": "verify-urls (inspiracoes)",
       "command": "node scripts/verify-urls.mjs",
       "result": "pass",
       "detail": "ok=33 wall=0 fail=0 error=0"
+    },
+    {
+      "name": "verify-urls (alternativas-windows)",
+      "command": "node scripts/verify-urls.mjs --file docs/research/alternativas-windows.md",
+      "result": "pass",
+      "detail": "ok=14 wall=0 fail=0 error=0"
     }
   ],
-  "notes": "Marco zero: auditoria concluida, 41 decisoes registradas, 10 correcoes ao plano. Nenhum codigo de producao ainda."
+  "notes": "Fase P fechada: auditoria, 41 decisoes, 10 correcoes, alternativas Windows verificadas no registro npm. Nomes dos providers corrigidos para kilo1-kilo4."
 }
