@@ -66,6 +66,16 @@ Regras:
 3. Nunca imprima chaves ou segredos.
 4. Métricas vão no JSON de stdout, não no texto de erro.
 
+## Estado atual
+
+12 tarefas, 9 checkers, 100% de acerto em 27 execuções (~149 ms de latência média).
+
+| Grupo | Tarefas | Cobre |
+|:---|:---|:---|
+| A | A1–A4 | roteador: reviewer, backoff, circuit breaker, retry |
+| B | B1–B4 | providers: presença, schema, idempotência, rejeição |
+| C | C1–C4 | regressão: segredos, testes unitários, documentação |
+
 ## Meta
 
 30–50 tarefas com verificador automático. O valor não está no número: está em cada tarefa provar algo que, se quebrar, o projeto perde. Uma tarefa decorativa é pior que nenhuma — ela dá sensação de cobertura sem dar cobertura.

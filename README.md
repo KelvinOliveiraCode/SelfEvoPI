@@ -19,7 +19,7 @@ O [Harness Leaderboard](https://huggingface.co/spaces/joelniklaus/harness-leader
 | Fase | Status |
 |:---|:---|
 | P — Pesquisa e auditoria | concluída e tagada `v0.0-research` |
-| 0 — Fundação Windows, Git e providers | em andamento — Git, GitHub e PI prontos |
+| 0 — Fundação Windows, Git e providers | em andamento — Git, GitHub, PI, 8 providers, roteador e evals prontos |
 | 1 — CLI, bake-off e memória | pendente |
 | 2 — Núcleo de auto-evolução | pendente |
 | 3 — Grafo de execução | pendente |
