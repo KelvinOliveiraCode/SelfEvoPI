@@ -92,10 +92,56 @@ três regras:
 3. **Nada é apagado.** Mesmo uma skill degradada permanece no histórico; o que muda é o
    nível em que ela conta como capacidade ativa (`stats().skills` reflete só as ativas).
 
-## 5. Onde entra o `/refine` (contrato)
+## 5. Refine baseado em regras (v1, sem modelo)
 
-O `/refine` proposto **consome e produz memória**, mas não é implementado aqui. O
-contrato é:
+A primeira versão executável do `/refine` vive em `core/memory/refine.mjs`. É
+**determinística, sem rede e sem LLM**: analisa entradas do nível `project` e propõe
+deltas estruturados, dos quais aplica apenas os seguros.
+
+### Deltas propostos
+
+| Operação | Gatilho | Aplicada? |
+|:---|:---|:---|
+| `dedupe` | mesmo texto normalizado em mais de uma entrada | **sim** — mantém a mais recente, remove as demais |
+| `drop` | entrada vazia, curta demais (`< 3` chars normalizados) ou corrompida (JSONL inválido) | **sim** — remove do nível |
+| `keep` | texto com marcador de decisão (`sempre`, `nunca`, `deve`, `obrigatório`, `proibido`…) | não — apenas sinaliza (advisory) |
+| `merge-tags` | tags que são variantes da mesma forma normalizada (`ESM`/`esm`) | não — apenas sinaliza (advisory) |
+
+`keep` e `merge-tags` são **advisory**: a v1 os relata para o agente decidir; a versão
+com modelo poderá usá-los para promover ou arquivar. A canônica de `merge-tags` é a
+forma normalizada (minúsculas, sem espaços/hífens redundantes).
+
+### Aplicação
+
+```js
+const store = openStore({ root: ".pi/harness/memory" });
+const deltas = proposeDeltas({ entries: store.query({ level: "project" }) });
+const res = applyDeltas(store, deltas, { level: "project" });
+// res = { level, applied, removed, advisory }
+```
+
+`applyDeltas` reescreve o JSONL do nível removendo as entradas indicadas. É
+**idempotente**: rodar de novo com as entradas já removidas não remove nada a mais e
+devolve `removed: 0`.
+
+### O que fica para a versão com modelo
+
+- **Decisão semântica**: distinguir "fato duplicado" de "fato reafirmado com nuance"
+  (hoje `dedupe` trata como iguais textos normalizados).
+- **`keep` inteligente**: usar o modelo para julgar se um texto é decisão durável ou
+  só um comentário, em vez da lista fixa de palavras.
+- **`merge-tags` semântico**: unir tags com o mesmo significado mas grafias diferentes
+  (`esm`/`modules`), não só variantes de caixa.
+- **Novas operações**: `split` (fundir entradas correlatas), `promote` (sugerir subida
+  de nível) e `summarize` (comprimir um bloco de entradas antigas).
+
+Tudo isso depende do gate de evals (A2) para só aplicar deltas que vencem a suíte —
+a v1 já respeita esse princípio ao limitar a aplicação aos deltas seguros.
+
+## 6. Onde entra o `/refine` (contrato)
+
+O `/refine` **consome e produz memória**. A v1 (regras) já dá conta de limpeza e
+dedupe; o contrato completo é:
 
 ```
 /refine  (entrada)
@@ -114,7 +160,7 @@ que separa "memória bruta" de "capacidade executável". A camada de memória aq
 implementada é agnóstica quanto a quem chama `append`/`promote`; o contrato acima
 amarra o `/refine` a ela sem acoplar a implementação.
 
-## 6. Critério de aceite
+## 7. Critério de aceite
 
 - `node --test core/memory/store.test.mjs` sai 0.
 - Persistência comprovada: criar, fechar, reabrir e ler os mesmos dados.
