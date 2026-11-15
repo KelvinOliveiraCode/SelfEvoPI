@@ -6,6 +6,7 @@
   "prompt": "O arquivo contador.mjs tem um bug: a função proximo(n) deveria devolver n + 1, mas está devolvendo n. Corrija apenas esse bug, mantendo a exportação e o resto do arquivo.",
   "fixture": "D2-contador",
   "profile": "worker",
+  "fallbackProfile": "orchestrator",
   "checker": "node evals/checks/check-d2-contador.mjs",
   "timeoutMs": 180000,
   "checkerTimeoutMs": 30000,

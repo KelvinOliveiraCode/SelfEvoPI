@@ -114,15 +114,57 @@ async function runTask(task) {
       if (!router) {
         return { passed: false, error: "models.json inacessível e tarefa exige modelo real" };
       }
-      const pick = router.pick(task.profile || "worker", { model: task.model });
+      const profile = task.profile || "worker";
+      const pick = router.pick(profile, { model: task.model });
       modelRef = pick.ref;
       try {
         const r = await runPi({ model: pick.ref, prompt: task.prompt, cwd: workdir, timeoutMs: task.timeoutMs ?? 180_000 });
         usage = r.usage;
         piMs = r.durationMs;
       } catch (err) {
-        piError = (err.stderr?.toString() || err.message || "").slice(0, 800);
-        return { passed: false, error: `pi falhou: ${piError}`, modelRef };
+        // Fallback: o provider escolhido estava sem cota. Tenta, nesta ordem:
+        //   1. o perfil de reserva declarado na tarefa (outra família)
+        //   2. outro provider do mesmo perfil
+        const tried = new Set([pick.provider]);
+        if (err.code === "EMPTY_RESPONSE") {
+          const attempts = [];
+          if (task.fallbackProfile && task.fallbackProfile !== profile) {
+            attempts.push(() => router.pick(task.fallbackProfile, { model: task.model, exclude: [...tried] }));
+          }
+          attempts.push(() => router.pick(profile, { model: task.model, exclude: [...tried] }));
+
+          for (const attempt of attempts) {
+            let alt;
+            try {
+              alt = attempt();
+            } catch {
+              continue;
+            }
+            if (!alt || tried.has(alt.provider)) continue;
+            tried.add(alt.provider);
+            modelRef = alt.ref;
+            try {
+              const r2 = await runPi({ model: alt.ref, prompt: task.prompt, cwd: workdir, timeoutMs: task.timeoutMs ?? 180_000 });
+              usage = r2.usage;
+              piMs = r2.durationMs;
+              router.report(pick.provider, false);
+              break;
+            } catch (err2) {
+              if (err2.code !== "EMPTY_RESPONSE") {
+                return { passed: false, error: `pi falhou: ${err2.message.slice(0, 300)}`, modelRef };
+              }
+            }
+          }
+          if (!usage) {
+            return {
+              passed: false,
+              error: `pi sem cota em ${[...tried].join(", ")} — provedores esgotados`,
+              modelRef,
+            };
+          }
+        } else {
+          return { passed: false, error: `pi falhou: ${err.message.slice(0, 300)}`, modelRef };
+        }
       }
     }
 

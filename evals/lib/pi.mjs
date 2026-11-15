@@ -92,6 +92,18 @@ export async function runPi({ model, prompt, cwd, timeoutMs = 180_000, extraArgs
   }
 
   const { text, usage, events, toolCalls } = parse(stdout);
+
+  // O provider pode recusar sem erro de processo: exit 0, zero token e nenhuma
+  // resposta. Cota diaria esgotada (ex.: free tier do OpenRouter) chega assim.
+  // Tratar como falha evita que o checker receba texto vazio e a tarefa "passe".
+  if (usage.total === 0 && text === "") {
+    const err = new Error(
+      "pi não retornou conteúdo (0 tokens, resposta vazia) — provider possivelmente sem cota",
+    );
+    err.code = "EMPTY_RESPONSE";
+    throw err;
+  }
+
   return { text, usage, events, toolCalls, durationMs };
 }
 
