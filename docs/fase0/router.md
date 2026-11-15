@@ -73,6 +73,39 @@ const pick = router.pick("worker", { budget });
 
 O budget é determinístico e testável sem relógio real. `reset()` zera a contagem para reutilizar o mesmo objeto em outra tarefa.
 
+## Retry com troca de provider
+
+`pickWithRetry` junta `pick`, `withRetry` e `report` num único fluxo: escolhe provider, executa o callback e, se falhar com erro retryable (429, 5xx, timeout, rede), troca de provider e tenta de novo.
+
+```js
+const { result, attempts, providersTried } = await router.pickWithRetry(
+  "worker",
+  async (pick) => {
+    const res = await fetch(`${pick.baseUrl}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ model: pick.model, messages }),
+    });
+    if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { code: `HTTP_${res.status}` });
+    return res.json();
+  },
+  {
+    attempts: 3,
+    budget,                          // opcional: para se estourou
+    exclude: [providerDoAutor],      // opcional: nunca reusa o autor
+    onAttempt: ({ attempt, provider, ref }) => {
+      console.log(`tentativa ${attempt}: ${ref}`);
+    },
+  }
+);
+// result  → valor retornado por fn
+// attempts → quantas tentativas foram feitas
+// providersTried → lista de providers usados, em ordem
+```
+
+**Critério de retry** (por padrão): erros com `code` `ECONNRESET`, `ETIMEDOUT`, `ENOTFOUND`, `ECONNREFUSED`, `EAI_AGAIN`, mensagens contendo `429`, `rate limit`, `timeout`, ou códigos HTTP 5xx. Passe `isRetryable: (err) => boolean` para substituir.
+
+**Parada por orçamento**: se o budget estourou antes da tentativa ou durante a execução, `pickWithRetry` lança erro claro e não gasta as tentativas restantes.
+
 ## Uso
 
 ```powershell
@@ -99,4 +132,5 @@ O roteador não substitui o PI: ele devolve uma `ref` (`provider/modelo`) que o 
 
 - [ ] Wrapper como extensão do PI (expor `pick`/`report` como comando).
 - [ ] Coletor de latência real alimentando o EWMA (hoje só via `report`).
-- [ ] Teto de tokens por tarefa (o de contexto existe; falta o de consumo).
+- [x] Teto de tokens por tarefa (`budget.mjs`).
+- [x] Retry com troca de provider (`pickWithRetry`).
