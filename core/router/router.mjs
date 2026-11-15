@@ -237,11 +237,97 @@ export class Router {
     }));
   }
 
+  /**
+   * Escolhe provider + executa fn, trocando de provider em erros retryable.
+   * @param {string} profile - perfil do roteador
+   * @param {object} fn - callback async (pick) => result
+   * @param {object} [opts]
+   * @param {number} [opts.attempts=3]
+   * @param {string[]} [opts.exclude=[]] - providers já excluídos (ex.: autor)
+   * @param {object} [opts.budget] - instância de budget (createBudget)
+   * @param {function} [opts.onAttempt] - callback (info) => void a cada tentativa
+   * @param {function} [opts.isRetryable] - override do critério de retry
+   * @returns {{ result, attempts, providersTried }}
+   */
+  async pickWithRetry(profile, fn, opts = {}) {
+    const {
+      attempts = 3,
+      exclude = [],
+      budget = null,
+      onAttempt = null,
+      isRetryable: retryCheck = isRetryable,
+    } = opts;
+
+    if (typeof fn !== "function") throw new Error("router: pickWithRetry exige fn(pick) async");
+
+    const tried = new Set();
+    let lastErr;
+
+    for (let i = 1; i <= attempts; i++) {
+      // budget estourou antes de tentar?
+      if (budget && !budget.ok) {
+        throw new Error(
+          `router: orcamento esgotado antes da tentativa ${i} (tokens=${budget.spentTokens}, custo=$${budget.spentCostUsd.toFixed(4)})`
+        );
+      }
+
+      let pick;
+      try {
+        pick = this.pick(profile, { budget, exclude: [...exclude, ...tried] });
+      } catch (err) {
+        // sem provider disponível — propaga
+        throw err;
+      }
+
+      const providerId = pick.provider;
+      tried.add(providerId);
+
+      if (onAttempt) {
+        onAttempt({ attempt: i, provider: providerId, model: pick.model, ref: pick.ref });
+      }
+
+      try {
+        const result = await fn(pick);
+        this.report(providerId, true);
+        return { result, attempts: i, providersTried: [...tried] };
+      } catch (err) {
+        lastErr = err;
+        this.report(providerId, false);
+
+        if (!retryCheck(err)) {
+          throw err;
+        }
+
+        // budget estourou durante a execução?
+        if (budget && !budget.ok) {
+          throw new Error(
+            `router: orcamento esgotado apos tentativa ${i} (tokens=${budget.spentTokens}, custo=$${budget.spentCostUsd.toFixed(4)})`
+          );
+        }
+      }
+    }
+
+    throw new Error(
+      `router: esgotou ${attempts} tentativas em ${tried.size} provider(s): ${lastErr?.message ?? "sem detalhe"}`
+    );
+  }
+
   /** Reinicia o cursor do round-robin. */
   reset() {
     this.cursor = 0;
     for (const b of this.breakers.values()) b.success();
   }
+}
+
+/** Erro retryable por padrão: rede, 429, 5xx, timeout. */
+function isRetryable(err) {
+  if (!err) return false;
+  const msg = (err.message || String(err)).toLowerCase();
+  if (msg.includes("429") || msg.includes("rate limit")) return true;
+  if (/\b5\d{2}\b/.test(msg)) return true;
+  if (msg.includes("timeout") || msg.includes("etimedout") || msg.includes("econnreset") || msg.includes("enotfound") || msg.includes("econnrefused")) return true;
+  if (err.code && ["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "ECONNREFUSED", "EAI_AGAIN"].includes(err.code)) return true;
+  return false;
 }
 
 function maxContext(p) {
