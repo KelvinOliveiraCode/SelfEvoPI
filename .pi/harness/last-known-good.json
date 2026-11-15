@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "sha": "9e10bed",
+  "branch": "main",
+  "verifiedAt": "2026-11-15",
+  "phase": "P",
+  "checks": [
+    {
+      "name": "verify-urls",
+      "command": "node scripts/verify-urls.mjs",
+      "result": "pass",
+      "detail": "ok=33 wall=0 fail=0 error=0"
+    }
+  ],
+  "notes": "Marco zero: auditoria concluida, 41 decisoes registradas, 10 correcoes ao plano. Nenhum codigo de producao ainda."
+}
