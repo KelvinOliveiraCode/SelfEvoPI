@@ -1,7 +1,7 @@
 # Fase 2 — Sandbox Windows e Governança
 
 > **Escopo:** as três camadas de isolamento do SelfEvoPI e a política de processos.
-> **Implementado:** `core/sandbox/static-gate.mjs` (camada 1). Camadas 2 e 3 são especificação.
+> **Implementado:** `core/sandbox/static-gate.mjs` (camada 1) e `core/sandbox/run-sandboxed.mjs` (camada 2). Camada 3 é especificação.
 
 ## 1. Por que três camadas
 
@@ -10,7 +10,7 @@ Nenhum mecanismo isolado cobre os três modos de falha. Cada um resolve um probl
 | Camada | Mecanismo | O que impede | O que não impede |
 |:---|:---|:---|:---|
 | **1. Prevenção** | Gate estático (AST/regex) | Que o código perigoso chegue a rodar | Código que engana a análise |
-| **2. Contenção** | Node `--permission` + token restrito | Que o processo触触 leia/escreva fora do worktree | Código malicioso — é cinto, não cofre |
+| **2. Contenção** | Node `--permission` + preload de rede | Que o processo leia/escreva fora do worktree e que fale com a rede | Código malicioso — é cinto, não cofre |
 | **3. Encerramento** | Windows Job Objects | Que sobrem processos órfãos e arquivos travados | Que um processo escape do job |
 
 A ordem importa: o gate é barato e determinístico, então roda primeiro. O Permission Model é a garantia em tempo de execução. O Job Object é a limpeza.
@@ -75,20 +75,54 @@ O gate é **análise estática**. Ele não executa o código e não prova que o 
 
 ## 3. Camada 2 — Node Permission Model
 
-O Node oferece `--permission` (estável desde 22.13/23.5) com:
+Implementada em `core/sandbox/run-sandboxed.mjs`. Testes: `core/sandbox/run-sandboxed.test.mjs` (15 casos).
 
-- `--allow-fs-read` / `--allow-fs-write` restritos ao worktree
-- `--allow-net` **omitido** (sem rede)
-- `--allow-child-process` **omitido** (sem subprocesso)
-- `--allow-worker` omitido
-- API `process.permission.has(scope)` e `process.permission.drop(scope)` (irreversível)
+```powershell
+node --test core/sandbox/run-sandboxed.test.mjs
+```
 
-Dois usos práticos:
+`runSandboxed({ script, args, workdir, timeoutMs, allowRead, allowWrite })` monta os flags — e quem chama não os escolhe:
 
-1. **Modo auditoria** (`--permission-audit`): descobre quais permissões o artefato realmente pede, sem bloquear. Serve para calibrar a allowlist antes de endurecer.
-2. **Modo enforce**: nega com `ERR_ACCESS_DENIED`.
+| Flag | Efeito |
+|:---|:---|
+| `--permission` | liga o modelo |
+| `--allow-fs-read=<workdir>` | leitura restrita ao workdir (mais os extras de `allowRead`) |
+| `--allow-fs-write=<workdir>` | escrita, **só com `allowWrite`** |
+| `--import data:text/javascript;base64,…` | injeta o preload de rede |
+| `--allow-net` | **nunca** |
+| `--allow-child-process` | **nunca** |
 
-**Limite conhecido:** o próprio manual diz que o modelo é um cinto de segurança para código confiável, e que código malicioso pode contorná-lo. Ele precisa vir acompanhado do token de baixa integridade.
+Devolve `{ ok, exitCode, stdout, stderr, durationMs, timedOut, pid, signal, truncated, blocked, gate }`. Saída limitada a 64 KB por fluxo, e o filho recebe ambiente mínimo (allowlist) em vez do `process.env` do harness — token não vaza para o código gerado.
+
+### Achado: nesta versão o Permission Model não barra rede
+
+Medido em Node **24.13.0** no Windows, com `--permission --allow-fs-read=<workdir>`:
+
+| Tentativa do script | `process.permission.has("net")` | Resultado observado |
+|:---|:---|:---|
+| `fetch("https://example.com")` | `false` | **200 OK** |
+| `https.get(...)` | `false` | **200 OK** |
+| `net.connect(443, "example.com")` | `false` | **conectou** |
+| `fs.readFileSync` fora do workdir | — | `ERR_ACCESS_DENIED` (FileSystemRead) |
+| `child_process.execSync` | — | `ERR_ACCESS_DENIED` (ChildProcess) |
+
+`has("net")` responde `false` e a chamada passa do mesmo jeito. O modelo cobre `fs` e `child_process`; rede, não.
+
+Por isso o runner injeta um preload (`NET_BLOCK_PRELOAD`) que troca `fetch`, `http.request/get`, `https.request/get`, `net.connect/createConnection`, `tls.connect`, `dgram.createSocket` e `net.Socket.prototype.connect` por um `ERR_ACCESS_DENIED` — o mesmo código que o Permission Model usa, para que o erro seja indistinguível do ponto de vista do script.
+
+Sem o preload, `--permission` sozinho reprova o teste de rede. Com ele, as duas metades se cobrem: o runtime fecha `fs` e `child_process`, o preload fecha a rede.
+
+### Tempo esgotado: matar a árvore
+
+Ao estourar `timeoutMs`, o runner chama `taskkill /PID <pid> /T /F`. O `/T` alcança netos e processos destacados, que um `child.kill()` deixaria vivos. Fora do Windows, SIGKILL no grupo de processos.
+
+### Pré-checagem
+
+Por padrão o runner passa o script pelo gate antes de spawnar. Com `decision: "block"` devolve `blocked: true` e `pid: null` — nenhum processo chega a existir. `precheck: false` existe para isolar a camada 2 em teste; em produção fica ligado.
+
+### O que ela não é
+
+Contenção, não cofre. O modelo é um cinto de segurança para código confiável, e código malicioso pode contorná-lo — o próprio manual diz isso. Ela precisa vir acompanhada da camada 1 (que reprova antes) e do token de baixa integridade (que ainda não existe). O preload de rede, em particular, é uma reposição de função: um script determinado pode importar o módulo original antes do patch ou usar um caminho que ninguém cobriu.
 
 ## 4. Camada 3 — Windows Job Objects
 
@@ -120,8 +154,8 @@ artefato gerado
    │
    ├─ 1. gate estático ──────► block? descarta, não gasta execução
    │                            warn? segue com registro
-   ├─ 2. node --permission ──► fs restrito ao worktree, sem rede, sem filho
-   │                            auditoria primeiro para calibrar
+   ├─ 2. node --permission ──► fs restrito ao worktree, sem filho, preload fecha a rede
+   │                            timeout ⇒ taskkill /T /F na árvore
    └─ 3. Job Object ─────────► kill-tree ou keep-alive, conforme a tarefa
 ```
 
@@ -134,6 +168,15 @@ Um artefato só é promovido se passar nas três. Falhar em qualquer uma devolve
 | Gate estático + 13 regras | implementado, 44 testes |
 | Classificação de caminho | implementado |
 | Máscara de comentários/literais | implementado |
-| Camada 2 (Permission Model) | especificada |
+| Camada 2 (Permission Model + preload + taskkill) | implementado, 15 testes |
 | Camada 3 (Job Objects) | especificada |
 | Política keep-alive | definida, não implementada |
+
+### Comandos
+
+```powershell
+node --test core/sandbox/static-gate.test.mjs      # 44 passam
+node --test core/sandbox/run-sandboxed.test.mjs    # 15 passam
+```
+
+O teste de timeout mata a árvore e confirma no `after()` que nenhum pid sobreviveu; se sobrasse um, a suíte falha.
