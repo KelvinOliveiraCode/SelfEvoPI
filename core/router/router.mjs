@@ -150,7 +150,12 @@ export class Router {
    * Escolhe um modelo para um perfil.
    * @returns {{provider, model, ref, baseUrl}}
    */
-  pick(profileName = "worker", { exclude = [], minContext = null, model = null } = {}) {
+  pick(profileName = "worker", { exclude = [], minContext = null, model = null, budget = null } = {}) {
+    if (budget && !budget.ok) {
+      throw new Error(
+        `router: orcamento da tarefa esgotado (tokens=${budget.spentTokens}, custo=$${budget.spentCostUsd.toFixed(4)})`
+      );
+    }
     const profile = this.profiles[profileName];
     if (!profile) throw new Error(`router: perfil desconhecido "${profileName}"`);
     if (!(profile instanceof Object)) throw new Error("router: perfil invalido");
