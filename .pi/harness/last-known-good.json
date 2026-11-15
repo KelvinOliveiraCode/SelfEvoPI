@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sha": "00a62ad",
+  "sha": "c9c7e45",
   "branch": "main",
   "verifiedAt": "2026-11-15",
   "phase": "0",
@@ -9,7 +9,7 @@
       "name": "evals",
       "command": "node evals/run.mjs",
       "result": "pass",
-      "detail": "12/12 tarefas; ledger com 27 execucoes, 100%"
+      "detail": "14/14 tarefas; inclui grupo D com modelo real (16.608 tokens medidos)"
     },
     {
       "name": "router-unit",
@@ -30,5 +30,5 @@
       "detail": "8/8 provedores HTTP 200, 48 modelos, 8 chaves distintas"
     }
   ],
-  "notes": "Fase 0 em andamento: Git/GitHub, 8 worktrees, providers importados, roteador com 12 testes e suite de evals com 12 tarefas. Falta baseline com modelo real e gatekeeper."
+  "notes": "Fase 0 quase completa: Git/GitHub, 8 worktrees, providers, roteador, evals estruturais + modelo real. Falta gatekeeper e baseline."
 }
