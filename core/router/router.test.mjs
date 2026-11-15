@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { Router, Circuit, backoffMs, withRetry, PROFILES } from "./router.mjs";
+import { createBudget } from "./budget.mjs";
 
 const PROVIDERS = [
   {
@@ -139,4 +140,22 @@ test("perfis existem e reviewer exige provider diferente", () => {
   assert.ok(PROFILES.worker);
   assert.ok(PROFILES.reviewer);
   assert.equal(PROFILES.reviewer.requireDifferentFrom, "worker");
+});
+
+test("pick recusa quando o orçamento da tarefa já estourou", () => {
+  const r = router();
+  const budget = createBudget({ limitTokens: 100, limitCostUsd: Infinity });
+  budget.spend({ tokens: 150, costUsd: 0 });
+  assert.ok(!budget.ok);
+  assert.throws(() => r.pick("worker", { budget }), /esgotado/i);
+});
+
+test("pick aceita orçamento com folga e não gasta por conta própria", () => {
+  const r = router();
+  const budget = createBudget({ limitTokens: 1_000, limitCostUsd: Infinity });
+  const pick = r.pick("worker", { budget });
+  assert.ok(pick.provider);
+  // escolher não é gastar: o orçamento continua intacto
+  assert.equal(budget.spentTokens, 0);
+  assert.ok(budget.ok);
 });

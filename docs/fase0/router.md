@@ -42,9 +42,36 @@ delay = min(cap, base * factor^(attempt-1)) * (0.5 + random/2)
 
 Importante: nem todo erro deve ser retentado. `retryOn` decide — um 401 não se resolve tentando de novo.
 
-## Teto de contexto
+## Teto de consumo
 
-`minContext` filtra modelos sem janela suficiente. Modelo pedido explicitamente **tem prioridade** sobre o mínimo do perfil: quem pede sabe o que quer. Essa precedência foi corrigida depois que um teste mostrou o comportamento contrário.
+O teto de contexto filtra modelos sem janela suficiente. O **teto de consumo** (`core/router/budget.mjs`) limita tokens e custo gastos numa tarefa, independente do modelo.
+
+```js
+import { createBudget } from "./budget.mjs";
+
+const budget = createBudget({
+  limitTokens: 100_000,
+  limitCostUsd: 0.50,
+  onExceeded: ({ spentTokens, spentCostUsd }) => {
+    console.error(`orçamento esgotado: ${spentTokens} tokens, $${spentCostUsd}`);
+  },
+});
+
+budget.spend({ tokens: 12_000, costUsd: 0.03 });
+budget.ok // true
+
+budget.spend({ tokens: 200_000, costUsd: 0.10 });
+budget.ok // false — onExceeded chamado uma única vez
+```
+
+`Router.pick()` aceita `{ budget }` e recusa (throw) quando o orçamento já estourou:
+
+```js
+const pick = router.pick("worker", { budget });
+// lança Error: "router: orcamento da tarefa esgotado (tokens=…)"
+```
+
+O budget é determinístico e testável sem relógio real. `reset()` zera a contagem para reutilizar o mesmo objeto em outra tarefa.
 
 ## Uso
 
