@@ -66,7 +66,10 @@ function normalizeNode(node, index) {
     throw new GraphError(`createGraph: node[${index}] não é um objeto`, { code: "invalid-node" });
   }
   const id = typeof node.id === "string" ? node.id.trim() : "";
+  // Preserva campos extras (ex.: timeoutMs, metadados) sem deixar passar
+  // valores inválidos nos campos do núcleo.
   return {
+    ...node,
     id,
     agent: typeof node.agent === "string" ? node.agent : null,
     kind: node.kind ?? "task",

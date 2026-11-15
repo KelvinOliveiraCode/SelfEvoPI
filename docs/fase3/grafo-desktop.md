@@ -111,7 +111,82 @@ topológica válida, a tarefa vem primeiro.
 É esse par que o coordenador usa em laço: roda `nextReady`, marca `running`, e quando
 o agente termina marca `done` — e o próximo `nextReady` já reflete o novo estado.
 
-## 3. Como o grafo se liga aos handoffs
+## 3. Execução (executor)
+
+O executor (`core/graph/executor.mjs`) é o motor que percorre o grafo. Ele é
+deliberadamente separado do modelo: o modelo diz *o que* existe e *em que ordem*;
+o executor *faz acontecer*. Quem chama fornece `runNode(node, ctx)` — a parte que
+realmente fala com o agente/PI. Assim o executor é testável sem subir o PI.
+
+```js
+import { createGraph } from "./model.mjs";
+import { createExecutor } from "./executor.mjs";
+
+const graph = createGraph({ nodes, edges });
+
+const result = await createExecutor({
+  graph,
+  autoApprove: false,   // true => nós `human` rodam como os outros
+  timeoutMs: 30_000,    // teto padrão por nó (nó pode ter o seu `timeoutMs`)
+  runNode: async (node, { state, previous }) => {
+    // ... executa o nó, usa `state`, devolve o resultado
+    return doWork(node, state, previous);
+  },
+});
+// result = { status, nodes: [...], state, waitingFor }
+```
+
+### 3.1 Como um handoff vira aresta
+
+O handoff é o **conteúdo**; a aresta é o **ponteiro** que o executor segue. O fluxo,
+passo a passo:
+
+1. O coordenador escreve o contrato do handoff em `.pi/harness/handoffs/<from>->
+   <to>.json` (objetivo, arquivos-alvo, restrições, critério de aceite).
+2. O grafo recebe a aresta `{ from, to, kind: "handoff" }` — ela não carrega o
+   texto, só diz que existe um contrato de `from` para `to`.
+3. Quando o nó `to` é alcançado, o executor chama `runNode(to, ctx)`. O `ctx.state`
+   carrega o que veio de `from` (o resultado registrado em `state`), e `ctx.previous`
+   aponta para o registro do nó imediatamente anterior.
+4. `runNode` lê o contrato (ou o que o nó anterior deixou em `state`) e executa.
+
+Ou seja: **a aresta `handoff` no grafo ↔ o arquivo de handoff em disco ↔ o valor que
+viaja em `ctx.state`.** Os três são a mesma coisa vista em camadas diferentes.
+
+### 3.2 Como o estado trafega
+
+O executor mantém **um único objeto `state`** compartilhado por todos os nós:
+
+- Cada `runNode` recebe `{ state, previous }` e pode **ler e escrever** `state`.
+- O que um nó grava fica visível para os nós seguintes — inclusive os que dependem
+  dele por caminhos diferentes.
+- `previous` é o registro (`{ id, status, result? , error? }`) do nó processado
+  imediatamente antes, ou `null` no primeiro. Serve para o caso comum "só preciso do
+  nó anterior"; para "preciso de todos os que me antecedem", leia `state`.
+
+`state` é um objeto simples de propósito: serializável, sem segredos, pronto para
+virar checkpoint (`.pi/harness/`). Recuperar um nó = restaurar `state` + status.
+
+### 3.3 Regras de execução
+
+| Situação | O que o executor faz |
+|:---|:---|
+| Nó com `dependsOn` não-`done` | marca `blocked`, **segue** (não roda) |
+| `runNode` resolve | marca `done`, guarda `result` |
+| `runNode` lança | marca `failed` (`reason: "error"`, guarda `error`), **segue** |
+| `runNode` excede `timeoutMs` | marca `failed` (`reason: "timeout"`), **segue** |
+| Nó `human` com `autoApprove` falso | para e devolve `status: "waiting-human"`, `waitingFor: <id>` |
+| Nós depois de um `human` parado | ficam `skipped` (nunca rodaram) |
+
+Detalhe de projeto: **o relógio só existe para o timeout.** A ordem e o fluxo vêm
+exclusivamente do grafo (`dependsOn`) — um teste prova isso desligando `Date.now` e
+executando um grafo linear inteiro. Um nó que falha não derruba a execução: ele marca
+`failed` e bloqueia apenas os seus dependentes, que ficam `blocked`.
+
+Resultado agregado (`result.status`): `completed` (tudo `done`), `failed` (algum
+`failed`), `waiting-human` (parou num `human`), ou `blocked`.
+
+## 4. Como o grafo se liga aos handoffs
 
 O plano exige **handoffs estruturados curtos** (objetivo, arquivos-alvo, restrições,
 critério de aceite) em `.pi/harness/handoffs/`, nunca o histórico bruto
@@ -131,7 +206,7 @@ critério de aceite) em `.pi/harness/handoffs/`, nunca o histórico bruto
 Em resumo: **o grafo guarda a topologia; o handoff guarda o conteúdo.** Um aponta
 para o outro.
 
-## 4. Decisão de Desktop (Windows)
+## 5. Decisão de Desktop (Windows)
 
 Critérios de avaliação (pedidos no plano e na auditoria de Windows):
 
@@ -142,7 +217,7 @@ Critérios de avaliação (pedidos no plano e na auditoria de Windows):
 5. **Windows nativo** — roda x64 sem depender de macOS/Tauri/Rust.
 6. **Risco de supply-chain** — pacote instalável com nome/versão inequívocos.
 
-### 4.1 Candidatos (evidências de `docs/research/`)
+### 5.1 Candidatos (evidências de `docs/research/`)
 
 | Candidato | O que é hoje | Windows | Fonte |
 |:---|:---|:---|:---|
@@ -161,7 +236,7 @@ E há um terceiro ator relevante: `@arhen/pi-core-subagent` 1.4.3 traz **schedul
 grafo de dependências** (arestas carregam a saída do upstream) — alinhado ao nosso
 `dependsOn` (`alternativas-windows.md` §3, linha 55).
 
-### 4.2 Recomendação: **Pi-Harness** como base, `Pi Agent Desktop` como fallback
+### 5.2 Recomendação: **Pi-Harness** como base, `Pi Agent Desktop` como fallback
 
 **Decisão:** adotar **Pi-Harness** como desktop/base da Fase 4, e usar
 **Pi Agent Desktop** como fallback onde a fila de aprovações/terminais exigir
@@ -193,7 +268,7 @@ para a fila de aprovações/permissões e para a política de `kill-tree` vs `ke
 explicitamente o Task DAG/checkpoints que o Pi-Harness cobre — por isso entra como
 camada de contenção, não como a base.
 
-### 4.3 Ressalva de segurança herdada da pesquisa
+### 5.3 Ressalva de segurança herdada da pesquisa
 
 A auditoria é explícita: **Job Objects com `KILL_ON_JOB_CLOSE` encerram a árvore
 inteira por padrão** (`alternativas-windows.md` §2; `inspiracoes.md` §2.13). Isso é
@@ -203,7 +278,7 @@ política de processos do SelfEvoPI precisa ser **por tarefa**: `kill-tree` para
 efêmeros, `keep-alive` explícito para tarefas que deixam serviço no ar. O desktop
 apenas **executa** essa política; quem a decide é a camada de sandbox (A6).
 
-## 5. Plano de integração em etapas
+## 6. Plano de integração em etapas
 
 Adotar, não reinventar. Cada etapa tem um alvo verificável.
 
@@ -222,7 +297,7 @@ supply-chain registrado (`alternativas-windows.md` §6; `inspiracoes.md` §5). A
 modelo aqui (`core/graph/model.mjs`) já basta para validar e ordenar, sem depender de
 terceiros.
 
-## 6. O que construir × o que adotar
+## 7. O que construir × o que adotar
 
 | Camada | Decisão | Fonte / justificativa |
 |:---|:---|:---|
@@ -234,7 +309,7 @@ terceiros.
 | Política `kill-tree` vs `keep-alive` | **CONSTRUIR** | DSH perdeu pontos por matar background (`inspiracoes.md` §2.17) |
 | Handoffs JSON em `.pi/harness/handoffs/` | **CONSTRUIR** | contrato do plano (§4); a aresta só aponta |
 
-## 7. Fontes
+## 8. Fontes
 
 - `docs/research/alternativas-windows.md` — §1 Desktop, §2 Isolamento, §3 Orquestração, §6 Grafo.
 - `docs/research/inspiracoes.md` — §0 (itens 7 e 9), §2.3 (ecossistema PI), §2.13 (Job Objects), §2.17 (DeepSeek/keep-alive), §2.19 (OpenDesign).
