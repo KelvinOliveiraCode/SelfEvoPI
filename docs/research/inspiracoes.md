@@ -262,6 +262,7 @@ Fontes: <https://pi.dev/packages/> (5.339 pacotes), <https://awesome-pi.site/ext
 - Estável desde **v23.5.0 / v22.13.0**; flag `--permission`.
 - Restringe: `fs` read/write, rede, `child_process`, `worker_threads`, addons, WASI, FFI, inspector.
 - Flags: `--allow-fs-read`, `--allow-fs-write`, `--allow-net`, `--allow-child-process`, `--allow-worker`, `--allow-addons`, `--allow-wasi`, `--allow-ffi`.
+- **Medição própria (Node 24.13.0, Windows, 2026-11-15):** `--permission` **não barra rede**. `process.permission.has("net")` responde `false` e, ainda assim, `fetch("https://example.com")` retorna 200. `fs` fora do allowlist e `child_process` são barrados com `ERR_ACCESS_DENIED`. Conclusão: a negação de rede precisa de um preload que sobrescreva `fetch`/`http`/`https`/`net`/`tls`/`dgram` — é o que `core/sandbox/run-sandboxed.mjs` faz.
 - API runtime: `process.permission.has(scope[, ref])` e `process.permission.drop(scope[, ref])` (**irreversível**).
 - **Modo auditoria:** `--permission-audit` (violações vão para `diagnostics_channel` sem bloquear) — útil para descobrir permissões mínimas antes de endurecer.
 - **Limite explícito:** *"It does not provide security guarantees in the presence of malicious code… a 'seat belt' approach."*
