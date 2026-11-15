@@ -275,7 +275,7 @@ Implementar o loop autônomo de criação e validação de capacidades em 7 etap
 
 ### FASE 4 — Desktop Completo Windows (`A8`)
 *(Liberada apenas após Fase 3 aprovada)*
-1. Adotar ou fazer fork fino do `Pi-Harness` (ou `pi-native-app`) rodando nativamente no Windows (WebView2) conectado ao estado `.pi/harness/`.
+1. Adotar ou fazer fork fino do `Pi-Harness` (instalador `.exe` x64 para Windows; já traz Runs, Trace, Replay, Evaluation, Policy, Budget, Checkpoints, Recovery, Agent Teams, Task DAG e Worktrees) conectado ao estado `.pi/harness/`. **Alternativa:** `Pi Agent Desktop` (Windows 10/11 x64), que inclui terminais contidos por **Job Objects** — útil para a fila de aprovações/permissões. **Não usar `pi-native-app` como desktop:** desde a versão 0.2.2 ele é cliente web (AG-UI); o app desktop Tauri antigo só existe fixado em `0.1.15`.
 2. Integrar na interface Desktop: painel do grafo multi-agente, fila de aprovações de artefatos/permissões, painel de evals/telemetria (acurácia, tokens e latência), controle visual de rollback Git e **Live Web/UI Preview** local (inspirado no OpenDesign) para edição de sites/interfaces em tempo real.
 - **Teste & Critério de Saída:** Fluxo completo (`tarefa → lacuna → artefato → aprovação humana → execução`) concluído 100% pelo Desktop no Windows, abrindo sessões da CLI e recuperando checkpoints. Push para GitHub com tag `v0.5-desktop`.
 
