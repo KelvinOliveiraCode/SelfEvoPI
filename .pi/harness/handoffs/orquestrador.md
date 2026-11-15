@@ -51,6 +51,11 @@ node scripts/agents-status.mjs --porcelain
 
 Nada é aceito sem eu ler o código. Cada agente entrega arquivos + comando de verificação; eu rodo, reviso, commito.
 
+## Lacunas conhecidas (encontradas na revisão, não corrigidas)
+
+1. **Conflito gate × verify.mjs.** O `generateSkill` (A5) gera um `verify.mjs` que usa `spawnSync` para rodar os testes. O gate estático (A6) bloqueia `child-process`. Como está, todo artefato gerado seria barrado pelo próprio sandbox. Resolver: o verify roda fora do sandbox (é código do harness, não do artefato) ou o gate ganha exceção explícita para `verify.mjs` gerado.
+2. **Entradas corrompidas nunca saem.** O `proposeDeltas` (A7) propõe `{op:"drop", id:null}` para linhas inválidas de JSONL, mas o `applyDeltas` ignora id nulo — a linha fica para sempre. Resolver: carregar o índice da linha no delta e remover por posição.
+
 ## Armadilhas já resolvidas (não repetir)
 
 1. `pi` no Windows é shim `.cmd` → rodar `dist/bundle/cli.js` com Node.
