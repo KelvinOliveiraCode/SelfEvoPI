@@ -88,9 +88,84 @@ Escolhe o kind mais leve que atende. Devolve `{ kind, covers, missing, ranked }`
 **Recusa**: capacidade que nenhum kind cobre → reportada em `missing` (não
 lança erro, para que a etapa de Hierarquia trate a lacuna).
 
+## Gerando uma skill
+
+A etapa "Gerar em Isolamento" tem sua primeira peça executável: `generateSkill`
+em `core/forge/generate-skill.mjs`. Ela transforma um pedido de kind `"skill"`
+em arquivos reais, sem tocar em nada fora do diretório de saída.
+
+### Fluxo: contrato → arquivo → verificação
+
+```
+createArtifactRequest          generateSkill               verify.mjs
+   { goal, kind:"skill",   →   SKILL.md  (frontmatter +     node verify.mjs
+     inputs, outputs,           objetivo, entradas,          │
+     forbidden, tests }         saídas, proibições)          ├─ PASS smoke
+                                verify.mjs (autocontido)  ──┤
+                                 testes embutidos            └─ exit 0 só se todos passam
+```
+
+1. **Contrato** — `createArtifactRequest` valida o pedido (kind, `forbidden`
+   não-vazio, `tests` não-vazio). Só um request válido chega ao gerador.
+2. **Arquivo** — `generateSkill(request, outDir)` escreve:
+   - `SKILL.md`: frontmatter `name` (slug do `goal`) e `description`, com o
+     objetivo, as entradas, as saídas e a seção "O que NÃO pode fazer"
+     (de `request.forbidden`).
+   - `verify.mjs`: script autocontido que roda cada `command` de `request.tests`
+     e sai 0 **somente** se todos passarem. Este é o gerador de evidência que
+     o Gatekeeper (`validateArtifactResult`) vai exigir.
+3. **Verificação** — o chamador executa `node verify.mjs`. Saída 0 = evidência
+   de que a skill cumpre o contrato; saída ≠ 0 = reprova e o artefato não é
+   promovido.
+
+### Exemplo de SKILL.md gerado
+
+Pedido: `{ goal: "detectar mudancas de arquivos", kind: "skill", inputs: { path: "arquivo a observar" }, outputs: { changed: "true se mudou" }, forbidden: ["acessar rede"], tests: [{ name: "smoke", command: 'node -e "process.exit(0)"' }] }`
+
+```markdown
+---
+name: detectar-mudancas-de-arquivos
+description: detectar mudancas de arquivos
+---
+
+# detectar mudancas de arquivos
+
+## Objetivo
+
+detectar mudancas de arquivos
+
+## Entradas
+
+- `path` — arquivo a observar
+
+## Saídas
+
+- `changed` — true se mudou
+
+## O que NÃO pode fazer
+
+- acessar rede
+
+## Verificação
+
+Execute `node verify.mjs`. Ele sai 0 somente se todos os testes passarem:
+
+- `smoke` — `node -e "process.exit(0)"`
+```
+
+### Garantias
+
+- **Recusa** `kind` diferente de `"skill"`.
+- **Recusa** sobrescrever um `SKILL.md` já existente no `outDir`.
+- Não gera código arbitrário: o `verify.mjs` só contém os comandos de teste
+  declarados no próprio contrato (nada de rede, nada fora do escopo).
+- Testes: `core/forge/generate-skill.test.mjs` (6 casos), incluindo a execução
+  real do `verify.mjs` gerado (passa quando os testes passam, reprova quando falham).
+
 ## Pendências
 
 - [ ] Etapas 1 e 3 (detector de lacunas e hierarquia) — A1/A2.
-- [ ] Etapas 4, 6 e 7 (gerador, gatekeeper, registro) — A6.
+- [ ] Etapas 6 e 7 (gatekeeper, registro) — A6.
+- [ ] Geradores dos demais kinds (`cli`, `extension`, `mcp-server`) — A6.
 - [ ] Etapa 5 (sandbox Windows) — fase posterior, com Job Objects + `cc-safety-net`.
 - [ ] Indexação semântica do registro (Voyager-style) na promoção.
