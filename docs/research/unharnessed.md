@@ -89,7 +89,15 @@ As duas coisas podem ser verdade em domínios diferentes: um REPL Python é imba
 
 A medição do Harness Leaderboard já mostrou que harness enxuto é mais barato. O que o Unharnessed acrescenta é a evidência de que **um único tool bem desenhado pode superar uma lista de tools** — e isso é testável nos evals do SelfEvoPI, não é artigo de fé.
 
-## 7. Pendência
+## 7. Benchmark — o que o site mostra
+
+- **Afirmação:** SOTA no Terminal-Bench 4.0; com Claude Opus 5.5, passa **47 das 66 tarefas** ("Higher score. Lower bill." — cada ponto é uma execução, score contra custo).
+- **Verificação:** a seção de benchmark do site (`unharnessed.dev/en#bench`) renderiza **"Placeholder data"** acima da legenda. Não há tabela com números por harness, nem link para as trajetórias brutas, nem metodologia de custo.
+- **Conclusão:** o número 47/66 é **afirmação de marketing não verificada**. O design é sério e está aberto (MIT, código-fonte público), mas a comparação com Claude Code/Codex não está publicada de forma auditável.
+
+Trate como `[NÃO VERIFICADO]` até que haja dados primários — e é exatamente o tipo de lacuna que os nossos evals existem para não ter.
+
+## 8. Pendência
 
 - [ ] Medir nos evals do SelfEvoPI: um agente com REPL Python vs. a lista atual de tools, nas tarefas do Grupo D.
 - [ ] Adaptar `budget.mjs` para degradar em `budget_limited`.
