@@ -1,0 +1,13 @@
+{
+  "id": "D1-cria-soma",
+  "group": "D",
+  "title": "PI cria soma.mjs com função correta",
+  "description": "Tarefa de geração de código com verificação determinística: o modelo cria um módulo e o checker executa o arquivo, sem olhar para a aparência.",
+  "prompt": "Crie um arquivo chamado soma.mjs no diretório atual. Ele deve exportar uma função soma(a, b) que retorna a soma dos dois números. Use a sintaxe: export function soma(a, b) { ... }. Não crie outros arquivos e não escreva nada além do código.",
+  "fixture": "D1-soma",
+  "profile": "worker",
+  "checker": "node evals/checks/check-d1-soma.mjs",
+  "timeoutMs": 180000,
+  "checkerTimeoutMs": 30000,
+  "tags": ["modelo-real", "geracao-de-codigo", "grupo-d"]
+}

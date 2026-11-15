@@ -2,26 +2,23 @@
 /**
  * run.mjs — executor da suíte de evals do SelfEvoPI.
  *
- * Para cada tarefa em evals/tasks/*.json:
- *   1. cria um workspace temporario
- *   2. executa o checker (comando determinístico) nesse workspace
- *   3. mede duração, tokens e custo (quando informados pelo checker)
- *   4. grava uma linha no ledger JSONL
+ * Dois tipos de tarefa:
  *
- * O checker recebe:
- *   EVAL_WORKDIR  — diretorio temporario da tarefa
- *   EVAL_TASK_ID  — id da tarefa
- * e deve sair 0 (passou) ou != 0 (falhou). Pode imprimir JSON em stdout com
- * { tokens, costUsd, metrics } para enriquecer o ledger.
+ *  - estrutural (sem "prompt"): roda apenas o checker num workspace temporário
+ *  - modelo real (com "prompt"): copia a fixture, chama o PI, depois roda o
+ *    checker no MESMO workspace, medindo tokens, custo e latência
+ *
+ * O checker recebe EVAL_WORKDIR e EVAL_TASK_ID e sai 0 (passou) ou != 0.
+ * Pode imprimir JSON em stdout com { tokens, costUsd, metrics }.
  *
  * Uso:
- *   node evals/run.mjs                  # todas as tarefas
- *   node evals/run.mjs --group A        # so o grupo A
+ *   node evals/run.mjs                  # todas
+ *   node evals/run.mjs --group A        # um grupo
  *   node evals/run.mjs --task A1-...    # uma tarefa
- *   node evals/run.mjs --no-ledger      # nao grava (dry-run)
+ *   node evals/run.mjs --no-ledger      # não grava
  */
 
-import { readdir, readFile, mkdtemp, rm, mkdir } from "node:fs/promises";
+import { readdir, readFile, mkdtemp, rm, mkdir, cp } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,10 +26,13 @@ import process from "node:process";
 import { promisify } from "node:util";
 
 import { append, record } from "./lib/ledger.mjs";
+import { runPi } from "./lib/pi.mjs";
+import { fromPiConfig } from "../core/router/router.mjs";
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(import.meta.dirname, "..");
 const TASKS_DIR = path.join(ROOT, "evals", "tasks");
+const FIXTURES = path.join(ROOT, "evals", "fixtures");
 const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
 
 function argValue(name, fallback = null) {
@@ -44,31 +44,39 @@ const onlyGroup = argValue("group");
 const onlyTask = argValue("task");
 const noLedger = process.argv.includes("--no-ledger");
 
+let routerPromise = null;
+function getRouter() {
+  if (!routerPromise) {
+    routerPromise = fromPiConfig(path.join(process.env.USERPROFILE || process.env.HOME, ".pi", "agent", "models.json")).catch(() => null);
+  }
+  return routerPromise;
+}
+
 async function loadTasks() {
   const files = (await readdir(TASKS_DIR).catch(() => [])).filter((f) => f.endsWith(".json"));
   const tasks = [];
   for (const file of files) {
     const doc = JSON.parse(await readFile(path.join(TASKS_DIR, file), "utf8"));
-    const list = Array.isArray(doc) ? doc : [doc];
-    for (const t of list) tasks.push({ ...t, _file: file });
+    for (const t of Array.isArray(doc) ? doc : [doc]) tasks.push({ ...t, _file: file });
   }
   return tasks;
 }
 
-async function runChecker(task) {
-  const workdir = await mkdtemp(path.join(tmpdir(), `selfevopi-${task.id}-`));
+function resolveRepoPath(p) {
+  return p.startsWith("evals/") || p.startsWith("core/") || p.startsWith("scripts/") ? path.join(ROOT, p) : p;
+}
+
+async function runChecker(task, workdir) {
   const [cmd, ...rawArgs] = task.checker.split(" ");
-  // paths relativos ao repo (evals/..., core/...) precisam virar absolutos:
-  // o checker roda com cwd = worktree temporario, nao na raiz.
-  const args = rawArgs.map((a) => (a.startsWith("evals/") || a.startsWith("core/") || a.startsWith("scripts/") ? path.join(ROOT, a) : a));
+  const args = rawArgs.map(resolveRepoPath);
   const executable = cmd === "node" || cmd === "nodejs" ? process.execPath : cmd;
   const started = performance.now();
   try {
     const { stdout } = await execFileAsync(executable, args, {
       cwd: workdir,
-      env: { ...process.env, EVAL_WORKDIR: workdir, EVAL_TASK_ID: task.id },
-      timeout: task.timeoutMs ?? 30_000,
-      maxBuffer: 4 * 1024 * 1024,
+      env: { ...process.env, EVAL_WORKDIR: workdir, EVAL_TASK_ID: task.id, ...(task.env || {}) },
+      timeout: task.checkerTimeoutMs ?? 30_000,
+      maxBuffer: 8 * 1024 * 1024,
       windowsHide: true,
     });
     const durationMs = performance.now() - started;
@@ -76,17 +84,57 @@ async function runChecker(task) {
     try {
       meta = JSON.parse(String(stdout).trim().split("\n").pop());
     } catch {
-      /* checker nao emitiu JSON */
+      /* checker não emitiu JSON */
     }
-    return { passed: true, durationMs, meta, workdir };
+    return { passed: true, checkerMs: durationMs, meta };
   } catch (err) {
-    const durationMs = performance.now() - started;
     return {
       passed: false,
-      durationMs,
+      checkerMs: performance.now() - started,
       meta: {},
-      error: err.stderr?.toString().slice(0, 500) || err.message,
-      workdir,
+      error: (err.stderr?.toString() || err.message || "").slice(0, 800),
+    };
+  }
+}
+
+async function runTask(task) {
+  const workdir = await mkdtemp(path.join(tmpdir(), `selfevopi-${task.id}-`));
+  try {
+    if (task.fixture) {
+      await cp(path.join(FIXTURES, task.fixture), workdir, { recursive: true });
+    }
+
+    let usage = null;
+    let piMs = 0;
+    let modelRef = null;
+    let piError = null;
+
+    if (task.prompt) {
+      const router = await getRouter();
+      if (!router) {
+        return { passed: false, error: "models.json inacessível e tarefa exige modelo real" };
+      }
+      const pick = router.pick(task.profile || "worker", { model: task.model });
+      modelRef = pick.ref;
+      try {
+        const r = await runPi({ model: pick.ref, prompt: task.prompt, cwd: workdir, timeoutMs: task.timeoutMs ?? 180_000 });
+        usage = r.usage;
+        piMs = r.durationMs;
+      } catch (err) {
+        piError = (err.stderr?.toString() || err.message || "").slice(0, 800);
+        return { passed: false, error: `pi falhou: ${piError}`, modelRef };
+      }
+    }
+
+    const check = await runChecker(task, workdir);
+    return {
+      passed: check.passed,
+      error: check.error ?? null,
+      checkerMs: check.checkerMs,
+      meta: check.meta,
+      usage,
+      modelRef,
+      totalMs: piMs + check.checkerMs,
     };
   } finally {
     await rm(workdir, { recursive: true, force: true }).catch(() => {});
@@ -104,25 +152,34 @@ async function main() {
   }
 
   const results = [];
-  console.log(`Executando ${tasks.length} tarefa(s)\n`);
+  const hasModel = tasks.some((t) => t.prompt);
+  console.log(`Executando ${tasks.length} tarefa(s)${hasModel ? " (inclui modelo real)" : ""}\n`);
 
   for (const task of tasks) {
-    const r = await runChecker(task);
+    const r = await runTask(task);
+    const usage = r.usage ?? {};
     const rec = record({
       taskId: task.id,
       group: task.group,
       passed: r.passed,
-      durationMs: r.durationMs,
-      tokens: r.meta.tokens ?? 0,
-      costUsd: r.meta.costUsd ?? 0,
+      durationMs: r.totalMs ?? r.checkerMs ?? 0,
+      tokens: usage.total ?? r.meta?.tokens ?? 0,
+      costUsd: usage.costUsd ?? r.meta?.costUsd ?? 0,
+      runner: task.prompt ? "pi" : "local",
       error: r.error ?? null,
-      metrics: r.meta.metrics ?? {},
+      metrics: {
+        ...(r.meta?.metrics ?? {}),
+        ...(usage.total ? { input: usage.input, output: usage.output, cacheRead: usage.cacheRead } : {}),
+        ...(r.modelRef ? { model: r.modelRef } : {}),
+      },
     });
     results.push(rec);
+
     const mark = r.passed ? "✓" : "✗";
-    const ms = String(Math.round(r.durationMs)).padStart(5);
-    console.log(`  ${mark} ${task.id.padEnd(28)} ${ms} ms  grupo ${task.group}`);
-    if (!r.passed && r.error) console.log(`      ${r.error.split("\n")[0].slice(0, 140)}`);
+    const ms = String(Math.round(rec.durationMs)).padStart(6);
+    const tok = rec.tokens ? ` ${rec.tokens} tok` : "";
+    console.log(`  ${mark} ${task.id.padEnd(28)} ${ms} ms${tok}  grupo ${task.group}`);
+    if (!r.passed && r.error) console.log(`      ${r.error.split("\n")[0].slice(0, 150)}`);
   }
 
   if (!noLedger) {
@@ -133,7 +190,8 @@ async function main() {
 
   const passed = results.filter((r) => r.passed).length;
   const totalMs = results.reduce((n, r) => n + r.durationMs, 0);
-  console.log(`\n  resultado: ${passed}/${results.length}  ·  ${Math.round(totalMs)} ms`);
+  const totalTok = results.reduce((n, r) => n + r.tokens, 0);
+  console.log(`\n  resultado: ${passed}/${results.length}  ·  ${Math.round(totalMs)} ms  ·  ${totalTok} tokens`);
   process.exit(passed === results.length ? 0 : 1);
 }
 
