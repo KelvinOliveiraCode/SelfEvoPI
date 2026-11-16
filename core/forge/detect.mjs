@@ -127,44 +127,83 @@ function detectFailing(rows, threshold) {
 }
 
 /**
- * tool-missing: goal (tarefa do ledger) que nenhuma capability conhecida cobre.
- * `capabilities` é o conjunto de capacidades já existentes; uma task cujo
- * `goal`/`taskId` não casa com nenhuma vira gap.
+ * tool-missing: só dispara com **evidência**.
+ *
+ * Duas fontes, e uma delas basta:
+ *  1. um registro do ledger marca explicitamente a falta
+ *     (`missingCapability`, `toolMissing`, ou erro "no such tool"/"ferramenta não encontrada");
+ *  2. um **registro de capabilities** é informado e o objetivo da tarefa não casa
+ *     com nenhuma.
+ *
+ * Sem as duas coisas, o detector **não afirma** que falta ferramenta: ausência de
+ * catálogo não é evidência de ausência de capacidade. Sem isso, toda tarefa do
+ * ledger virava "lacuna" — ruído que enterraria os gaps reais.
  */
 function detectMissing(rows, capabilities) {
-  const known = new Set(
-    (Array.isArray(capabilities) ? capabilities : []).map((c) => String(c).toLowerCase())
-  );
-  const seen = new Set();
+  const catalog = (Array.isArray(capabilities) ? capabilities : []).map((c) => String(c).toLowerCase()).filter(Boolean);
   const gaps = [];
+  const seen = new Set();
+
+  const push = (r, capability, goal, meta) => {
+    if (seen.has(r.taskId)) return;
+    seen.add(r.taskId);
+    gaps.push(
+      createGap({
+        kind: "tool-missing",
+        taskId: r.taskId,
+        capability,
+        goal,
+        evidence: typeof r.at === "string" ? [`${r.taskId}@${r.at}`] : [r.taskId],
+        meta,
+      }),
+    );
+  };
+
   for (const r of rows) {
     if (!isPlainObject(r) || typeof r.taskId !== "string") continue;
-    if (seen.has(r.taskId)) continue;
-    seen.add(r.taskId);
+    const m = isPlainObject(r.metrics) ? r.metrics : {};
+    const err = String(r.error ?? "").toLowerCase();
+
+    // 1) evidência explícita no registro
+    const declared = r.missingCapability ?? r.toolMissing ?? m.missingCapability ?? m.toolMissing;
+    if (typeof declared === "string" && declared.trim() !== "") {
+      push(r, declared.trim(), `cobrir a capacidade ausente da tarefa ${r.taskId}`, { source: "ledger" });
+      continue;
+    }
+    if (r.missingCapability === true || r.toolMissing === true || m.missingCapability === true) {
+      push(r, `capacidade para ${r.taskId}`, `cobrir a lacuna da tarefa ${r.taskId}`, { source: "ledger" });
+      continue;
+    }
+    if (/no such tool|ferramenta n[aã]o encontrada|unknown tool|tool not found/.test(err)) {
+      push(r, `capacidade para ${r.taskId}`, `cobrir a lacuna da tarefa ${r.taskId}`, {
+        source: "erro",
+        reason: "erro indica ferramenta inexistente",
+      });
+      continue;
+    }
+
+    // 2) catálogo informado: só aí a ausência é comparável
+    if (catalog.length === 0) continue;
     const hay = `${r.taskId} ${r.group ?? ""}`.toLowerCase();
-    const covered = [...known].some((cap) => cap !== "" && hay.includes(cap));
+    const covered = catalog.some((cap) => hay.includes(cap));
     if (!covered) {
-      gaps.push(
-        createGap({
-          kind: "tool-missing",
-          taskId: r.taskId,
-          capability: `capacidade para ${r.taskId}`,
-          goal: `cobrir a lacuna da tarefa ${r.taskId}`,
-          evidence: typeof r.at === "string" ? [`${r.taskId}@${r.at}`] : [r.taskId],
-          meta: { group: r.group ?? null },
-        })
-      );
+      push(r, `capacidade para ${r.taskId}`, `cobrir a lacuna da tarefa ${r.taskId}`, { source: "catalogo" });
     }
   }
   return gaps;
 }
 
 /**
- * tool-fragile: tarefa acima do teto de tokens, marcada como frágil
- * (metrics.fragile === true), ou que usou screenshot onde caberia CLI
- * (metrics.screenshot === true ou metrics.usedScreenshot === true).
+ * tool-fragile: tarefa marcada como frágil (`metrics.fragile`), que usou
+ * screenshot onde caberia CLI (`metrics.screenshot` / `metrics.usedScreenshot`),
+ * ou — apenas quando um teto é informado (`tokenCeiling > 0`) — acima dele.
+ *
+ * O teto vem **desligado** por padrão: qualquer número absoluto é arbitrário
+ * enquanto a linha de base não estiver medida. Com o PI puro em ~8.685 tokens,
+ * um teto de 8.000 marcaria todas as tarefas como frágeis — ruído puro.
  */
 function detectFragile(rows, tokenCeiling) {
+  const ceiling = Number.isFinite(Number(tokenCeiling)) ? Number(tokenCeiling) : 0;
   const groups = new Map();
   for (const r of rows) {
     if (!isPlainObject(r) || typeof r.taskId !== "string") continue;
@@ -183,7 +222,7 @@ function detectFragile(rows, tokenCeiling) {
       ? Math.round(s.tokens.reduce((a, b) => a + b, 0) / s.tokens.length)
       : 0;
     const reasons = [];
-    if (avg > tokenCeiling) reasons.push(`tokens ${avg} > teto ${tokenCeiling}`);
+    if (ceiling > 0 && avg > ceiling) reasons.push(`tokens ${avg} > teto ${ceiling}`);
     if (s.fragile > 0) reasons.push(`${s.fragile}x marcada frágil`);
     if (s.screenshot > 0) reasons.push(`${s.screenshot}x usou screenshot onde caberia CLI`);
     if (reasons.length > 0) {
@@ -194,7 +233,7 @@ function detectFragile(rows, tokenCeiling) {
           capability: `alternativa mais leve e estável para ${taskId}`,
           goal: `substituir fluxo frágil da tarefa ${taskId}`,
           evidence: s.evidence.slice(0, 8),
-          meta: { avgTokens: avg, tokenCeiling, fragile: s.fragile, screenshot: s.screenshot, reasons },
+          meta: { avgTokens: avg, tokenCeiling: ceiling, fragile: s.fragile, screenshot: s.screenshot, reasons },
         })
       );
     }
@@ -214,7 +253,7 @@ function detectFragile(rows, tokenCeiling) {
  * @param {number} [opts.threshold=3]        falhas para tool-failing
  * @param {number} [opts.maxGaps=20]         teto de gaps devolvidos
  * @param {string[]} [opts.capabilities=[]]  capacidades já existentes (tool-missing)
- * @param {number} [opts.tokenCeiling=8000]  teto de tokens para tool-fragile
+ * @param {number} [opts.tokenCeiling=0]  teto de tokens para tool-fragile; 0 desliga
  * @returns {Promise<{ gaps: object[], counts: object, scanned: number }>}
  */
 export async function detectGaps(opts = {}) {
@@ -222,7 +261,7 @@ export async function detectGaps(opts = {}) {
     threshold = 3,
     maxGaps = 20,
     capabilities = [],
-    tokenCeiling = 8000,
+    tokenCeiling = 0,
   } = opts;
 
   let rows;

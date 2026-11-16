@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-16T13:45:36.693Z",
+  "generatedAt": "2026-11-16T14:09:00.288Z",
   "generator": "evals/gate.mjs --update",
   "runs": 3,
   "group": null,
@@ -9,7 +9,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 399,
+      "avgMs": 114,
       "tokens": 0
     },
     "A2-router-backoff": {
@@ -17,7 +17,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 430,
+      "avgMs": 123,
       "tokens": 0
     },
     "A3-circuit-breaker": {
@@ -25,7 +25,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 313,
+      "avgMs": 113,
       "tokens": 0
     },
     "A4-retry-policy": {
@@ -33,7 +33,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 442,
+      "avgMs": 158,
       "tokens": 0
     },
     "A5-router-budget": {
@@ -41,7 +41,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 309,
+      "avgMs": 112,
       "tokens": 0
     },
     "A6-router-pick-with-retry": {
@@ -49,7 +49,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 265,
+      "avgMs": 105,
       "tokens": 0
     },
     "A7-router-from-config": {
@@ -57,7 +57,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 336,
+      "avgMs": 115,
       "tokens": 0
     },
     "A8-forge-choose-kind": {
@@ -65,7 +65,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 207,
+      "avgMs": 115,
       "tokens": 0
     },
     "B1-providers-present": {
@@ -73,7 +73,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 249,
+      "avgMs": 111,
       "tokens": 0
     },
     "B2-models-schema": {
@@ -81,7 +81,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 216,
+      "avgMs": 127,
       "tokens": 0
     },
     "B3-import-idempotent": {
@@ -89,7 +89,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 770,
+      "avgMs": 322,
       "tokens": 0
     },
     "B4-import-rejects-missing": {
@@ -97,7 +97,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 425,
+      "avgMs": 196,
       "tokens": 0
     },
     "B5-sandbox-static-gate": {
@@ -105,7 +105,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 218,
+      "avgMs": 109,
       "tokens": 0
     },
     "B6-forge-generate-cli": {
@@ -113,7 +113,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 895,
+      "avgMs": 249,
       "tokens": 0
     },
     "B7-memory-store": {
@@ -121,7 +121,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 392,
+      "avgMs": 127,
       "tokens": 0
     },
     "B8-graph-executor": {
@@ -129,7 +129,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 308,
+      "avgMs": 99,
       "tokens": 0
     },
     "C1-gitignore-secrets": {
@@ -137,7 +137,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 565,
+      "avgMs": 149,
       "tokens": 0
     },
     "C2-no-secrets-tracked": {
@@ -145,7 +145,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 906,
+      "avgMs": 232,
       "tokens": 0
     },
     "C3-router-unit-tests": {
@@ -153,7 +153,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 742,
+      "avgMs": 329,
       "tokens": 0
     },
     "C4-docs-present": {
@@ -161,7 +161,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 187,
+      "avgMs": 106,
       "tokens": 0
     },
     "C5-graph-model": {
@@ -169,7 +169,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 280,
+      "avgMs": 123,
       "tokens": 0
     },
     "C6-forge-contract": {
@@ -177,7 +177,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 557,
+      "avgMs": 116,
       "tokens": 0
     },
     "D1-cria-soma": {
@@ -185,40 +185,40 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 15746,
-      "tokens": 32072
+      "avgMs": 9292,
+      "tokens": 26961
     },
     "D2-corrige-contador": {
       "group": "D",
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 34240,
-      "tokens": 32625
+      "avgMs": 12009,
+      "tokens": 27590
     },
     "D3-cria-csv": {
       "group": "D",
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 37325,
-      "tokens": 33767
+      "avgMs": 16638,
+      "tokens": 28580
     },
     "D4-refatora-preservando": {
       "group": "D",
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 38792,
-      "tokens": 38076
+      "avgMs": 35610,
+      "tokens": 33442
     }
   },
   "totals": {
     "taskRuns": 78,
     "passes": 78,
     "rate": 1,
-    "avgMs": 5212,
-    "tokens": 136540,
+    "avgMs": 2958,
+    "tokens": 116573,
     "costUsd": 0
   }
 }

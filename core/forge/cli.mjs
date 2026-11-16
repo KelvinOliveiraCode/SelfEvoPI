@@ -20,6 +20,7 @@ import process from "node:process";
 import { detectGaps } from "./detect.mjs";
 import { runGate, decidePromotion } from "./gatekeeper.mjs";
 import { createEvolutionLoop } from "./loop.mjs";
+import { promoteArtifact } from "./promote.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
 const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
@@ -92,6 +93,29 @@ async function realRunEvals({ taskId, runs }) {
   return results;
 }
 
+/**
+ * Promoção real: copia o artefato para `.pi/harness/artifacts/`, faz o commit
+ * atômico e grava `last-known-good.json`.
+ *
+ * O `verify` que alimenta o checkpoint é o próprio laudo do gate: se o gate
+ * reprovou (regressão), não há estado verde a gravar. Evita que um artefato
+ * reprovado vire "último estado bom" por engano.
+ */
+async function realPromote({ artifactDir, report, request }) {
+  const taskId = request?.taskId ?? report?.taskId ?? "tarefa";
+  const gateOk = report?.regressed !== true && (report?.passes ?? 0) === (report?.runs ?? 0);
+  return promoteArtifact({
+    artifactDir,
+    taskId,
+    repoRoot: ROOT,
+    verify: async () => ({
+      ok: gateOk,
+      detail: `gate: ${report?.passes ?? 0}/${report?.runs ?? 0} execucoes, delta ${report?.deltaTokens ?? 0} tokens`,
+    }),
+    message: `evo(${taskId}): artefato aprovado pelo gate`,
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /* Comandos                                                            */
 /* ------------------------------------------------------------------ */
@@ -101,7 +125,7 @@ async function cmdDetect(args) {
     ledger: LEDGER,
     threshold: Number(args.flags.threshold ?? 3),
     maxGaps: Number(args.flags["max-gaps"] ?? 20),
-    tokenCeiling: Number(args.flags["token-ceiling"] ?? 8000),
+    tokenCeiling: Number(args.flags["token-ceiling"] ?? 0),
   });
   if (args.flags.json) {
     jsonLine({ ok: true, scanned: det.scanned, counts: det.counts, gaps: det.gaps });
@@ -127,6 +151,7 @@ async function cmdEvolve(args) {
   const runEvals = dryRun ? async () => [{ passed: true, tokens: 0 }] : (opts) => realRunEvals(opts);
   const loop = createEvolutionLoop({
     runEvals,
+    promote: realPromote,
     onEvent: args.flags.json ? null : (e) => text(`  · ${e.event}${e.reason ? ` (${e.reason})` : ""}`),
   });
 
