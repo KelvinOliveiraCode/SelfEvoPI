@@ -37,9 +37,13 @@ function resolvePi() {
 }
 
 /** Executa o PI e resume o stream JSON. */
-export async function runPi({ model, prompt, cwd, timeoutMs = 180_000, extraArgs = [] }) {
+export async function runPi({ model, prompt, cwd, timeoutMs = 180_000, extraArgs = [], approveProjectPackages = true }) {
   const { cmd, prefix } = resolvePi();
-  const args = [...prefix, "--model", model, "--mode", "json", "--print", ...extraArgs, prompt];
+  // `--approve` confia nos pacotes locais do projeto (.pi/settings.json). Sem ele as
+  // extensões instaladas no projeto não carregam e o overhead medido fica irreal.
+  const args = [...prefix, "--model", model, "--mode", "json"];
+  if (approveProjectPackages) args.push("--approve");
+  args.push("--print", ...extraArgs, prompt);
   const started = performance.now();
 
   const outPath = path.join(

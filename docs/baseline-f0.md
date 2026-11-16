@@ -81,10 +81,13 @@ Medido por `node scripts/measure-overhead.mjs` em 2026-11-15 (10 execuções, Wi
 | Métrica | Medido | Meta | Situação |
 |:---|:---|:---|:---|
 | Cold start (`pi --version`) | **405 ms** (mediana 396, mín 378, máx 456) | < 500 ms | ✓ |
-| Prompt do PI (entrada com cache) | **8.674 tokens** | — | linha de base |
+| Prompt do PI puro | **8.674 tokens** | — | linha de base |
+| Prompt com `pi-subagents` | **10.554 tokens** | — | +1.880 de overhead |
 | Prompt incremental do SelfEvoPI | — | < 1.500 tokens | pendente (não há extensão própria ainda) |
 
 A meta de 1.500 tokens do plano refere-se ao **incremento** que o SelfEvoPI adiciona — não ao prompt do PI, que já são ~8,7 mil. O número acima é a régua: tudo que o SelfEvoPI injetar entra **sobre** esses 8.674.
+
+> **Nota:** a medição só é honesta com `--approve`. Sem ele o PI ignora os pacotes locais do projeto (`.pi/settings.json`) e mede um harness vazio — foi assim que a primeira medição deu 8.674 mesmo com o `pi-subagents` instalado.
 
 ## Time-machine
 

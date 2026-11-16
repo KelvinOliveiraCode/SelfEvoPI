@@ -64,7 +64,7 @@ let totalTokens = null;
 let error = null;
 
 try {
-  const res = spawnSync(cmd, [...prefix, "--model", DEFAULT_MODEL, "--mode", "json", "--print", "responda apenas: ok"], {
+  const res = spawnSync(cmd, [...prefix, "--model", DEFAULT_MODEL, "--mode", "json", "--approve", "--print", "responda apenas: ok"], {
     cwd: ROOT,
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
