@@ -10,6 +10,7 @@
  * Determinístico, offline, sem rede.
  */
 import { execFile } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
@@ -22,6 +23,14 @@ if (!workdir) {
 }
 
 const cli = path.join(workdir, "cli.mjs");
+
+// Entrada surpresa: gerada em runtime, o modelo nunca a viu. Derrota lookup table.
+const SURPRESA = 'cor,tamanho\n"Azul, Marinho",M\n"Preto",G\n';
+const SURPRESA_ESPERADO = [
+  { cor: "Azul, Marinho", tamanho: "M" },
+  { cor: "Preto", tamanho: "G" },
+];
+await writeFile(path.join(workdir, "surpresa.csv"), SURPRESA, "utf8");
 
 /** Extrai um array JSON do stdout: array, array pretty-printed, ou JSONL. */
 function extractJsonArray(text) {
@@ -75,6 +84,11 @@ const casos = [
       { a: "1", b: "2" },
       { a: "3", b: "4" },
     ],
+  },
+  {
+    nome: "surpresa.csv (gerado em runtime, não visto pelo modelo)",
+    arquivo: "surpresa.csv",
+    esperado: SURPRESA_ESPERADO,
   },
 ];
 

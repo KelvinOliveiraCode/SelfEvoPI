@@ -8,8 +8,12 @@
  *   nome  : string, obrigatório
  *   idade : número inteiro, obrigatório, entre 0 e 120
  *   email : string, opcional
+ *
+ * Além dos fixtures, o checker gera arquivos surpresa em runtime (não vistos
+ * pelo modelo) para derrotar lookup table.
  */
 import { execFile } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
@@ -23,6 +27,11 @@ if (!workdir) {
 
 const cli = path.join(workdir, "cli.mjs");
 const problemas = [];
+
+// Entradas surpresa: geradas em runtime, o modelo nunca as viu.
+await writeFile(path.join(workdir, "surpresa_valido.json"), '{"nome":"Carlos","idade":45}', "utf8");
+await writeFile(path.join(workdir, "surpresa_faixa.json"), '{"nome":"Bea","idade":200}', "utf8");
+await writeFile(path.join(workdir, "surpresa_tipo.json"), '{"nome":false,"idade":10}', "utf8");
 
 async function runCli(arquivo) {
   try {
@@ -43,50 +52,52 @@ async function runCli(arquivo) {
 
 const has = (text, terms) => terms.some((t) => text.includes(t));
 
-// 1. válido: exit 0
-{
-  const r = await runCli("valido.json");
+async function expectValid(arquivo) {
+  const r = await runCli(arquivo);
   if (r.code !== 0) {
     const d = r.out.trim().split("\n")[0].slice(0, 160);
-    problemas.push(`valido.json: exit ${r.code}, esperado 0 | ${d}`);
+    problemas.push(`${arquivo}: exit ${r.code}, esperado 0 | ${d}`);
   }
 }
 
-// 2. faltando obrigatório: exit != 0 e cita "nome" (ou obrigatório/ausente)
-{
-  const r = await runCli("faltando.json");
+async function expectInvalid(arquivo, terms, label) {
+  const r = await runCli(arquivo);
   const low = r.out.toLowerCase();
-  if (r.code === 0) problemas.push("faltando.json: exit 0, esperado != 0");
-  else if (!has(low, ["nome", "obrigat", "required", "missing", "ausente", "faltando"])) {
-    problemas.push(`faltando.json: mensagem não identifica o campo "nome" => ${r.out.trim().slice(0, 160)}`);
+  if (r.code === 0) {
+    problemas.push(`${arquivo}: exit 0, esperado != 0`);
+    return;
+  }
+  if (!has(low, terms)) {
+    problemas.push(`${arquivo}: mensagem não identifica ${label} => ${r.out.trim().slice(0, 160)}`);
   }
 }
 
-// 3. tipo errado: exit != 0 e cita "nome" ou tipo/string
-{
-  const r = await runCli("tipo_errado.json");
-  const low = r.out.toLowerCase();
-  if (r.code === 0) problemas.push("tipo_errado.json: exit 0, esperado != 0");
-  else if (!has(low, ["nome", "tipo", "string", "texto", "deve ser"])) {
-    problemas.push(`tipo_errado.json: mensagem não identifica o tipo do campo "nome" => ${r.out.trim().slice(0, 160)}`);
-  }
-}
+// 1. válido: exit 0
+await expectValid("valido.json");
 
-// 4. fora da faixa: exit != 0 e cita "idade" ou faixa/0-120
-{
-  const r = await runCli("fora_faixa.json");
-  const low = r.out.toLowerCase();
-  if (r.code === 0) problemas.push("fora_faixa.json: exit 0, esperado != 0");
-  else if (!has(low, ["idade", "faixa", "range", "entre", "0", "120", "máx", "max"])) {
-    problemas.push(`fora_faixa.json: mensagem não identifica a faixa de "idade" => ${r.out.trim().slice(0, 160)}`);
-  }
-}
+// 2. faltando obrigatório
+await expectInvalid("faltando.json", ["nome", "obrigat", "required", "missing", "ausente", "faltando"], 'o campo "nome"');
+
+// 3. tipo errado
+await expectInvalid("tipo_errado.json", ["nome", "tipo", "string", "texto", "deve ser"], 'o tipo do campo "nome"');
+
+// 4. fora da faixa
+await expectInvalid("fora_faixa.json", ["idade", "faixa", "range", "entre", "0", "120", "máx", "max"], 'a faixa de "idade"');
+
+// 5. surpresa válida (runtime): exit 0
+await expectValid("surpresa_valido.json");
+
+// 6. surpresa fora de faixa (runtime)
+await expectInvalid("surpresa_faixa.json", ["idade", "faixa", "range", "entre", "0", "120", "máx", "max"], 'a faixa de "idade"');
+
+// 7. surpresa tipo errado (runtime)
+await expectInvalid("surpresa_tipo.json", ["nome", "tipo", "string", "texto", "deve ser"], 'o tipo do campo "nome"');
 
 if (problemas.length > 0) {
-  console.error("cli.mjs inválido:");
-  for (const p of problemas) console.error("  - " + p);
+  console.error(`cli.mjs inválido: ${problemas[0]}`);
+  for (let i = 1; i < problemas.length; i++) console.error("  - " + problemas[i]);
   process.exit(1);
 }
 
-console.log(JSON.stringify({ tokens: 0, metrics: { casos: 4 } }));
-console.error("ok: cli.mjs valida o schema e explica cada erro (obrigatório, tipo, faixa)");
+console.log(JSON.stringify({ tokens: 0, metrics: { casos: 7 } }));
+console.error("ok: cli.mjs valida o schema (inclusive entradas surpresa) e explica cada erro");

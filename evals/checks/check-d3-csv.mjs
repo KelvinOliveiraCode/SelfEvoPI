@@ -1,7 +1,8 @@
 /**
  * Grupo D (modelo real) — verifica o parser CSV que o PI deveria ter criado.
  * Importa parseCsv.mjs do workspace e cobre: campo com vírgula entre aspas,
- * aspas escapadas (""), e múltiplos campos entre aspas. Não confia na
+ * aspas escapadas (""), e múltiplos campos entre aspas, mais uma entrada
+ * surpresa que o modelo não viu (derrota lookup table). Não confia na
  * aparência: executa o código e compara a estrutura.
  */
 import path from "node:path";
@@ -46,6 +47,11 @@ const casos = [
     entrada: 'x,y,z\n"1,2",3,"4,5"',
     esperado: [["x", "y", "z"], ["1,2", "3", "4,5"]],
   },
+  {
+    nome: "surpresa (runtime, não vista pelo modelo)",
+    entrada: 'cidade,uf\n"São Paulo",SP\n"Recife",PE',
+    esperado: [["cidade", "uf"], ["São Paulo", "SP"], ["Recife", "PE"]],
+  },
 ];
 
 for (const caso of casos) {
@@ -81,10 +87,10 @@ for (const caso of casos) {
 }
 
 if (problems.length > 0) {
-  console.error("parseCsv.mjs inválido:");
-  for (const p of problems) console.error("  - " + p);
+  console.error(`parseCsv.mjs inválido: ${problems[0]}`);
+  for (let i = 1; i < problems.length; i++) console.error("  - " + problems[i]);
   process.exit(1);
 }
 
 console.log(JSON.stringify({ tokens: 0, metrics: { casos: casos.length } }));
-console.error("ok: parseCsv trata vírgula entre aspas, aspas escapadas e múltiplos campos");
+console.error("ok: parseCsv trata vírgula entre aspas, aspas escapadas, múltiplos campos e entrada surpresa");

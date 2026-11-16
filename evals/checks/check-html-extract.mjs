@@ -3,8 +3,12 @@
  * local (sem rede). O checker EXECUTA o artefato e compara o JSON extraído:
  * tabela -> array de objetos (th = chave), lista -> array de strings, e tags
  * internas são removidas (só o texto). Determinístico, offline, sem rede.
+ *
+ * Além dos fixtures, o checker gera um HTML surpresa em runtime (não visto pelo
+ * modelo) para derrotar lookup table.
  */
 import { execFile } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
@@ -17,6 +21,22 @@ if (!workdir) {
 }
 
 const cli = path.join(workdir, "cli.mjs");
+
+// HTML surpresa: gerado em runtime, o modelo nunca o viu.
+const SURPRESA_HTML = `<!DOCTYPE html><html><body>
+<table>
+  <thead><tr><th>cidade</th><th>uf</th></tr></thead>
+  <tbody>
+    <tr><td>São Paulo</td><td>SP</td></tr>
+    <tr><td>Recife</td><td>PE</td></tr>
+  </tbody>
+</table>
+</body></html>`;
+const SURPRESA_ESPERADO = [
+  { cidade: "São Paulo", uf: "SP" },
+  { cidade: "Recife", uf: "PE" },
+];
+await writeFile(path.join(workdir, "surpresa.html"), SURPRESA_HTML, "utf8");
 
 function extractJson(text) {
   const t = String(text ?? "").trim();
@@ -131,6 +151,12 @@ const casos = [
       { produto: "Mouse", valor: "R$ 50" },
     ],
   },
+  {
+    nome: "surpresa.html (gerado em runtime, não visto pelo modelo)",
+    arquivo: "surpresa.html",
+    tipo: "objetos",
+    esperado: SURPRESA_ESPERADO,
+  },
 ];
 
 for (const caso of casos) {
@@ -149,10 +175,10 @@ for (const caso of casos) {
 }
 
 if (problemas.length > 0) {
-  console.error("cli.mjs inválido:");
-  for (const p of problemas) console.error("  - " + p);
+  console.error(`cli.mjs inválido: ${problemas[0]}`);
+  for (let i = 1; i < problemas.length; i++) console.error("  - " + problemas[i]);
   process.exit(1);
 }
 
 console.log(JSON.stringify({ tokens: 0, metrics: { casos: casos.length } }));
-console.error("ok: cli.mjs extrai tabela/lista de HTML local e remove tags internas");
+console.error("ok: cli.mjs extrai tabela/lista de HTML local e remove tags internas (inclusive surpresa)");
