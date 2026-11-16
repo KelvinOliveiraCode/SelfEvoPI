@@ -200,3 +200,49 @@ test("loop: artefato é gerado em diretório real e verify real roda", async () 
   assert.ok(report.files.includes("cli.mjs"));
   await rm(out, { recursive: true, force: true });
 });
+
+test("loop: chooseKind escolhendo mcp-server produz server.mjs, nao cli.mjs", async () => {
+  const out = await tempDir();
+  // capabilities ["server"] -> chooseKind devolve mcp-server (unico que cobre).
+  const loop = createEvolutionLoop({
+    runEvals: async () => [{ passed: true, tokens: 10 }],
+    workRoot: out,
+    staticGate: async () => ({ decision: "allow" }),
+  });
+
+  const report = await loop.evolve({
+    gap: { kind: "tool-missing", taskId: "S", capability: "server" },
+    capabilities: ["server"],
+    inputs: { a: "primeiro", b: "segundo" },
+    outputs: { soma: "resultado" },
+    baseline: { S: { tokens: 10 } },
+    runs: 1,
+  });
+
+  assert.equal(report.kind, "mcp-server");
+  assert.ok(report.files.includes("server.mjs"), "deve gerar server.mjs");
+  assert.ok(!report.files.includes("cli.mjs"), "nao deve cair para cli.mjs");
+  await rm(out, { recursive: true, force: true });
+});
+
+test("loop: kind invalido falha com error honesto (sem fallback silencioso)", async () => {
+  const out = await tempDir();
+  const loop = createEvolutionLoop({
+    runEvals: async () => [{ passed: true, tokens: 10 }],
+    workRoot: out,
+    staticGate: async () => ({ decision: "allow" }),
+  });
+
+  // Um kind fora do contrato e recusado na montagem do request — nunca vira
+  // um artefato errado. O erro aparece como outcome "error" com motivo.
+  const report = await loop.evolve({
+    gap: { kind: "tool-missing", taskId: "U", capability: "server" },
+    forceKind: "kind-inexistente",
+    baseline: { U: { tokens: 10 } },
+    runs: 1,
+  });
+
+  assert.equal(report.outcome, "error");
+  assert.ok(report.reasons.some((r) => /kind.*inválido|inválido|esperado um de/.test(r)));
+  await rm(out, { recursive: true, force: true });
+});

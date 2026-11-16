@@ -22,6 +22,9 @@ import { createArtifactRequest, chooseKind } from "./contract.mjs";
 import { createGap, detectGaps } from "./detect.mjs";
 import { generateCli } from "./generate-cli.mjs";
 import { generateSkill } from "./generate-skill.mjs";
+import { generateMcpConfig } from "./generate-mcp-config.mjs";
+import { generateMcpServer } from "./generate-mcp-server.mjs";
+import { generateExtension } from "./generate-extension.mjs";
 import { runGate, decidePromotion } from "./gatekeeper.mjs";
 
 /* ------------------------------------------------------------------ */
@@ -47,10 +50,14 @@ const NEEDS_HUMAN_RULES = new Set([
 /* Defaults reais                                                      */
 /* ------------------------------------------------------------------ */
 
-/** Gera o artefato conforme o kind (dispatcher leve). */
+/** Gera o artefato conforme o kind (dispatcher dos cinco kinds reais). */
 async function defaultGenerate(request, outDir) {
-  if (request.kind === "cli") return generateCli(request, outDir);
+  if (request.kind === "mcp-config") return generateMcpConfig(request, outDir);
   if (request.kind === "skill") return generateSkill(request, outDir);
+  if (request.kind === "cli") return generateCli(request, outDir);
+  if (request.kind === "extension") return generateExtension(request, outDir);
+  if (request.kind === "mcp-server") return generateMcpServer(request, outDir);
+  // Sem gerador => erro honesto. Nunca gerar o artefato errado.
   throw new Error(`forge-loop: sem gerador para kind "${request.kind}"`);
 }
 
@@ -273,15 +280,15 @@ export function createEvolutionLoop(deps = {}) {
       report.taskId = gap.taskId ?? report.taskId;
       emit({ event: "gap", kind: gap.kind, taskId: gap.taskId, capability: gap.capability });
 
-      // 2. Escolhe o kind mais leve que atende.
+      // 2. Escolhe o kind mais leve que atende. Um kind pedido explicitamente
+      //    (input.kind vindo do CLI, ou input.forceKind) tem prioridade.
       const needed = input.capabilities ?? [gap.capability];
       const choice = typeof choose === "function" ? choose(needed) : { kind: "skill" };
-      const kind = input.forceKind ?? choice.kind ?? "skill";
-      // só existem geradores para skill e cli: se o escolhido não tem gerador,
-      // recorre ao mais leve que tenha (cli), sem inventar um gerador novo.
-      const finalKind = !input.forceKind && kind !== "skill" && kind !== "cli" ? "cli" : kind;
-      report.kind = finalKind;
-      emit({ event: "kind", kind: finalKind, covers: choice.covers ?? null });
+      const forced = input.forceKind ?? input.kind ?? null;
+      const kind = forced ?? choice.kind ?? "skill";
+      // Sem gerador => erro honesto no generate (nunca artefato errado).
+      report.kind = kind;
+      emit({ event: "kind", kind: kind, covers: choice.covers ?? null });
 
       // 3. Monta o request (usar o recebido, ou sintetizar do gap).
       let request = input.request;
@@ -297,7 +304,7 @@ export function createEvolutionLoop(deps = {}) {
             });
         request = createArtifactRequest({
           goal,
-          kind: finalKind,
+          kind: kind,
           inputs: input.inputs ?? {},
           outputs: input.outputs ?? {},
           forbidden: input.forbidden ?? ["acessar rede", "escrever fora do workspace"],
@@ -321,13 +328,18 @@ export function createEvolutionLoop(deps = {}) {
       emit({ event: "generated", kind, files: report.files });
 
       // 5. Gate estático: rede/credencial/fora do workspace => needs-human.
+      //    Varre o arquivo-fonte primário do artefato (um por kind).
+      const PRIMARY = {
+        "mcp-config": ".mcp.json",
+        skill: "SKILL.md",
+        cli: "cli.mjs",
+        extension: "index.mjs",
+        "mcp-server": "server.mjs",
+      };
       let staticDecision = null;
-      const target = gen.cliCommand || gen.verifyCommand;
-      if (typeof staticGate === "function" && target) {
-        const scriptPath = gen.cliCommand
-          ? gen.cliCommand.replace(/^node\s+/, "")
-          : null;
-        const fileToScan = scriptPath || artifactDir;
+      const primaryName = PRIMARY[request.kind] ?? null;
+      const fileToScan = primaryName ? join(artifactDir, primaryName) : null;
+      if (typeof staticGate === "function" && fileToScan) {
         try {
           const dec = await staticGate(fileToScan, artifactDir);
           if (dec && dec.decision) staticDecision = dec;

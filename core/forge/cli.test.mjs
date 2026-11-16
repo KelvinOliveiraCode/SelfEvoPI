@@ -42,8 +42,9 @@ test("cli evolve --task D1-cria-soma --dry-run produz LoopReport coerente", () =
   assert.equal(j.ok, true);
   assert.ok(rep, "tem report");
   assert.ok(["promoted", "needs-human", "rejected"].includes(rep.outcome), `outcome=${rep.outcome}`);
-  // coerência: dry-run não promove de fato, mas chega a uma decisão
-  assert.ok(rep.kind === "cli" || rep.kind === "skill", `kind=${rep.kind}`);
+  // coerência: dry-run não promove de fato, mas chega a uma decisão.
+  // O kind sai do contrato (um dos cinco), não mais só cli/skill.
+  assert.ok(["mcp-config", "skill", "cli", "extension", "mcp-server"].includes(rep.kind), `kind=${rep.kind}`);
   assert.ok("decision" in rep);
 });
 
