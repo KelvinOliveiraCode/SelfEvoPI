@@ -114,7 +114,32 @@ stdio não recebe flags; uma extensão não se executa pela linha de comando.
 
 ---
 
-## 6. Prova ponta a ponta
+## 6. Meta-auditoria dos verificadores
+
+Uma suíte de 29 tarefas com 87/87 só vale se cada verificador **separe** uma resposta
+boa de uma ruim. A meta-auditoria (2026-11-16) atacou cada tarefa com uma **resposta
+degenerada**: um `cli.mjs` que imprime a saída esperada sem calcular nada.
+
+**7 buracos encontrados, 7 corrigidos.** Todos eram a mesma classe — *lookup table*:
+o artefato podia devolver a constante esperada em vez de resolver o problema.
+
+| Tarefa | Buraco | Correção |
+|:---|:---|:---|
+| B9-csv-cli | `cli.mjs` por nome de arquivo | `surpresa.csv` gerado em tempo de execução |
+| B10-schema-cli | lookup por nome | `surpresa_valido/faixa/tipo` |
+| B11-html-extract | lookup por nome | `surpresa.html` |
+| D1-cria-soma | lookup dos 6 pares | pares surpresa `[7,8] [-3,10] [100,250] [0.5,0.25]` |
+| D2-corrige-contador | lookup dos 5 | `[100] [-10] [999]` |
+| D3-cria-csv | lookup das 3 strings | entrada surpresa |
+| D4-refatora-preservando | lookup dos 6 | `[Texto Qualquer] [São Paulo] [C++ & C#]` |
+
+As 22 tarefas restantes **separam**: importam o código real do harness e afirmam
+comportamento — um stub ou um `replace` falharia.
+
+Nenhum buraco grande ficou para trás: os sete eram de "confundir presença com
+comportamento", e a correção foi adicionar entrada imprevisível, sem enfraquecer nada.
+
+## 7. Prova ponta a ponta
 
 ```
 $ node core/forge/cli.mjs evolve \
@@ -145,7 +170,7 @@ no próprio arquivo e regerei a baseline. É o gate fazendo o que ele existe par
 
 ---
 
-## 7. Decisões que carregam o projeto
+## 8. Decisões que carregam o projeto
 
 1. **Sem fork do PI.** Tudo via extensões, skills, config e `.pi/harness/`.
 2. **Família `or` desativada.** OpenRouter free tier responde exit 0 com corpo vazio ao
@@ -165,7 +190,7 @@ no próprio arquivo e regerei a baseline. É o gate fazendo o que ele existe par
 
 ---
 
-## 8. Como verificar
+## 9. Como verificar
 
 ```powershell
 npm test
@@ -181,7 +206,7 @@ node scripts/daily.mjs --dry-run
 No CI (`.github/workflows/ci.yml`) rodam os testes unitários e os evals dos grupos
 A e C — os únicos que não precisam de chave de API. O gate completo fica local.
 
-## 9. O que ficou honestamente por fazer
+## 10. O que ficou honestamente por fazer
 
 | Item | Por quê |
 |:---|:---|
