@@ -187,6 +187,9 @@ export function createRuntime({
       // estado compartilhado herdado entre retomadas
       const initialState = state.shared ?? {};
 
+      // rótulos e kinds do grafo, para o estado persistido ser legível
+      const byId = new Map((graph.nodes ?? []).map((n) => [n.id, n]));
+
       const result = await createExecutor({
         graph,
         runNode,
@@ -197,8 +200,16 @@ export function createRuntime({
         // pausa cooperativa: só interrompe no topo do laço, entre nós
         shouldStop: () => pauseRequested,
         onNode: async (rec) => {
-          // checkpoint por nó: status, result/error e timestamp
-          const stamped = { ...rec, at: new Date().toISOString() };
+          // checkpoint por nó: status, result/error e timestamp.
+          // O rótulo vem do grafo: sem ele o estado persistido mostra o id cru,
+          // e um desktop leria "n1" em vez de "detectar lacuna".
+          const node = byId.get(rec.id);
+          const stamped = {
+            ...rec,
+            label: node?.label ?? rec.label ?? rec.id,
+            kind: node?.kind ?? rec.kind ?? "task",
+            at: new Date().toISOString(),
+          };
           if (!state.nodes) state.nodes = {};
           state.nodes[rec.id] = stamped;
           if (!state.order) state.order = [];
