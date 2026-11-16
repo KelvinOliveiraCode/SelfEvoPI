@@ -209,6 +209,21 @@ export async function runRefineCycle({ store, level = "project", apply = false, 
     return { ...base, dryRun: true, reverted: false, gate: null, applied: null };
   }
 
+  // Nada a aplicar: rodar o gate aqui custaria uma suíte inteira de evals para
+  // concluir o que já se sabe — que nada mudou. A rotina é diária; 70 s de
+  // modelo por dia a troco de nada é desperdício.
+  if (actionable.length === 0) {
+    return {
+      ...base,
+      dryRun: false,
+      reverted: false,
+      gate: null,
+      gateOk: true,
+      applied: { removed: 0 },
+      skipped: "nada a aplicar",
+    };
+  }
+
   // Estado anterior (para desfazer em caso de regressão).
   const before = store.query({ level, includeInvalid: true });
   const applied = applyDeltas(store, deltas, { level });
