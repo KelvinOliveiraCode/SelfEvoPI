@@ -17,8 +17,8 @@
 |:---|:---|:---|
 | **P** | Pesquisa e auditoria | ✓ concluída, tag `v0.0-research` |
 | **0** | Fundação Windows, Git, providers, evals | ✓ **concluída** |
-| **1** | CLI, bake-off, memória | em andamento — `pi-subagents` instalado e medido; memória implementada, integração em curso |
-| **2** | Núcleo de auto-evolução | parcial — contrato, gerador de skill e sandbox prontos |
+| **1** | CLI, bake-off, memória | em andamento — `pi-subagents` instalado e medido (+1.880 tok); memória integrada ao PI e medida (+48 tok/entrada); falta o veredito do `billion-context` |
+| **2** | Núcleo de auto-evolução | parcial — contrato, gerador de skill, gerador de CLI e sandbox prontos (171 testes) |
 | **3** | Grafo de execução | parcial — modelo e executor prontos |
 | **4** | Desktop Windows | não iniciada — base escolhida: **Pi-Harness** |
 | **5** | Evolução contínua | não iniciada |
@@ -45,7 +45,8 @@
 | Prompt com `pi-subagents` | **10.554 tokens** | idem |
 | Overhead do `pi-subagents` | **+1.880 tokens/turno** | idem (A4 mediu +1.808) |
 | Evals | **14 tarefas, 42/42** | `node evals/gate.mjs` |
-| Testes unitários | **148** em 6 arquivos | `node --test` |
+| Testes unitários | **171** em 7 arquivos | `node --test` |
+| Memória injetada | **~48 tokens** por entrada | medição em sessão real |
 | Providers ativos | **4** (`kilo1`–`kilo4`), 20 modelos | `scripts/check-providers.mjs` |
 | Custo por tarefa (grupo D) | US$ 0,00 (free tier) | ledger |
 
@@ -110,13 +111,13 @@ node core/router/cli.mjs --profile orchestrator
 
 ## 9. Pendências imediatas
 
-1. **Agentes em campo (3):** A7 integra memória ao PI · A2 testa `billion-context` · A5 gera CLI no Forge.
-2. **Integrar `core/memory/`** ao ciclo do PI — existe e é testado, mas o harness não chama.
+1. **Agentes em campo (1):** A2 testa `billion-context`. (A7 concluiu a integração da memória; A5 concluiu o gerador de CLI.)
+2. **~~Integrar `core/memory/`~~** ✓ feito — `core/memory/extension.mjs`, 15 testes, carrega no PI real.
 3. **Testar `billion-context`** — só manter se preservar acurácia.
-4. **Medir o incremento do prompt** quando houver extensão própria (meta < 1.500 tokens).
-5. **Fase 1 completa:** CLI útil + memória persistente + extensões carregando sem erro.
+4. **Medir o incremento do prompt** quando houver extensão própria (meta < 1.500 tokens). O incremento autoral atual é a memória: ~48 tokens por entrada.
+5. **Fase 1 completa:** falta só o veredito da compressão.
 6. **Fase 2:** ligar as peças do Forge (detecção → spec → geração → sandbox → gatekeeper → rollback) num loop único.
-7. **Lacunas de design registradas:** (a) gate do A6 bloqueia `child-process` e o `verify.mjs` do A5 usa `spawnSync`; (b) linhas corrompidas de JSONL nunca saem do store.
+7. **Lacunas de design registradas:** (a) gate do A6 bloqueia `child-process` e o `verify.mjs` do A5 usa `spawnSync` — todo artefato gerado seria barrado pelo próprio sandbox; (b) linhas corrompidas de JSONL nunca saem do store.
 
 ## 10. Áreas protegidas
 
