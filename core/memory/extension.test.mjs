@@ -9,6 +9,10 @@ import {
   buildMemoryBlock,
   createMemoryController,
   estimateTokens,
+  formatFindResults,
+  extractArtifactPath,
+  truncateText,
+  FIND_LIMIT,
   DEFAULT_MAX_TOKENS,
 } from "./extension.mjs";
 
@@ -203,4 +207,231 @@ test("fluxo: carregar → adicionar → promotes → recarregar reflete tudo", (
 
 test("DEFAULT_MAX_TOKENS é 400", () => {
   assert.equal(DEFAULT_MAX_TOKENS, 400);
+});
+
+/* --------------------------- /mem find -------------------------------- */
+
+test("extractArtifactPath extrai o caminho do texto da skill", () => {
+  assert.equal(
+    extractArtifactPath("soma dois números — artefato em `skills/soma/cli.mjs` (gerado da lacuna X)"),
+    "skills/soma/cli.mjs"
+  );
+  assert.equal(extractArtifactPath("fato sem caminho"), null);
+});
+
+test("truncateText corta texto longo preservando começo e fim", () => {
+  const long = "a".repeat(50) + "MEIO" + "b".repeat(50);
+  const t = truncateText(long, 20);
+  assert.ok(t.length <= 20, `tamanho ${t.length} > 20`);
+  assert.ok(t.includes("…"));
+  assert.ok(t.startsWith("a"));
+  assert.ok(t.endsWith("b"));
+});
+
+test("formatFindResults produz uma linha por resultado, com nível e id", () => {
+  const res = {
+    results: [
+      { level: "skills", id: "abc", text: "soma dois números — artefato em `skills/soma/cli.mjs`", score: 4 },
+      { level: "project", id: "def", text: "fato sobre soma", score: 2 },
+    ],
+  };
+  const { lines, count, shown } = formatFindResults(res);
+  assert.equal(count, 2);
+  assert.equal(shown, 2);
+  assert.ok(lines[0].startsWith("- [skills] abc"));
+  assert.match(lines[0], /skills\/soma\/cli\.mjs/);
+  assert.ok(lines[1].startsWith("- [project] def"));
+});
+
+test("formatFindResults respeita o teto de linhas (limit)", () => {
+  const results = Array.from({ length: 20 }, (_, i) => ({
+    level: "skills",
+    id: `id${i}`,
+    text: `capacidade ${i}`,
+    score: 1,
+  }));
+  const { lines, count, shown, truncated } = formatFindResults({ results }, { limit: 5 });
+  assert.equal(count, 20);
+  assert.equal(shown, 5);
+  assert.equal(lines.length, 5);
+  assert.equal(truncated, true);
+});
+
+test("formatFindResults lida com lista vazia sem quebrar", () => {
+  const { lines, count, shown } = formatFindResults({ results: [] });
+  assert.equal(count, 0);
+  assert.equal(lines.length, 0);
+  assert.equal(shown, 0);
+});
+
+test("controller.find encontra o que foi gravado (skills)", () => {
+  const { root, store } = tempStore();
+  try {
+    store.append("skills", {
+      text: "soma dois números — artefato em `skills/soma/cli.mjs`",
+      tags: ["artefato", "cli", "tarefa:D1"],
+      source: "evo",
+    });
+    const ctrl = createMemoryController({ store });
+    const { count, lines } = ctrl.find("soma");
+    assert.equal(count, 1);
+    assert.match(lines[0], /skills\/soma\/cli\.mjs/);
+    assert.match(lines[0], /soma/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("controller.find com termo inexistente devolve nada encontrado", () => {
+  const { root, store } = tempStore();
+  try {
+    store.append("skills", { text: "soma dois números", tags: ["artefato"] });
+    const ctrl = createMemoryController({ store });
+    const { count, lines } = ctrl.find("fotossíntese quântica");
+    assert.equal(count, 0);
+    assert.equal(lines.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("controller.find acha também no nível project", () => {
+  const { root, store } = tempStore();
+  try {
+    store.append("project", { text: "convenção: sempre validar entrada", tags: ["convencao"] });
+    const ctrl = createMemoryController({ store });
+    const { count } = ctrl.find("validar");
+    assert.ok(count >= 1, "deve achar no project");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("controller.find respeita o teto de resultados (FIND_LIMIT)", () => {
+  const { root, store } = tempStore();
+  try {
+    for (let i = 0; i < 15; i++) {
+      store.append("skills", { text: `capacidade de soma ${i}`, tags: ["soma"] });
+    }
+    const ctrl = createMemoryController({ store });
+    const { lines, count, shown, truncated } = ctrl.find("soma");
+    assert.equal(count, 15);
+    assert.equal(shown, FIND_LIMIT);
+    assert.equal(lines.length, FIND_LIMIT);
+    assert.equal(truncated, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/* ------------- handler /mem: find, listar (regressão) e vazio --------- */
+
+/** Monta um `pi` mock que captura o handler de `mem` e as notificações. */
+async function memHarness() {
+  const { default: memoryExtension } = await import("./extension.mjs");
+  const commands = {};
+  const pi = {
+    on: () => {},
+    registerCommand: (name, def) => {
+      commands[name] = def;
+    },
+    getFlag: () => undefined,
+  };
+  memoryExtension(pi);
+  return {
+    handler: commands.mem.handler,
+    run: async (args, ctx) => {
+      const notes = [];
+      ctx = ctx ?? { ui: { notify: (msg, kind) => notes.push({ msg, kind }) } };
+      await commands.mem.handler(args, ctx);
+      return notes;
+    },
+  };
+}
+
+test("/mem sem argumento continua listando tudo (regressão)", async () => {
+  const { root, store } = tempStore();
+  const prev = process.env.SELFEOPI_MEMORY_DIR;
+  process.env.SELFEOPI_MEMORY_DIR = root;
+  try {
+    store.append("project", { text: "fato um", tags: [] });
+    store.append("project", { text: "fato dois", tags: [] });
+    const { run } = await memHarness();
+    const notes = await run("");
+    const joined = notes.map((n) => n.msg).join("\n");
+    assert.match(joined, /Memória do projeto \(2\)/);
+    assert.match(joined, /fato um/);
+    assert.match(joined, /fato dois/);
+  } finally {
+    if (prev === undefined) delete process.env.SELFEOPI_MEMORY_DIR;
+    else process.env.SELFEOPI_MEMORY_DIR = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("/mem find pelo handler encontra a capacidade gravada", async () => {
+  const { root, store } = tempStore();
+  const prev = process.env.SELFEOPI_MEMORY_DIR;
+  process.env.SELFEOPI_MEMORY_DIR = root;
+  try {
+    store.append("skills", {
+      text: "soma dois números — artefato em `skills/soma/cli.mjs`",
+      tags: ["artefato", "cli"],
+      source: "evo",
+    });
+    const { run } = await memHarness();
+    const notes = await run("find soma");
+    const joined = notes.map((n) => n.msg).join("\n");
+    assert.match(joined, /Busca: "soma"/);
+    assert.match(joined, /skills\/soma\/cli\.mjs/);
+  } finally {
+    if (prev === undefined) delete process.env.SELFEOPI_MEMORY_DIR;
+    else process.env.SELFEOPI_MEMORY_DIR = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("/mem find com termo inexistente diz 'nada encontrado' sem quebrar", async () => {
+  const { root, store } = tempStore();
+  const prev = process.env.SELFEOPI_MEMORY_DIR;
+  process.env.SELFEOPI_MEMORY_DIR = root;
+  try {
+    store.append("skills", { text: "soma dois números", tags: ["artefato"] });
+    const { run } = await memHarness();
+    const notes = await run("find naoexiste");
+    const joined = notes.map((n) => n.msg).join("\n");
+    assert.match(joined, /nada encontrado/);
+  } finally {
+    if (prev === undefined) delete process.env.SELFEOPI_MEMORY_DIR;
+    else process.env.SELFEOPI_MEMORY_DIR = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("/mem find com teto de tokens: saída não estoura o orçamento", async () => {
+  const { root, store } = tempStore();
+  const prev = process.env.SELFEOPI_MEMORY_DIR;
+  const prevMax = process.env.SELFEOPI_MEM_TOKENS;
+  process.env.SELFEOPI_MEMORY_DIR = root;
+  process.env.SELFEOPI_MEM_TOKENS = "200";
+  try {
+    for (let i = 0; i < 15; i++) {
+      store.append("skills", { text: `capacidade de soma numero ${i} com texto longo`, tags: ["soma"] });
+    }
+    const { run } = await memHarness();
+    const notes = await run("find soma");
+    const joined = notes.map((n) => n.msg).join("\n");
+    // No máximo FIND_LIMIT (10) linhas, e cada linha cortada em FIND_TEXT_CHARS.
+    const bodyLines = joined.split("\n").filter((l) => l.startsWith("- ["));
+    assert.ok(bodyLines.length <= FIND_LIMIT, `${bodyLines.length} linhas > ${FIND_LIMIT}`);
+    for (const l of bodyLines) {
+      assert.ok(l.length <= 200, `linha longa demais: ${l.length}`);
+    }
+  } finally {
+    if (prev === undefined) delete process.env.SELFEOPI_MEMORY_DIR;
+    else process.env.SELFEOPI_MEMORY_DIR = prev;
+    if (prevMax === undefined) delete process.env.SELFEOPI_MEM_TOKENS;
+    else process.env.SELFEOPI_MEM_TOKENS = prevMax;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

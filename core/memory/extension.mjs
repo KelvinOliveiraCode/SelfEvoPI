@@ -17,8 +17,15 @@
 
 import { join } from "node:path";
 import { openStore } from "./store.mjs";
+import { searchCapabilities } from "./search.mjs";
 
 export const DEFAULT_MAX_TOKENS = 400;
+
+/** Teto de resultados do `/mem find` (bloco de contexto: curto). */
+export const FIND_LIMIT = 10;
+
+/** Tamanho máximo de texto por linha no `/mem find`. */
+export const FIND_TEXT_CHARS = 90;
 
 /** Estimativa de tokens (≈ 4 caracteres por token). Determinística. */
 export function estimateTokens(text) {
@@ -60,6 +67,54 @@ export function buildMemoryBlock(entries, { maxTokens = DEFAULT_MAX_TOKENS, head
   const body = lines.length > 0 ? lines.join("\n") : "(sem memória de projeto)";
   const block = `${header}\n${body}`;
   return { block, usedTokens: used, truncated, count: lines.length };
+}
+
+/* ------------------------------------------------------------------ */
+/* Busca de capacidades (formatação compacta)                          */
+/* ------------------------------------------------------------------ */
+
+/** Extrai o caminho do artefato do texto (`artefato em \`<rel>\``), quando houver. */
+export function extractArtifactPath(text) {
+  const m = String(text ?? "").match(/artefato em `([^`]+)`/);
+  return m ? m[1] : null;
+}
+
+/** Corta texto preservando começo e fim, para caber em uma linha. */
+export function truncateText(text, maxChars = FIND_TEXT_CHARS) {
+  const t = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (t.length <= maxChars) return t;
+  const head = Math.ceil((maxChars - 1) / 2);
+  const tail = Math.floor((maxChars - 1) / 2);
+  return `${t.slice(0, head)}…${t.slice(t.length - tail)}`;
+}
+
+/**
+ * Formata os resultados de `searchCapabilities` em linhas compactas.
+ * Uma linha por resultado: `- [nível] id — texto (caminho)`.
+ *
+ * @param {object} res  retorno de searchCapabilities
+ * @param {{ limit?: number, maxChars?: number }} opts
+ * @returns {{ lines: string[], count: number, shown: number, truncated: boolean }}
+ */
+export function formatFindResults(res, { limit = FIND_LIMIT, maxChars = FIND_TEXT_CHARS } = {}) {
+  const results = Array.isArray(res?.results) ? res.results : [];
+  const cap = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : FIND_LIMIT;
+  // `count` vem cheio do searchCapabilities (antes do slice); `results` já pode
+  // vir limitado. Preferimos o count real para saber quantos ficaram de fora.
+  const total = Number.isFinite(res?.count) ? res.count : results.length;
+  const shown = results.slice(0, cap);
+  const lines = shown.map((r) => {
+    const path = extractArtifactPath(r.text);
+    const text = truncateText(r.text, maxChars);
+    const where = path ? ` → \`${path}\`` : "";
+    return `- [${r.level}] ${r.id} — ${text}${where}`;
+  });
+  return {
+    lines,
+    count: total,
+    shown: shown.length,
+    truncated: total > shown.length,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -111,6 +166,19 @@ export function createMemoryController({ store, maxTokens = DEFAULT_MAX_TOKENS }
     promote(id, from = "project", to = "skills") {
       return store.promote(id, from, to);
     },
+
+    /**
+     * Busca capacidades por termo (texto + tags) usando searchCapabilities.
+     * Procura em `skills` e `project` por padrão. Devolve resultados já formatados
+     * para o contexto (uma linha cada, no máximo `limit`).
+     * @param {string} query
+     * @param {{ limit?: number }} opts
+     */
+    find(query, { limit = FIND_LIMIT } = {}) {
+      // Busca com folga para conhecer o total real, depois formata cortando em `limit`.
+      const res = searchCapabilities(store, query, { levels: ["skills", "project"], limit: Number.MAX_SAFE_INTEGER });
+      return formatFindResults(res, { limit });
+    },
   };
 }
 
@@ -125,7 +193,7 @@ export function createMemoryController({ store, maxTokens = DEFAULT_MAX_TOKENS }
  *  - session_start      : carrega fatos do projeto, monta o bloco e avisa o usuário
  *  - before_agent_start : injeta o bloco como mensagem de contexto (dentro do teto)
  *  - session_shutdown   : confirma a persistência das entradas novas
- *  - comando /mem       : listar | add <texto> | promote <id>
+ *  - comando /mem       : listar | find <termo> | add <texto> | promote <id>
  */
 export default function memoryExtension(pi) {
   if (!pi || typeof pi.on !== "function" || typeof pi.registerCommand !== "function") {
@@ -204,7 +272,7 @@ export default function memoryExtension(pi) {
   });
 
   pi.registerCommand("mem", {
-    description: "Memória do SelfEvoPI: /mem | /mem add <texto> | /mem promote <id>",
+    description: "Memória do SelfEvoPI: /mem | /mem find <termo> | /mem add <texto> | /mem promote <id>",
     handler: async (args, ctx) => {
       const ctrl = ensure(ctx);
       const raw = String(args ?? "").trim();
@@ -217,6 +285,26 @@ export default function memoryExtension(pi) {
         }
         const lines = entries.map((e) => `${e.id}\t${e.text}`);
         ctx?.ui?.notify?.(`Memória do projeto (${entries.length}):\n${lines.join("\n")}`, "info");
+        return;
+      }
+
+      if (raw.startsWith("find ")) {
+        const query = raw.slice(5).trim();
+        if (query === "") {
+          ctx?.ui?.notify?.("Uso: /mem find <termo>", "info");
+          return;
+        }
+        try {
+          const { lines, count, shown, truncated } = ctrl.find(query);
+          if (count === 0) {
+            ctx?.ui?.notify?.(`Busca: "${query}" — nada encontrado.`, "info");
+            return;
+          }
+          const more = truncated ? `\n(mais ${count - shown} resultado(s) não exibido(s))` : "";
+          ctx?.ui?.notify?.(`Busca: "${query}" — ${count} resultado(s):\n${lines.join("\n")}${more}`, "info");
+        } catch (err) {
+          ctx?.ui?.notify?.(`Memória: ${err.message}`, "error");
+        }
         return;
       }
 
@@ -247,7 +335,7 @@ export default function memoryExtension(pi) {
         return;
       }
 
-      ctx?.ui?.notify?.("Uso: /mem | /mem add <texto> | /mem promote <id>", "info");
+      ctx?.ui?.notify?.("Uso: /mem | /mem find <termo> | /mem add <texto> | /mem promote <id>", "info");
     },
   });
 }
