@@ -1,138 +1,105 @@
 # Handoff do Orquestrador — estado completo
 
-> **Propósito:** este arquivo é a memória durável da sessão. Se o contexto for compactado, é por aqui que se retoma.
-> **Atualizado:** 2026-11-15
+> **Propósito:** memória durável da sessão. Se o contexto for compactado, é por aqui que se retoma.
+> **Atualizado:** 2026-11-16
 > **Repositório:** `C:\Users\Kelvin\Desktop\SelfEvoPI` · GitHub privado `KelvinOliveiraCode/SelfEvoPI`
-> **HEAD:** `f80ed0a` em `main` e `dev`
+> **HEAD:** `04602e8` em `main`, `dev` e nas 4 tags de fase
 
 ---
 
-## 1. O projeto em uma frase
+## 1. Estado: o projeto está completo
 
-**SelfEvoPI** é um harness de agente de código ultraleve, rápido, econômico em contexto e **auto-evolutivo**, construído **sobre** o PI Coding Agent (`earendil-works/pi`) — sem fork. Ele acrescenta roteador multi-provider, suíte de evals determinística, gatekeeper e um núcleo que detecta lacunas, gera artefatos e só promove o que não causa regressão.
+Todas as fases (P, 0, 1, 2, 3, 4, 5) foram entregues e verificadas. O estado
+autoritativo está em **`docs/estado.md`** — este handoff é o atalho para retomar.
 
-## 2. Estado das fases
-
-| Fase | Nome | Estado |
+| Fase | Estado | Tag |
 |:---|:---|:---|
-| **P** | Pesquisa e auditoria | ✓ concluída, tag `v0.0-research` |
-| **0** | Fundação Windows, Git, providers, evals | ✓ **concluída** |
-| **1** | CLI, bake-off, memória | em andamento — `pi-subagents` instalado e medido (+1.880 tok); memória integrada ao PI e medida (+48 tok/entrada); falta o veredito do `billion-context` |
-| **2** | Núcleo de auto-evolução | parcial — contrato, gerador de skill, gerador de CLI e sandbox prontos (171 testes) |
-| **3** | Grafo de execução | parcial — modelo e executor prontos |
-| **4** | Desktop Windows | não iniciada — base escolhida: **Pi-Harness** |
-| **5** | Evolução contínua | não iniciada |
+| P — pesquisa | ✓ | `v0.0-research` |
+| 0 — fundação | ✓ | `v0.1-foundation` |
+| 1 — CLI, bake-off, memória | ✓ | `v0.2-cli` |
+| 2 — núcleo de auto-evolução | ✓ | `v0.3-self-evo` |
+| 3 — grafo de execução | ✓ | `v0.4-graph` |
+| 4 — desktop | ✓ | `v0.5-desktop` |
+| 5 — evolução contínua | ✓ | — |
 
-## 3. Arquitetura (8 camadas)
+## 2. Números finais (medidos)
 
-| Camada | Módulo | Origem | Estado |
-|:---|:---|:---|:---|
-| 0. Base | PI Coding Agent 1.5.2 | upstream, sem fork | ✓ |
-| 1. Essenciais | `pi-mcp-adapter`, `pi-web-access`, `billion-context` | comunidade | parcial — só `pi-subagents` instalado |
-| 2. Roteador | `core/router/` | **autoral** | ✓ 26 testes |
-| 3. Orquestração | `pi-subagents` 0.88.1 | comunidade | ✓ instalado no projeto |
-| 4. Núcleo Evolutivo | `core/forge/` + `core/sandbox/` | **autoral** | parcial |
-| 5. Evals | `evals/` + ledger JSONL | **autoral** | ✓ 14 tarefas, gate aprovado |
-| 6. Memória | `core/memory/` + `.pi/harness/` | **autoral** | ✓ implementada, ✗ não integrada |
-| 7. Grafo/Desktop | `core/graph/` + Pi-Harness | autoral + comunidade | parcial |
+| Métrica | Valor |
+|:---|:---|
+| Cold start | 433 ms (mín 399) — meta < 500 |
+| Prompt do PI puro | 8.684 tok |
+| Incremento do SelfEvoPI | **+501 tok** — meta < 1.500 |
+| `pi-subagents` | +1.654 tok, sob demanda |
+| Evals | 26 tarefas, **78/78 (100%)** |
+| Tokens da suíte | 117.758 |
+| Testes unitários | **280** |
+| Custo | US$ 0,00 |
 
-## 4. Números que importam
+## 3. O que foi construído nesta rodada
 
-| Métrica | Valor | Origem |
-|:---|:---|:---|
-| Cold start do PI | **405 ms** (mín 378, máx 456) | `scripts/measure-overhead.mjs` |
-| Prompt do PI puro | **8.674 tokens** | idem |
-| Prompt com `pi-subagents` | **10.554 tokens** | idem |
-| Overhead do `pi-subagents` | **+1.880 tokens/turno** | idem (A4 mediu +1.808) |
-| Evals | **14 tarefas, 42/42** | `node evals/gate.mjs` |
-| Testes unitários | **172** em 7 arquivos | `node --test` |
-| Tokens da suíte (com extensão) | **64.802** | gate |
-| Memória injetada | **~48 tokens** por entrada | medição em sessão real |
-| `pi-subagents` | **+1.650 tokens/tarefa**, acurácia inalterada | evals com e sem extensão |
-| Providers ativos | **4** (`kilo1`–`kilo4`), 20 modelos | `scripts/check-providers.mjs` |
-| Custo por tarefa (grupo D) | US$ 0,00 (free tier) | ledger |
+- **`core/forge/`** — `detect`, `contract`, `generate-cli`, `generate-skill`,
+  `generate-llm` (código real), `gatekeeper`, `promote`, `loop`, `cli`.
+- **`core/governance/`** — `rollback` (rollback verificado), `approval` (pausa humana).
+- **`core/graph/`** — `model`, `executor`, `runtime` (checkpoint/pausa/retomada), `panel` (ASCII + HTML).
+- **`scripts/`** — `pi-launch.mjs` (extensões sob demanda), `measure-selfevopi-overhead.mjs`,
+  `refine-loop.mjs`, `weekly-report.mjs`, `smoke-llm.mjs`.
+- **`evals/`** — 26 tarefas, gate com separação de regressão real × instabilidade de modelo.
 
-**Meta do plano:** prompt incremental do SelfEvoPI < 1.500 tokens — ainda não medida porque não há extensão própria.
+## 4. Decisões que carregam o projeto
 
-## 5. Decisões fechadas (com o porquê)
+1. **`pi-subagents` sob demanda.** 1.654 tok sozinhos estouravam o orçamento de 1.500.
+2. **Evidência fraca é pior que evidência nenhuma.** O smoke test vazio promoveu um
+   artefato com a interface errada; testes sintetizados de interface substituíram.
+3. **Detector não inventa lacuna.** Sem catálogo ou marcador, `tool-missing` não dispara.
+   Antes: 14 de 17 lacunas eram falsos positivos.
+4. **`verify.mjs` fora do sandbox, artefato dentro.** Exceção no gate seria explorável.
+5. **Família `or` desativada** (exit 0 com corpo vazio ao esgotar cota).
 
-1. **Sem fork do PI.** Tudo via extensões, skills e `.pi/harness/`.
-2. **Família `or` desativada.** OpenRouter free tier = 50 req/dia; ao esgotar responde **exit 0, corpo vazio, zero token**. `DISABLED_FAMILIES = ["or"]` em `router.mjs`. Reativar é remover da lista.
-3. **`pi-subagents` venceu o bake-off.** Medição reverteu a análise estática (que apontava `@arhen`). Custo por turno fala mais alto.
-4. **Memória com decaimento.** Sem poda, memória vira ruído (lição do Unharnessed).
-5. **Desktop: Pi-Harness.** Roda em Windows x64, cobre Fases 3 e 4, já traz checkpoints e worktrees. `pi-native-app` virou cliente web (0.2.2).
-6. **Unharnessed: aproveitar ideias, não o benchmark.** O site mostra "Placeholder data" no gráfico — 47/66 é afirmação não verificada.
-7. **Sandbox em 3 camadas.** Gate estático → Node Permission Model → Job Objects. Nenhum isolado basta.
+Detalhe com evidência: `docs/fase1/decisoes.md`.
 
-## 6. Armadilhas (não repetir)
+## 5. Armadilhas (não repetir)
 
-1. **`pi` é shim `.cmd` no Windows.** `execFile` não executa. Rodar `dist/bundle/cli.js` com `node`.
-2. **`--permission` não barra rede no Node 24.13.** `has("net")=false` e `fetch` retorna 200. Precisa de preload que sobrescreva `fetch`/`http`/`https`/`net`/`tls`/`dgram`.
-3. **Sem `--approve`, o PI ignora pacotes locais.** Medição de overhead dá 8.674 (vazio) em vez de 10.554. Passar `--approve` em toda invocação.
-4. **`icacls` com `%USERNAME%`.** Em processo de serviço vale `SYSTEM` e tranca o arquivo para o dono. Usar `whoami`.
-5. **Worktree velho = "regressão" fantasma.** O gate do A2 acusou D1 67%→0% só porque o worktree estava 29 commits atrás. Sincronizar antes de medir.
-6. **PowerShell engole acentos** ao ler UTF-8 sem `-Encoding UTF8`. Usar `read` ou `Get-Content -Encoding UTF8`.
-7. **O PI só lê `.pi/settings.json` no cwd e não sobe a árvore.** Evals em `os.tmpdir()` mediam o PI puro. Corrigido: workdir em `.pi/harness/tmp/` + extensões explícitas com `-e` (`projectExtensions()`).
-8. **`*/` dentro de comentário de bloco fecha o comentário.** Quebrou o gerador de CLI do A5 e a minha própria correção. Revisar sempre o código gerado com `node --check`.
+1. `pi` é shim `.cmd` no Windows — rodar `dist/bundle/cli.js` com `node`.
+2. `--permission` não barra rede no Node 24.13 — precisa de preload.
+3. Sem `--approve`, o PI ignora pacotes locais.
+4. `icacls` com `%USERNAME%` pode valer `SYSTEM` e trancar o arquivo (usar `whoami`).
+5. Worktree velho = "regressão" fantasma. Sincronizar antes de medir.
+6. PowerShell engole acentos sem `-Encoding UTF8`.
+7. O PI só lê `.pi/settings.json` no cwd e não sobe a árvore.
+8. **`*/` dentro de comentário de bloco fecha o comentário.** Quebrou o gerador de CLI
+   do A5, a minha correção, e o `generate-llm.mjs`. Sempre `node --check` no código gerado.
+9. **Template literal aninhado** em string que já é template: quebra em tempo de parse.
+10. **`node --check` não lê stdin** — precisa de arquivo.
 
-## 7. Equipe (8 subagentes Traycer)
+## 6. Pendências honestas (não bloqueiam o uso)
 
-| Agente | Provider | Lane | Área exclusiva |
-|:---|:---|:---|:---|
-| A1 | `kilo1` | fundação/coordenação | sou eu |
-| A2 | `kilo2` | evals | `evals/gate.mjs`, `evals/baseline.json`, `docs/baseline-f0.md` |
-| A3 | `kilo3` | roteador | `core/router/*`, `docs/fase0/router.md` |
-| A4 | `kilo4` | bake-off | `scripts/bakeoff*.mjs`, `docs/bakeoff-orquestracao.md` |
-| A5 | `or1` | forge | `core/forge/*`, `docs/fase2/forge.md` |
-| A6 | `or2` | sandbox | `core/sandbox/*`, `docs/fase2/sandbox.md` |
-| A7 | `or3` | memória | `core/memory/*`, `docs/fase2/memoria.md` |
-| A8 | `or4` | grafo/desktop | `core/graph/*`, `docs/fase3/grafo-desktop.md` |
+| Item | Onde |
+|:---|:---|
+| Geradores de `extension`, `mcp-server`, `mcp-config` | `core/forge/` |
+| Indexação semântica de skills (Voyager) | `core/forge/promote.mjs` |
+| Ponte `core/graph` ↔ Pi-Harness | `docs/fase4-desktop.md` |
+| Política de keep-alive do sandbox | `docs/fase2/sandbox.md` |
+| Grupo B com lacunas reais (hoje são estruturais) | `evals/tasks/` |
 
-**Atenção:** A5–A8 estão em contas `or` (OpenRouter), que o roteador não usa — mas os agentes em si funcionam (são o harness do Traycer, não o SelfEvoPI). Se um deles falhar com rate limit, remanejar para uma conta `kilo` com `traycer_configure_agent`.
-
-**Regra de trabalho:** nenhum código de subagente entra sem eu ler e rodar o comando de verificação. Já corrigi/completei trabalho deles várias vezes (teste faltante no A3, doc do A6, baseline do A2).
-
-## 8. Comandos essenciais
+## 7. Comandos essenciais
 
 ```powershell
-# qualidade
-node --test core/router/*.test.mjs core/forge/*.test.mjs core/memory/*.test.mjs core/graph/*.test.mjs core/sandbox/*.test.mjs
-node evals/run.mjs                 # suíte completa (grupos A/B/C/D)
-node evals/gate.mjs                # regressão (3 execuções, sai 1 se cair)
-node evals/report.mjs              # relatório do ledger
-
-# infra
-node scripts/check-providers.mjs   # 4 contas HTTP 200
-node scripts/measure-overhead.mjs  # cold start + prompt
-node scripts/checkpoint.mjs status|create <label>|restore <tag> --force|verify
-node scripts/agents-status.mjs     # estado dos 8 worktrees
-node scripts/verify-urls.mjs       # 33 URLs das fontes
-
-# roteador
-node core/router/cli.mjs --snapshot
-node core/router/cli.mjs --profile orchestrator
+node --test core/router/*.test.mjs core/forge/*.test.mjs core/memory/*.test.mjs core/graph/*.test.mjs core/governance/*.test.mjs core/sandbox/*.test.mjs scripts/refine-loop.test.mjs
+node evals/gate.mjs                                  # 78/78
+node scripts/measure-overhead.mjs --runs 10          # cold start
+node scripts/measure-selfevopi-overhead.mjs --runs 3 # orcamento de prompt
+node core/forge/cli.mjs detect --json
+node core/forge/cli.mjs status
+node core/forge/cli.mjs evolve --goal "..." --kind cli --inputs "a,b" --outputs "x" --llm
 ```
 
-## 9. Pendências imediatas
+## 8. Áreas protegidas
 
-1. **Agentes ociosos.** A7 (memória) e A5 (gerador de CLI) concluíram; A2 (compressão) entregou veredito DESCARTAR. Nenhum em campo agora.
-2. **Crescer a suíte para ~25 tarefas** que quebrem de verdade (hoje são 14, várias estruturais).
-3. **Medir o incremento do prompt do SelfEvoPI** (meta < 1.500 tokens). O incremento autoral atual é a memória: ~48 tokens por entrada.
-4. **Reavaliar `pi-subagents`** quando houver tarefas de delegação. Hoje custa +1.650 tokens/tarefa sem ganho de acurácia.
-5. **Fase 1 pode fechar** — falta só a decisão sobre crescer a suíte.
-6. **Fase 2:** ligar as peças do Forge num loop único (detecção → spec → geração → sandbox → gatekeeper → rollback).
-7. **Decisões registradas:** `docs/fase1/decisoes.md` (verify.mjs fora do sandbox, poda de linhas corrompidas, `or` desativado com gatilho, correção da medição de evals).
-
-## 10. Áreas protegidas
-
-- `evals/` — suíte e verificadores. Loop evolutivo não edita.
-- `core/governance/` — sandbox, permissões, git recovery.
+- `evals/` — suíte e verificadores. O loop evolutivo não edita.
+- `core/governance/` — rollback, aprovação, sandbox. Só A6.
 - `scripts/verify-urls.mjs` — gate de fontes.
 
-## 11. Estado do Git
+## 9. Equipe
 
-- `main`: produção, só recebe merge aprovado.
-- `dev`: integração.
-- `agent/A1..A8`: branches dos subagentes, worktrees em `.worktrees/A1..A8`.
-- Tags: `v0.0-research`, `ckpt/f0-baseline`, `ckpt/f0-overhead`.
-- `last-known-good.json` aponta para o último estado verde.
+A2 (evals), A5 (forge), A6 (sandbox/governança), A7 (memória/refine), A8 (grafo/desktop)
+entregaram e foram integrados. A1 sou eu. Todos os worktrees sincronizados em `04602e8`.
