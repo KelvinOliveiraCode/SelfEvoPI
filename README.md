@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/wordmark.svg" alt="SelfEvoPI" width="420">
+<img src="assets/wordmark-readme.svg" alt="SelfEvoPI" width="420">
 
 # SelfEvoPI
 
@@ -333,6 +333,18 @@ It binds to loopback only, reads nothing outside the repository, and executes no
 | [`docs/fase3/painel.md`](docs/fase3/painel.md) | graph runtime and panel |
 | [`docs/fase4-ponte.md`](docs/fase4-ponte.md) | the state bridge for a desktop host |
 | [`docs/research/inspiracoes.md`](docs/research/inspiracoes.md) | audit of 23 primary sources, 41 decisions |
+
+## Brand
+
+| Asset | Use |
+|:---|:---|
+| [`assets/wordmark-readme.svg`](assets/wordmark-readme.svg) | wordmark, tuned for both light and dark backgrounds |
+| [`assets/logo-readme.svg`](assets/logo-readme.svg) | icon, same |
+| [`assets/wordmark.svg`](assets/wordmark.svg) | original wordmark (dark ink) |
+| [`assets/logo.svg`](assets/logo.svg) | original icon (dark ink) |
+| [`assets/wordmark-circulo.svg`](assets/wordmark-circulo.svg) | circular lockup |
+
+The README variants exist because the originals use near-black ink (`#111`), which disappears against a dark background. Same geometry, mid-grey (`#6e7781`), legible on both.
 
 ## Project layout
 
