@@ -1,0 +1,128 @@
+{
+  "generatedAt": "2026-11-15T22:47:09.725Z",
+  "generator": "evals/gate.mjs --update",
+  "runs": 3,
+  "group": null,
+  "tasks": {
+    "A1-router-reviewer": {
+      "group": "A",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 104,
+      "tokens": 0
+    },
+    "A2-router-backoff": {
+      "group": "A",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 99,
+      "tokens": 0
+    },
+    "A3-circuit-breaker": {
+      "group": "A",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 98,
+      "tokens": 0
+    },
+    "A4-retry-policy": {
+      "group": "A",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 107,
+      "tokens": 0
+    },
+    "B1-providers-present": {
+      "group": "B",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 111,
+      "tokens": 0
+    },
+    "B2-models-schema": {
+      "group": "B",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 102,
+      "tokens": 0
+    },
+    "B3-import-idempotent": {
+      "group": "B",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 301,
+      "tokens": 0
+    },
+    "B4-import-rejects-missing": {
+      "group": "B",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 202,
+      "tokens": 0
+    },
+    "C1-gitignore-secrets": {
+      "group": "C",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 165,
+      "tokens": 0
+    },
+    "C2-no-secrets-tracked": {
+      "group": "C",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 204,
+      "tokens": 0
+    },
+    "C3-router-unit-tests": {
+      "group": "C",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 371,
+      "tokens": 0
+    },
+    "C4-docs-present": {
+      "group": "C",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 115,
+      "tokens": 0
+    },
+    "D1-cria-soma": {
+      "group": "D",
+      "runs": 3,
+      "passes": 2,
+      "rate": 0.6666666666666666,
+      "avgMs": 16432,
+      "tokens": 17088
+    },
+    "D2-corrige-contador": {
+      "group": "D",
+      "runs": 3,
+      "passes": 3,
+      "rate": 1,
+      "avgMs": 9927,
+      "tokens": 25401
+    }
+  },
+  "totals": {
+    "taskRuns": 42,
+    "passes": 41,
+    "rate": 0.9761904761904762,
+    "avgMs": 2024,
+    "tokens": 42489,
+    "costUsd": 0
+  }
+}
