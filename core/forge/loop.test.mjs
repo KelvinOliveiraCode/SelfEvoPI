@@ -179,7 +179,7 @@ test("loop: nenhuma lacuna detectada => rejected", async () => {
   await rm(out, { recursive: true, force: true });
 });
 
-test("loop: artefato é gerado em diretório real e verify real roda", async () => {
+test("loop: artefato e gerado em diretorio real e verify real roda", async () => {
   const out = await tempDir();
   // sem fake de verify: usa o verify.mjs gerado de verdade (node spawnSync)
   const loop = createEvolutionLoop({
@@ -194,9 +194,42 @@ test("loop: artefato é gerado em diretório real e verify real roda", async () 
     runs: 1,
   });
 
-  // o verify.mjs gerado executou de verdade e passou (smoke exit 0)
+  // o verify.mjs gerado executou de verdade e passou
   assert.equal(report.verify.ok, true);
-  // o diretório do artefato existiu e continha cli.mjs
-  assert.ok(report.files.includes("cli.mjs"));
+  // o diretório do artefato existiu e continha um artefato + verify
+  assert.ok(report.files.includes("verify.mjs"), `files=${JSON.stringify(report.files)}`);
+  assert.ok(report.files.some((f) => f.endsWith(".mjs")), "artefato executavel");
+  // sem capabilities estruturadas, o kind vem do SpecWriter (ou do minimo): skill.
+  // A lacuna em linguagem de gente nao e uma capability — era isso que fazia o
+  // chooseKind cair no caso degenerado.
+  assert.equal(report.kind, "skill", "sem capabilities estruturadas, o kind e skill");
+  assert.equal(report.spec?.basis, "heuristic", "sem modelo, o SpecWriter cai no minimo");
+  await rm(out, { recursive: true, force: true });
+});
+
+test("loop: kind sem gerador falha honestamente em vez de recair para cli", async () => {
+  const out = await tempDir();
+  const loop = createEvolutionLoop({
+    runEvals: async () => [{ passed: true, tokens: 10 }],
+    workRoot: out,
+    staticGate: async () => ({ decision: "allow" }),
+  });
+
+  const report = await loop.evolve({
+    gap: { kind: "tool-missing", taskId: "Y", capability: "mcp-server" },
+    request: {
+      goal: "servidor",
+      kind: "mcp-server",
+      inputs: {},
+      outputs: {},
+      forbidden: ["acessar rede"],
+      tests: [{ name: "smoke", command: "node -e \"process.exit(0)\"" }],
+    },
+    baseline: { Y: { tokens: 10 } },
+    runs: 1,
+  });
+
+  assert.equal(report.outcome, "error", "nao pode gerar o artefato errado");
+  assert.match(report.reasons.join(" "), /sem gerador para kind "mcp-server"/);
   await rm(out, { recursive: true, force: true });
 });

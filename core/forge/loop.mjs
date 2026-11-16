@@ -22,6 +22,7 @@ import { createArtifactRequest, chooseKind } from "./contract.mjs";
 import { createGap, detectGaps } from "./detect.mjs";
 import { generateCli } from "./generate-cli.mjs";
 import { generateSkill } from "./generate-skill.mjs";
+import { specifyGap } from "./specify.mjs";
 import { runGate, decidePromotion } from "./gatekeeper.mjs";
 
 /* ------------------------------------------------------------------ */
@@ -47,12 +48,38 @@ const NEEDS_HUMAN_RULES = new Set([
 /* Defaults reais                                                      */
 /* ------------------------------------------------------------------ */
 
-/** Gera o artefato conforme o kind (dispatcher leve). */
+/** Gera o artefato conforme o kind (dispatcher por módulo). */
 async function defaultGenerate(request, outDir) {
-  if (request.kind === "cli") return generateCli(request, outDir);
-  if (request.kind === "skill") return generateSkill(request, outDir);
-  throw new Error(`forge-loop: sem gerador para kind "${request.kind}"`);
+  const spec = GENERATOR_BY_KIND[request.kind];
+  if (!spec) {
+    throw new Error(
+      `forge-loop: sem gerador para kind "${request.kind}" (conhecidos: ${Object.keys(GENERATOR_BY_KIND).join(", ")})`,
+    );
+  }
+  const mod = await import(spec.module).catch((err) => {
+    const needsGenerators = Object.entries(GENERATOR_BY_KIND)
+      .filter(([, s]) => s.module === spec.module)
+      .map(([k]) => k);
+    throw new Error(
+      `forge-loop: sem gerador para kind "${request.kind}" ` +
+        `(${spec.module} ausente: ${err?.message ?? err})`,
+    );
+  });
+  const fn = mod[spec.exportName];
+  if (typeof fn !== "function") {
+    throw new Error(`forge-loop: ${spec.module} não exporta ${spec.exportName}`);
+  }
+  return fn(request, outDir);
 }
+
+/** Mapa kind -> módulo e exportação do gerador. */
+const GENERATOR_BY_KIND = {
+  cli: { module: "./generate-cli.mjs", exportName: "generateCli" },
+  skill: { module: "./generate-skill.mjs", exportName: "generateSkill" },
+  "mcp-config": { module: "./generate-mcp-config.mjs", exportName: "generateMcpConfig" },
+  "mcp-server": { module: "./generate-mcp-server.mjs", exportName: "generateMcpServer" },
+  extension: { module: "./generate-extension.mjs", exportName: "generateExtension" },
+};
 
 /** Roda a verificação do artefato FORA do sandbox (spawnSync). */
 async function defaultRunVerification(command) {
@@ -110,14 +137,36 @@ export function synthesizeTests(request, { cliPath = "cli.mjs" } = {}) {
     return [{ name: "interface", command: `node ${cliPath}`, expect: null }];
   }
 
-  const flags = inputs.map((k) => `--${k} 1`).join(" ");
+  // Entradas que são caminho de arquivo recebem um fixture real: passar "1"
+  // para um `--arquivo` faz um CLI honesto falhar por um motivo irrelevante
+  // (arquivo inexistente), e o artefato seria reprovado por azar.
+  //
+  // O comando usa aspas simples de propósito: ele vai para um shell, e aspas
+  // duplas aqui brigariam com as do próprio comando.
+  const FILEISH = /(arquivo|file|path|csv|html|json|input|entrada|dir|pasta)/i;
+  const fixtures = [];
+  const flags = [];
+
+  for (const k of inputs) {
+    if (FILEISH.test(k)) {
+      const name = `fixture-${k.replace(/[^a-z0-9_-]/gi, "")}.txt`;
+      fixtures.push(`require('fs').writeFileSync('${name}','a,b,c\\n1,2,3\\n4,5,6\\n')`);
+      flags.push(`--${k} ${name}`);
+    } else {
+      flags.push(`--${k} 1`);
+    }
+  }
+
   // a expect é um regex: exige que TODAS as chaves declaradas apareçam no JSON
   const expect = outputs.length > 0 ? outputs.map((o) => `"${o}"`).join(".*") : null;
+
+  const prelude = fixtures.length > 0 ? `node -e "${fixtures.join("; ")}" && ` : "";
+  const command = `${prelude}node ${cliPath} ${flags.join(" ")}`;
 
   return [
     {
       name: `interface (${inputs.map((k) => `--${k}`).join(" ")})`,
-      command: `node ${cliPath} ${flags}`,
+      command,
       expect,
     },
   ];
@@ -133,7 +182,8 @@ export function synthesizeTests(request, { cliPath = "cli.mjs" } = {}) {
  * @param {object} [deps]
  * @param {Function} [deps.detect]        default detectGaps
  * @param {Function} [deps.chooseKind]    default chooseKind (contract)
- * @param {Function} [deps.generate]      default dispatcher generateCli/generateSkill
+ * @param {Function} [deps.specify]       default specifyGap (SpecWriter da lacuna em contrato)
+ * @param {Function} [deps.generate]      default dispatcher por kind
  * @param {Function} [deps.runVerification] default spawnSync do verifyCommand
  * @param {Function} [deps.staticGate]    default evaluateFile (sandbox)
  * @param {Function} [deps.runGate]       default runGate (gatekeeper)
@@ -149,6 +199,7 @@ export function createEvolutionLoop(deps = {}) {
   const {
     detect = detectGaps,
     chooseKind: choose = chooseKind,
+    specify = specifyGap,
     generate = defaultGenerate,
     runVerification = defaultRunVerification,
     staticGate = defaultStaticGate,
@@ -273,39 +324,72 @@ export function createEvolutionLoop(deps = {}) {
       report.taskId = gap.taskId ?? report.taskId;
       emit({ event: "gap", kind: gap.kind, taskId: gap.taskId, capability: gap.capability });
 
-      // 2. Escolhe o kind mais leve que atende.
-      const needed = input.capabilities ?? [gap.capability];
-      const choice = typeof choose === "function" ? choose(needed) : { kind: "skill" };
-      const kind = input.forceKind ?? choice.kind ?? "skill";
-      // só existem geradores para skill e cli: se o escolhido não tem gerador,
-      // recorre ao mais leve que tenha (cli), sem inventar um gerador novo.
-      const finalKind = !input.forceKind && kind !== "skill" && kind !== "cli" ? "cli" : kind;
-      report.kind = finalKind;
-      emit({ event: "kind", kind: finalKind, covers: choice.covers ?? null });
+      // 2. Escolhe o kind mais leve que atende — mas só quando o operador deu
+      // capacidades estruturadas. Uma lacuna em linguagem de gente não é uma
+      // capability: passá-la crua fazia o chooseKind cair no caso degenerado.
+      const needed = Array.isArray(input.capabilities) && input.capabilities.length > 0
+        ? input.capabilities
+        : null;
+      const choice = needed && typeof choose === "function" ? choose(needed) : null;
+      const kind = input.forceKind ?? choice?.kind ?? "skill";
+      report.kind = kind;
+      emit({ event: "kind", kind, covers: choice?.covers ?? null, fallback: choice?.fallback ?? false });
 
-      // 3. Monta o request (usar o recebido, ou sintetizar do gap).
+      // 3. Especifica (SpecWriter do plano) e monta o request.
+      //
+      // Duas entradas possíveis:
+      //   a) o operador já deu request pronto       -> usa como está
+      //   b) temos uma lacuna e o SpecWriter extrai  -> contrato do modelo, com
+      //      as opções do operador por cima quando ele as deu
+      //
+      // O `finalKind` que recaía para cli foi removido: recair para o artefato
+      // errado é pior que falhar dizendo que não há gerador.
       let request = input.request;
       if (!request) {
-        const goal = gap.goal || gap.capability;
-        // Testes: os do operador, ou um teste de interface sintetizado.
-        // Nunca um smoke test vazio: evidência falsa é pior que evidência nenhuma.
+        let base = null;
+        if (typeof specify === "function") {
+          const spec = await specify({
+            gap,
+            context: input.context ?? null,
+            allowHeuristic: input.allowHeuristic !== false,
+          });
+          base = spec.request;
+          report.spec = { basis: spec.basis, notes: spec.notes ?? [] };
+          emit({ event: "spec", basis: spec.basis, kind: base.kind });
+        }
+
+        // sobreposições do operador (quando ele foi explícito).
+        // A hierarquia de artefatos (chooseKind) ganha do palpite do modelo: o plano
+        // manda preferir o mais leve que atenda, e o SpecWriter não sabe disso.
+        const opInputs = input.inputs && Object.keys(input.inputs).length > 0 ? input.inputs : base?.inputs;
+        const opOutputs = input.outputs && Object.keys(input.outputs).length > 0 ? input.outputs : base?.outputs;
+        const opKind = input.forceKind ?? choice?.kind ?? base?.kind ?? "skill";
+        const opGoal = gap.goal || gap.capability || base?.goal;
+
+        // Testes: os do operador, os do SpecWriter, ou um teste de interface
+        // sintetizado do contrato. Nunca um smoke test vazio.
+        //
+        // Quando o kind final é diferente do que o SpecWriter propôs, os testes dele
+        // não valem: um teste que procura SKILL.md não serve para um cli.mjs.
+        const baseKindMatches = base && base.kind === opKind;
         const tests = Array.isArray(input.tests) && input.tests.length > 0
           ? input.tests
-          : synthesizeTests({
-              inputs: input.inputs ?? {},
-              outputs: input.outputs ?? {},
-            });
+          : baseKindMatches && Array.isArray(base?.tests) && base.tests.length > 0
+            ? base.tests
+            : synthesizeTests({ inputs: opInputs ?? {}, outputs: opOutputs ?? {} });
+
         request = createArtifactRequest({
-          goal,
-          kind: finalKind,
-          inputs: input.inputs ?? {},
-          outputs: input.outputs ?? {},
-          forbidden: input.forbidden ?? ["acessar rede", "escrever fora do workspace"],
+          goal: opGoal,
+          kind: opKind,
+          inputs: opInputs ?? {},
+          outputs: opOutputs ?? {},
+          forbidden: input.forbidden ?? base?.forbidden ?? ["acessar rede", "escrever fora do workspace"],
           tests,
         });
         request.taskId = gap.taskId ?? null;
       }
       report.request = request;
+      report.kind = request.kind ?? report.kind;
 
       // 4. Gera em isolamento.
       let artifactDir = input.outDir;

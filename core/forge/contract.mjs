@@ -242,6 +242,24 @@ export function chooseKind(candidates) {
   });
 
   const best = ranked[0];
+
+  // Caso degenerado: nenhuma capacidade casa com nada. Escolher "o mais leve"
+  // aqui produziria um `mcp-config` para um pedido que não fala de MCP nenhum.
+  // Quando não há cobertura, o artefato honesto é a skill — a única que sempre
+  // pode ser produzida sem inventar interface.
+  if (best.covers.length === 0) {
+    const skill = ranked.find((r) => r.kind === "skill");
+    return {
+      kind: "skill",
+      covers: [],
+      missing: need,
+      ranked: ranked.map((r) => ({ kind: r.kind, covers: r.covers, missing: r.missing })),
+      fallback: true,
+      note: "nenhuma capacidade reconhecida; usando skill (sempre produzível)",
+      skill,
+    };
+  }
+
   return {
     kind: best.kind,
     covers: best.covers,

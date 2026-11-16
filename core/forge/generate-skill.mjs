@@ -98,39 +98,10 @@ ${renderList(request.tests.map((t) => `\`${t.name}\` — \`${t.command}\``))}
 /* verify.mjs                                                          */
 /* ------------------------------------------------------------------ */
 
-function renderVerify(request) {
-  // Os testes ficam embutidos: verify.mjs é autocontido e executável depois,
-  // sem depender do request original em memória.
-  const testsJson = JSON.stringify(request.tests, null, 2);
-  return `#!/usr/bin/env node
-/**
- * verify.mjs — verificação autogerada pelo Forge.
- * Roda cada teste do pedido e sai 0 só se todos passarem.
- */
-import { spawnSync } from "node:child_process";
-
-const tests = ${testsJson};
-
-let failed = 0;
-for (const t of tests) {
-  const r = spawnSync(t.command, { shell: true, encoding: "utf8" });
-  const ok = r.status === 0;
-  if (!ok) failed++;
-  console.log((ok ? "PASS " : "FAIL ") + t.name + "  (" + t.command + ")");
-  if (!ok) {
-    if (r.stdout && r.stdout.trim()) console.log("  stdout: " + r.stdout.trim());
-    if (r.stderr && r.stderr.trim()) console.log("  stderr: " + r.stderr.trim());
-    if (t.expect) console.log("  esperado: " + t.expect);
-  }
-}
-
-if (failed > 0) {
-  console.error("\\n" + failed + " de " + tests.length + " teste(s) falharam");
-  process.exit(1);
-}
-console.log("\\nTodos os " + tests.length + " teste(s) passaram");
-`;
-}
+// O verify.mjs é o mesmo dos outros geradores: um só renderizador, para que o
+// comportamento (rodar no diretório do artefato, casar `expect` na saída) não
+// possa divergir entre kinds. Antes havia duas cópias, e a daqui não tinha `cwd`.
+import { renderVerify } from "./generate-cli.mjs";
 
 /* ------------------------------------------------------------------ */
 /* generateSkill                                                       */

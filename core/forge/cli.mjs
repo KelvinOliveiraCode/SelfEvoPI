@@ -253,7 +253,7 @@ async function cmdEvolve(args) {
   const report = await loop.evolve({
     taskId: taskId === true ? null : taskId,
     goal,
-    kind: wantKind ?? undefined,
+    forceKind: wantKind ?? undefined,
     inputs: parseList(args.flags.inputs),
     outputs: parseList(args.flags.outputs),
     ledger: LEDGER,
@@ -278,7 +278,7 @@ async function cmdEvolve(args) {
     }
     if (report.decision) text(`gate: ${report.decision.promote ? "promover" : "reprovar"} ${report.decision.reasons.join("; ")}`);
     if (report.promoted?.path) text(`artefato: ${report.promoted.path}`);
-    if (onGenerateError) text(`gerador com modelo falhou (${onGenerateError.code}): caiu no template`);
+    if (onGenerateError) text(`gerador com modelo falhou (${onGenerateError.code}): ${onGenerateError.message}`);
   }
   return report.outcome === "rejected" || report.outcome === "error" ? 1 : 0;
 }
