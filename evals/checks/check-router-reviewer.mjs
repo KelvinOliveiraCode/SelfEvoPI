@@ -12,8 +12,9 @@ const { Router, PROFILES } = await import(pathToFileURL(path.join(ROOT, "core", 
 const providers = [
   { id: "kilo1", models: [{ id: "a", contextWindow: 400_000 }] },
   { id: "kilo2", models: [{ id: "a", contextWindow: 400_000 }] },
+  { id: "kilo3", models: [{ id: "a", contextWindow: 400_000 }] },
+  // família desativada: fica no fixture para provar que nunca é escolhida
   { id: "or1", models: [{ id: "b", contextWindow: 100_000 }] },
-  { id: "or2", models: [{ id: "b", contextWindow: 100_000 }] },
 ];
 
 const router = new Router({ providers, strategy: "roundRobin", rng: () => 0.3 });
@@ -40,8 +41,16 @@ const orch = router.pick("orchestrator");
 if (!(orch.model === "a")) failures.push(`orchestrator escolheu modelo pequeno: ${orch.model}`);
 
 // 4. exclusao e respeitada
-const forced = router.pick("reviewer", { exclude: ["kilo1", "kilo2"] });
-if (forced.provider.startsWith("kilo")) failures.push("exclusao ignorada");
+const forced = router.pick("reviewer", { exclude: ["kilo1"] });
+if (forced.provider === "kilo1") failures.push("exclusao ignorada: escolheu o excluido");
+
+// 5. familia desativada nunca e escolhida
+for (const profile of ["orchestrator", "worker", "reviewer"]) {
+  for (let i = 0; i < 8; i++) {
+    const p = router.pick(profile, { exclude: ["kilo1"] }).provider;
+    if (p.startsWith("or")) failures.push(`${profile} escolheu familia desativada: ${p}`);
+  }
+}
 
 if (failures.length > 0) {
   console.error("falhou:");

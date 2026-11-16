@@ -9,8 +9,12 @@ Arquivo: `core/router/router.mjs` (sem dependências). CLI: `core/router/cli.mjs
 | Perfil | Família preferida | Contexto mínimo | Regra |
 |:---|:---|:---:|:---|
 | `orchestrator` | `kilo` | 200k | planeja e coordena |
-| `worker` | `or` | 32k | implementa |
-| `reviewer` | `kilo` ou `or` | 32k | **nunca o provider do autor** |
+| `worker` | `kilo` | 32k | implementa |
+| `reviewer` | `kilo` | 32k | **nunca o provider do autor** |
+
+### Famílias desativadas
+
+`DISABLED_FAMILIES = ["or"]`. As contas `or1`–`or4` (OpenRouter, free tier, 50 req/dia) esgotam a cota e passam a responder exit 0 com corpo vazio. Como isso é uma falha silenciosa, nenhum perfil as seleciona — mesmo que estejam no `models.json`. Elas continuam lá (são chaves do usuário); basta remover `"or"` da lista para reativá-las.
 
 A regra do reviewer é o ponto central: quem revisa não pode ser a mesma conta que implementou. O chamador passa `exclude: [providerDoAutor]`.
 
@@ -111,7 +115,7 @@ const { result, attempts, providersTried } = await router.pickWithRetry(
 ```powershell
 node core/router/cli.mjs --snapshot
 node core/router/cli.mjs --profile orchestrator
-node core/router/cli.mjs --profile reviewer --exclude or1
+node core/router/cli.mjs --profile reviewer --exclude kilo1
 node core/router/cli.mjs --profile worker --min-context 100000
 ```
 

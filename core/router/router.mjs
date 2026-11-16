@@ -93,9 +93,19 @@ const PREFIX = /^(kilo|or)\d+$/;
  */
 export const PROFILES = {
   orchestrator: { prefer: ["kilo"], requireDifferentFrom: null, minContext: 200_000 },
-  worker: { prefer: ["or"], requireDifferentFrom: "orchestrator", minContext: 32_000 },
-  reviewer: { prefer: ["kilo", "or"], requireDifferentFrom: "worker", minContext: 32_000 },
+  worker: { prefer: ["kilo"], requireDifferentFrom: "orchestrator", minContext: 32_000 },
+  reviewer: { prefer: ["kilo"], requireDifferentFrom: "worker", minContext: 32_000 },
 };
+
+/**
+ * Famílias desativadas por política.
+ *
+ * As contas `or1`–`or4` (OpenRouter, free tier) esgotam a cota diária e passam a
+ * responder exit 0, corpo vazio e zero token — o que quebra tarefas de modelo real
+ * sem erro visível. Por isso nenhum perfil as seleciona. Elas continuam no
+ * models.json (são chaves do usuário), mas o roteador não as oferece.
+ */
+export const DISABLED_FAMILIES = Object.freeze(["or"]);
 
 /* ------------------------------------------------------------------ */
 /* Router                                                              */
@@ -161,9 +171,8 @@ export class Router {
     if (!(profile instanceof Object)) throw new Error("router: perfil invalido");
 
     let candidates = this.providers.filter((p) => !exclude.includes(p.id));
-    if (profile.requireDifferentFrom && exclude.length === 0) {
-      // caller precisa passar exclude explicitamente para garantir a regra
-    }
+    // Famílias desativadas por política (ex.: OpenRouter em free tier) nunca entram.
+    candidates = candidates.filter((p) => !DISABLED_FAMILIES.includes(p.family));
     if (profile.prefer?.length) {
       const preferred = candidates.filter((p) => profile.prefer.includes(p.family));
       if (preferred.length > 0) candidates = preferred;

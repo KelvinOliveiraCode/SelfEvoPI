@@ -9,9 +9,10 @@
 | Branches | `main` (estável) + `dev` (integração) | `git branch -v` |
 | Worktrees | `.worktrees/A1` … `A8` com branches `agent/A*` | `git worktree list` |
 | Repositório | privado, `KelvinOliveiraCode/SelfEvoPI` | `gh repo view` |
-| Providers | 8 contas, 48 modelos, todas respondendo | `node scripts/check-providers.mjs` |
+| Providers **ativos** | 4 contas (`kilo1`–`kilo4`), 20 modelos | `node scripts/check-providers.mjs` |
+| Providers desativados | `or1`–`or4` (OpenRouter, free tier) — ver abaixo | `DISABLED_FAMILIES` em `router.mjs` |
 
-## Os 8 providers
+## Os 4 providers ativos
 
 | Conta | Gateway | Modelos | Chave |
 |:---|:---|:---:|:---|
@@ -19,12 +20,12 @@
 | `kilo2` | `ai-gateway.kilo.ai/api/v1` | 5 | presente |
 | `kilo3` | `ai-gateway.kilo.ai/api/v1` | 5 | presente |
 | `kilo4` | `ai-gateway.kilo.ai/api/v1` | 5 | presente |
-| `or1` | `openrouter.ai/api/v1` | 7 | presente |
-| `or2` | `openrouter.ai/api/v1` | 7 | presente |
-| `or3` | `openrouter.ai/api/v1` | 7 | presente |
-| `or4` | `openrouter.ai/api/v1` | 7 | presente |
 
-Todas as 8 chaves são **distintas** (verificado por fingerprint SHA-256). O modelo `baidu/ernie-5.5-flash-preview:free` está presente nas 8 contas.
+## Por que os `or` saíram do projeto
+
+As quatro contas `or1`–`or4` (OpenRouter, free tier) têm **cota diária de 50 requisições**. Quando esgota, o provider responde **exit 0, corpo vazio e zero token** — uma falha silenciosa que fazia tarefas de modelo real parecerem passar.
+
+Decisão: **nenhum perfil do roteador seleciona a família `or`**. Elas continuam no `models.json` (são chaves do usuário), mas `DISABLED_FAMILIES` em `core/router/router.mjs` as mantém fora da rotação. Se a cota voltar a ser confiável, basta remover `"or"` da lista.
 
 ## Como regenerar
 

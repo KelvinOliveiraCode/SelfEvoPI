@@ -14,15 +14,13 @@ const PROVIDERS = [
     ],
   },
   {
-    id: "or1",
-    baseUrl: "https://or.example/v1",
-    models: [
-      { id: "ernie:free", contextWindow: 128_000 },
-      { id: "tiny:free", contextWindow: 8_000 },
-    ],
+    id: "kilo2",
+    baseUrl: "https://kilo.example/v1",
+    models: [{ id: "other-model", contextWindow: 32_000 }],
   },
   {
-    id: "or2",
+    // Família desativada: fica no fixture para provar que nunca é escolhida.
+    id: "or1",
     baseUrl: "https://or.example/v1",
     models: [{ id: "ernie:free", contextWindow: 128_000 }],
   },
@@ -32,15 +30,21 @@ function router(opts = {}) {
   return new Router({ providers: PROVIDERS, rng: () => 0.42, ...opts });
 }
 
-test("roundRobin distribui entre os providers do perfil", () => {
+test("nenhum perfil seleciona família desativada", () => {
+  const r = router();
+  for (const profile of ["orchestrator", "worker", "reviewer"]) {
+    for (let i = 0; i < 8; i++) {
+      const p = r.pick(profile, { exclude: ["kilo1"] }).provider;
+      assert.ok(!p.startsWith("or"), `${profile} escolheu ${p}, que é família desativada`);
+    }
+  }
+});
+
+test("roundRobin distribui entre os providers ativos do perfil", () => {
   const r = router();
   const seen = new Set();
-  for (let i = 0; i < 6; i++) seen.add(r.pick("orchestrator").provider);
-  assert.deepEqual([...seen].sort(), ["kilo1"]);
-  // orchestrator prefere kilo; com um unico kilo, sempre ele
-  const w = new Set();
-  for (let i = 0; i < 6; i++) w.add(r.pick("worker").provider);
-  assert.deepEqual([...w].sort(), ["or1", "or2"]);
+  for (let i = 0; i < 6; i++) seen.add(r.pick("worker").provider);
+  assert.deepEqual([...seen].sort(), ["kilo1", "kilo2"]);
 });
 
 test("reviewer nunca usa o provider do autor", () => {
@@ -61,7 +65,8 @@ test("orchestrator exige contexto grande", () => {
 test("minContext filtra modelos sem contexto suficiente", () => {
   const r = router();
   const { model } = r.pick("worker", { minContext: 100_000 });
-  assert.ok(!model.includes("tiny"));
+  assert.ok(!model.includes("other-model"), `escolheu modelo pequeno: ${model}`);
+  assert.ok(!model.includes("small-model"));
 });
 
 test("modelo explicito e respeitado quando existe", () => {
@@ -84,19 +89,20 @@ test("circuit abre apos N falhas e fecha depois do cooldown", () => {
 
 test("falhas repetidas removem o provider da rotacao", () => {
   const r = router();
-  assert.equal(r.pick("worker").provider, "or1");
-  r.report("or1", false);
-  r.report("or1", false);
-  r.report("or1", false);
-  const snap = r.snapshot().find((p) => p.id === "or1");
+  const first = r.pick("worker", { exclude: ["kilo1"] }).provider;
+  assert.equal(first, "kilo2");
+  r.report("kilo2", false);
+  r.report("kilo2", false);
+  r.report("kilo2", false);
+  const snap = r.snapshot().find((p) => p.id === "kilo2");
   assert.equal(snap.circuit, "open");
 });
 
 test("latencia usa EWMA para escolher o mais rapido", () => {
   const r = router({ strategy: "latency" });
-  r.report("or1", true, { latencyMs: 900 });
-  r.report("or2", true, { latencyMs: 120 });
-  assert.equal(r.pick("worker").provider, "or2");
+  r.report("kilo1", true, { latencyMs: 900 });
+  r.report("kilo2", true, { latencyMs: 120 });
+  assert.equal(r.pick("worker").provider, "kilo2");
 });
 
 test("backoff cresce e respeita o teto", () => {

@@ -6,23 +6,23 @@ import { createBudget } from "./budget.mjs";
 
 const PROVIDERS = [
   {
-    id: "or1",
-    baseUrl: "https://or.example/v1",
+    id: "kilo1",
+    baseUrl: "https://kilo.example/v1",
     models: [{ id: "model-a", contextWindow: 128_000 }],
   },
   {
-    id: "or2",
-    baseUrl: "https://or.example/v1",
+    id: "kilo2",
+    baseUrl: "https://kilo.example/v1",
     models: [{ id: "model-b", contextWindow: 128_000 }],
   },
   {
-    id: "or3",
-    baseUrl: "https://or.example/v1",
+    id: "kilo3",
+    baseUrl: "https://kilo.example/v1",
     models: [{ id: "model-c", contextWindow: 128_000 }],
   },
   {
-    id: "or4",
-    baseUrl: "https://or.example/v1",
+    id: "kilo4",
+    baseUrl: "https://kilo.example/v1",
     models: [{ id: "model-d", contextWindow: 128_000 }],
   },
 ];
