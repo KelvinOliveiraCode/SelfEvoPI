@@ -333,6 +333,7 @@ It binds to loopback only, reads nothing outside the repository, and executes no
 | [`docs/fase3/painel.md`](docs/fase3/painel.md) | graph runtime and panel |
 | [`docs/fase4-ponte.md`](docs/fase4-ponte.md) | the state bridge for a desktop host |
 | [`docs/research/inspiracoes.md`](docs/research/inspiracoes.md) | audit of 23 primary sources, 41 decisions |
+| [`SECURITY.md`](SECURITY.md) | how to report a vulnerability, and the security model in one page |
 
 ## Brand
 
