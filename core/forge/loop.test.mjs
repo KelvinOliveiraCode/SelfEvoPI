@@ -139,7 +139,12 @@ test("loop: needs-human quando gate estático bloqueia rede no gerado", async ()
   });
 
   assert.equal(report.outcome, "needs-human");
-  assert.ok(report.reasons.some((r) => /network-access|gate estático/.test(r)));
+  // a politica e a de core/governance/approval.mjs: diz o que precisa e pergunta
+  assert.ok(report.reasons.some((r) => /precisa de humano \(network\)/.test(r)), JSON.stringify(report.reasons));
+  assert.ok(
+    report.reasons.some((r) => /Qual domínio ou serviço/.test(r)),
+    "deve trazer a pergunta que o operador precisa responder",
+  );
   await rm(out, { recursive: true, force: true });
 });
 

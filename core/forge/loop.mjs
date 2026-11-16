@@ -24,6 +24,7 @@ import { generateCli } from "./generate-cli.mjs";
 import { generateSkill } from "./generate-skill.mjs";
 import { specifyGap } from "./specify.mjs";
 import { probeTest } from "./probe.mjs";
+import * as governance from "../governance/approval.mjs";
 import { generateMcpConfig } from "./generate-mcp-config.mjs";
 import { generateMcpServer } from "./generate-mcp-server.mjs";
 import { generateExtension } from "./generate-extension.mjs";
@@ -164,24 +165,37 @@ export function createEvolutionLoop(deps = {}) {
     }
   }
 
-  /** Verifica se o pedido/artefato exige algo que precisa de humano. */
+  /**
+   * Verifica se o pedido/artefato exige algo que precisa de humano.
+   *
+   * A política é a de `core/governance/approval.mjs` — uma só, para que o loop e
+   * um operador manual cheguem à mesma resposta. Aqui só se traduz o laudo dela
+   * para a frase curta que o relatório mostra.
+   */
   function needsHumanFrom({ request, gap, staticDecision }) {
-    // pedido explícito: permissões de rede/credencial
-    const perms = (request?.permissions ?? []).map((p) => String(p).toLowerCase());
-    if (perms.some((p) => /rede|network|credencial|credential|token|secret/.test(p))) {
-      return "pedido pede rede/credencial";
-    }
-    const meta = gap?.meta ?? {};
-    if (meta.needsNetwork || meta.needsCredential) return "lacuna pede rede/credencial";
+    const { reviewApproval } = governance;
+    const laudo = reviewApproval({
+      request: {
+        ...(request ?? {}),
+        // a lacuna também pode declarar a necessidade
+        needsNetwork: gap?.meta?.needsNetwork,
+        needsCredential: gap?.meta?.needsCredential,
+      },
+      scan: staticDecision,
+    });
+    if (!laudo || laudo.needsHuman !== true) return null;
 
-    // gate estático bloqueou regra sensível no artefato gerado
-    if (staticDecision && staticDecision.decision === "block") {
-      const rules = staticDecision.blockingRules ?? [];
-      if (rules.some((r) => NEEDS_HUMAN_RULES.has(r))) {
-        return `gate estático bloqueou: ${rules.join(", ")}`;
-      }
-    }
-    return null;
+    const sinais = Array.isArray(laudo.triggers) ? laudo.triggers : [];
+    const perguntas = Array.isArray(laudo.questions) ? laudo.questions : [];
+    // nomeia o que do pedido disparou: "acessar rede" diz mais que "network"
+    const permissoes = (Array.isArray(request?.permissions) ? request.permissions : [])
+      .map((p) => String(p).trim())
+      .filter(Boolean);
+    const base = sinais.length > 0
+      ? `precisa de humano (${[...sinais, ...permissoes].join(", ")})`
+      : "precisa de humano";
+    // a primeira pergunta é a que o operador tem que responder; as outras ficam no laudo
+    return perguntas.length > 0 ? `${base}: ${perguntas[0]}` : base;
   }
 
   /**

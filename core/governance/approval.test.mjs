@@ -73,6 +73,36 @@ test("pedido que declara credenciais pausa", () => {
   assert.ok(r.questions.some((q) => /credenciais/.test(q)));
 });
 
+test("permissions do contrato disparam rede", () => {
+  // `permissions` e o campo proprio do contrato (createArtifactRequest). Se o
+  // artefato declara que pode acessar rede, e pedido explicito.
+  const r = reviewApproval({ request: { mode: "cli", permissions: ["acessar rede"] }, scan: scanLimpo() });
+  assert.equal(r.needsHuman, true, "permissao de rede tem que pausar");
+  assert.deepEqual(r.triggers, [TRIGGERS.NETWORK]);
+});
+
+test("permissions do contrato disparam credenciais e escrita externa", () => {
+  const cred = reviewApproval({
+    request: { mode: "cli", permissions: ["ler GITHUB_TOKEN"] },
+    scan: scanLimpo(),
+  });
+  assert.ok(cred.triggers.includes(TRIGGERS.CREDENTIALS), JSON.stringify(cred));
+
+  const fora = reviewApproval({
+    request: { mode: "cli", permissions: ["escrever fora do workspace"] },
+    scan: scanLimpo(),
+  });
+  assert.ok(fora.triggers.includes(TRIGGERS.WRITE_OUTSIDE), JSON.stringify(fora));
+});
+
+test("permissions seguras nao pausam", () => {
+  const r = reviewApproval({
+    request: { mode: "cli", permissions: ["ler arquivo local", "escrever no workspace"] },
+    scan: scanLimpo(),
+  });
+  assert.equal(r.needsHuman, false, JSON.stringify(r));
+});
+
 test("pedido que declara escrita fora do workspace pausa", () => {
   const r = reviewApproval({ request: { mode: "cli", writesOutside: true }, scan: scanLimpo() });
   assert.equal(r.needsHuman, true);

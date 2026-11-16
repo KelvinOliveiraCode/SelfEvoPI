@@ -92,6 +92,21 @@ function fromRequest(request) {
   ) {
     found.add(TRIGGERS.WRITE_OUTSIDE);
   }
+
+  // `permissions` e o campo proprio do contrato: o que o artefato PODE fazer.
+  // Se ele declara que precisa de rede ou de credencial, e um pedido explicito.
+  const permissoes = Array.isArray(request?.permissions) ? request.permissions : [];
+  for (const p of permissoes) {
+    const texto = String(p).toLowerCase();
+    if (/rede|network|http|internet|fetch|url/.test(texto)) found.add(TRIGGERS.NETWORK);
+    if (/credencial|credential|secret|segredo|token|senha|password|chave|api.?key/.test(texto)) {
+      found.add(TRIGGERS.CREDENTIALS);
+    }
+    if (/fora do workspace|outside|absoluto|c:\\\\|%userprofile%|home dir/.test(texto)) {
+      found.add(TRIGGERS.WRITE_OUTSIDE);
+    }
+  }
+
   return found;
 }
 
