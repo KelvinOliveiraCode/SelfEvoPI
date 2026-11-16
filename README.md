@@ -2,54 +2,105 @@
 
 Harness de agente de código **ultraleve, rápido, econômico em contexto** e **auto-evolutivo**, construído **sobre** o [PI Coding Agent](https://github.com/earendil-works/pi) — sem fork.
 
-## O que é
+A ideia em uma frase: o harness mede o próprio trabalho, e quando falta uma capacidade ele **cria** a capacidade, testa em sandbox e só promove o que não quebra nada.
 
-O SelfEvoPI acopla-se ao PI via extensões, skills, configuração e estado versionado em `.pi/harness/`. Ele acrescenta três coisas que o PI não tem:
+## O que ele acrescenta ao PI
 
-1. **Roteador multi-provider** — perfis (`orchestrator`, `worker`, `reviewer`) sobre 8 contas, com fallback e teto de tokens.
-2. **Suíte de evals determinística** — 30–50 tarefas com verificador automático, medindo acurácia, tokens e latência.
-3. **Núcleo evolutivo** — detecta lacunas, especifica, gera o artefato, valida em sandbox Windows e só promove o que não causa regressão.
+| Camada | O que é | Onde |
+|:---|:---|:---|
+| Roteador | perfis (`orchestrator`, `worker`, `reviewer`), circuit breaker, retry, teto de tokens | `core/router/` |
+| Evals | 29 tarefas determinísticas com verificador próprio; gate de regressão | `evals/` |
+| Núcleo evolutivo | detecta lacuna → especifica → gera → valida → promove ou reverte | `core/forge/` |
+| Sandbox | gate estático + Node Permission Model + contenção de processo | `core/sandbox/` |
+| Governança | rollback verificado e política de aprovação humana | `core/governance/` |
+| Memória | 3 níveis, com busca por termo e poda por evidência | `core/memory/` |
+| Grafo | execução paralela com checkpoint por nó e painel | `core/graph/` |
 
-## Por que eficiência é requisito
+## Números medidos
 
-O [Harness Leaderboard](https://huggingface.co/spaces/joelniklaus/harness-leaderboard) mede o mesmo modelo trocando apenas o harness: o Pi resolve **49,4%** das tarefas a **US$ 0,29** por tarefa resolvida, contra 51,4% a US$ 0,53 do mini-swe-agent. Eficiência de contexto não é otimização — é a diferença entre 45% mais barato e o dobro do custo.
-
-## Estado
-
-| Fase | Status |
+| | |
 |:---|:---|
-| P — Pesquisa e auditoria | concluída e tagada `v0.0-research` |
-| 0 — Fundação Windows, Git e providers | em andamento — Git, GitHub, PI, 8 providers, roteador e evals prontos |
-| 1 — CLI, bake-off e memória | pendente |
-| 2 — Núcleo de auto-evolução | pendente |
-| 3 — Grafo de execução | pendente |
-| 4 — Desktop Windows | pendente — base escolhida: Pi-Harness |
+| Cold start | **433 ms** |
+| Prompt incremental do SelfEvoPI | **+501 tokens** (orçamento: 1.500) |
+| Evals | **29 tarefas, 87/87** |
+| Testes unitários | **341** |
+| Custo | US$ 0,00 (modelos free tier) |
 
-## Ambiente
+Medidos com `node scripts/measure-overhead.mjs` e `node scripts/measure-selfevopi-overhead.mjs`.
 
-- **Windows nativo** — sem Docker, sem VM, sem WSL.
-- Node.js **≥ 22.19.1** (validado em v24.13.0).
-- PI Coding Agent **≥ 1.5.2**.
-- Git **≥ 2.55** com `core.longpaths true`.
+## Instalação
+
+Requisitos: **Windows nativo** (sem Docker, VM ou WSL), Node ≥ 22.19.1, PI Coding Agent ≥ 1.5.2, Git ≥ 2.55 com `core.longpaths true`.
+
+```powershell
+git clone https://github.com/KelvinOliveiraCode/SelfEvoPI.git
+cd SelfEvoPI
+node scripts/check-providers.mjs     # as contas respondem?
+node evals/gate.mjs                  # a suíte passa?
+```
+
+## Uso diário
+
+```powershell
+node core/router/cli.mjs --profile worker        # qual modelo o roteador escolheria
+node evals/run.mjs --group D                     # rodar só as tarefas de modelo
+node evals/gate.mjs                              # comparar com a linha de base
+node core/forge/cli.mjs detect --json            # quais lacunas o harness detectou
+node core/forge/cli.mjs skills parser            # o que já foi gerado sobre "parser"
+node core/forge/cli.mjs status                   # estado do harness
+```
+
+## O ciclo evolutivo
+
+É o coração do projeto. Dado um objetivo, ele:
+
+1. **Detecta** a lacuna no ledger (falha repetida, capacidade ausente, fluxo frágil) — ou recebe o objetivo direto.
+2. **Especifica** um contrato curto: entradas, saídas, proibições, testes.
+3. **Gera** o artefato — código escrito pelo modelo, com `node --check` antes de ir para o disco.
+4. **Valida** rodando o artefato do jeito que ele é chamado, em sandbox.
+5. **Decide**: promove se passou e não houve regressão; caso contrário, reverte.
+6. **Registra**: commit atômico, `last-known-good` e uma entrada na memória — para a próxima sessão saber que já existe.
+
+```powershell
+node core/forge/cli.mjs evolve `
+  --goal "calcular o IMC a partir de peso e altura" `
+  --kind cli --inputs "peso,altura" --outputs "imc,classificacao" --llm
+```
+
+Os cinco artefatos possíveis, do mais leve ao mais pesado: `mcp-config`, `skill`, `cli`, `extension`, `mcp-server`.
 
 ## Documentação
 
+- [`docs/estado.md`](docs/estado.md) — **estado atual do projeto**: números, o que cada fase entregou, o que falta.
+- [`docs/fase1/decisoes.md`](docs/fase1/decisoes.md) — decisões com evidência e gatilho de reavaliação.
+- [`docs/fase2/forge.md`](docs/fase2/forge.md) — o núcleo evolutivo.
+- [`docs/fase2/sandbox.md`](docs/fase2/sandbox.md) — as três camadas de isolamento e o que cada uma barra.
+- [`docs/fase2/governanca.md`](docs/fase2/governanca.md) — rollback verificado e aprovação humana.
+- [`docs/fase4-ponte.md`](docs/fase4-ponte.md) — a ponte de estado para o desktop.
 - [`docs/research/inspiracoes.md`](docs/research/inspiracoes.md) — auditoria das fontes, 41 decisões, 10 correções ao plano.
-- [`docs/research/alternativas-windows.md`](docs/research/alternativas-windows.md) — o que existe para Windows, versões confirmadas e o que muda no plano.
-- [`docs/research/backlog-fase1.md`](docs/research/backlog-fase1.md) — backlog derivado, com comando de verificação por item.
-- [`scripts/verify-urls.mjs`](scripts/verify-urls.mjs) — gate de integridade das fontes citadas.
+- [`SelfEvoPI — Plano do Projeto.md`](SelfEvoPI%20—%20Plano%20do%20Projeto.md) — a especificação original.
 
-```shell
+## Verificação
+
+```powershell
+node --test core/router/*.test.mjs core/forge/*.test.mjs core/memory/*.test.mjs core/graph/*.test.mjs core/governance/*.test.mjs core/sandbox/*.test.mjs scripts/refine-loop.test.mjs
+node evals/gate.mjs
 node scripts/verify-urls.mjs
 ```
 
 ## Estrutura
 
 ```
-docs/research/     auditoria, decisões e backlog
-scripts/           ferramentas de verificação (sem dependências)
-.pi/harness/       estado persistente do harness
-.worktrees/        worktrees isolados dos subagentes (ignorado)
+core/router/       roteador multi-provider
+core/forge/        núcleo evolutivo (contrato, detecção, geração, gate, loop)
+core/sandbox/      isolamento de processo e gate estático
+core/governance/   rollback verificado e aprovação humana
+core/memory/       memória em 3 níveis com busca e poda
+core/graph/        grafo de execução com checkpoint e painel
+evals/             29 tarefas, verificadores e gate de regressão
+scripts/            medições, checkpoints e rotinas
+.pi/harness/        estado persistente (memória, ledger, relatórios)
+docs/               decisões, estado e pesquisa
 ```
 
 ## Licença
