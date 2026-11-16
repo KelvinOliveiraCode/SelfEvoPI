@@ -364,7 +364,6 @@ docs/               decisions, state, research
 
 ## Security
 
-- **No credentials in the repository.** Audited by pattern across the whole tree: no API keys, tokens, or secrets. Provider configuration is an example file with environment-variable placeholders.
 - **Secrets live outside the repo** and the destination file is ACL-restricted.
 - **The evolutionary loop never edits `evals/` or `core/governance/`.** Those are protected areas.
 - **Anything that needs network, credentials, or writes outside the workspace pauses for human approval**, with a specific question rather than a generic confirmation.
