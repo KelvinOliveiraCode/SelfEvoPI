@@ -160,8 +160,63 @@ que separa "memória bruta" de "capacidade executável". A camada de memória aq
 implementada é agnóstica quanto a quem chama `append`/`promote`; o contrato acima
 amarra o `/refine` a ela sem acoplar a implementação.
 
-## 7. Critério de aceite
+## 7. Integração com o PI
+
+A extensão `core/memory/extension.mjs` liga a memória ao PI Coding Agent. É uma
+extensão no formato que o PI carrega: **função default `(pi) => void`** (confirmado em
+`docs/extensions.md` e no exemplo real `pi-subagents`, cujo `bundle/index.js` exporta
+`registerSubagentExtension as default`).
+
+### Handlers
+
+| Handler | O que faz |
+|:---|:---|
+| `session_start` | abre o store em `<cwd>/.pi/harness/memory`, carrega os fatos do nível `project`, monta o bloco e avisa o usuário (`ctx.ui.notify`) |
+| `before_agent_start` | injeta o bloco como mensagem de contexto (`customType: "selfevopi-memory"`, `display: false`) — respeitando o teto de tokens |
+| `session_shutdown` | confirma a persistência das entradas novas e limpa o estado |
+| comando `/mem` | `/mem` (lista) · `/mem add <texto>` (acrescenta) · `/mem promote <id>` (promove de `project` para `skills`) |
+
+### Orçamento de contexto
+
+O teto de tokens é configurável, com precedência:
+
+1. flag `--mem-tokens <n>` (registrada via `pi.registerFlag`, aparece no `pi --help`)
+2. variável de ambiente `SELFEOPI_MEM_TOKENS`
+3. padrão `400` (`DEFAULT_MAX_TOKENS`)
+
+`buildMemoryBlock(entries, { maxTokens })` nunca devolve um bloco acima do teto:
+estimando ~4 chars/token, corta as entradas mais antigas que estourariam o orçamento e
+marca `truncated: true`. O bloco é ordenado do mais recente para o mais antigo.
+
+### Persistência
+
+`/mem add` grava imediatamente no JSONL (append-only) via `store.append("project", …)`.
+O `session_shutdown` apenas confirma a contagem do que foi acrescentado na sessão — não
+há buffer em memória a escorrer, então nada se perde se o processo cair.
+
+### Arquivo ausente
+
+Se nenhum `.jsonl` existir ainda (store vazio), `load()` devolve um bloco
+`"(sem memória de projeto)"` sem quebrar a sessão.
+
+### Verificação de carga
+
+A extensão carrega no PI de verdade: `pi -e ./core/memory/extension.mjs --help` lista a
+flag `--mem-tokens`. O teste de fumaça `session_start → /mem add → before_agent_start`
+injeta o bloco esperado. (Uma extensão quebrada produziria `Failed to load extension`;
+não é o caso.)
+
+### Design
+
+O núcleo é puro e testável sem o PI: `buildMemoryBlock`, `createMemoryController`,
+`estimateTokens`. O default export só usa o objeto `pi` recebido, sem importar o pacote
+do PI no top-level — por isso `node --test core/memory/extension.test.mjs` roda sem o PI
+instalado.
+
+## 8. Critério de aceite
 
 - `node --test core/memory/store.test.mjs` sai 0.
 - Persistência comprovada: criar, fechar, reabrir e ler os mesmos dados.
 - Entrada em formato estável e auditável (JSONL append-only).
+- `node --test core/memory/extension.test.mjs core/memory/store.test.mjs core/memory/refine.test.mjs` sai 0.
+- Extensão carregável por `pi` (flag `--mem-tokens` visível em `pi --help`).
