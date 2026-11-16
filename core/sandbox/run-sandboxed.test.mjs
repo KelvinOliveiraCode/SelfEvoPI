@@ -48,7 +48,15 @@ function isAlive(pid) {
 }
 
 after(async () => {
-  const vivos = [...pids].filter((pid) => isAlive(pid));
+  // No Windows o pid pode continuar "existe" por alguns milissegundos depois de
+  // o processo morrer (o handle ainda nao foi liberado). Sem esta espera, a
+  // suite falha so quando roda junto com as outras — e ai parece vazamento.
+  let vivos = [...pids].filter((pid) => isAlive(pid));
+  const t0 = Date.now();
+  while (vivos.length > 0 && Date.now() - t0 < 3000) {
+    await new Promise((r) => setTimeout(r, 100));
+    vivos = vivos.filter((pid) => isAlive(pid));
+  }
   await rm(TMP_ROOT, { recursive: true, force: true });
   assert.deepEqual(vivos, [], `processos que sobreviveram aos testes: ${vivos.join(", ")}`);
 });
