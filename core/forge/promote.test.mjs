@@ -139,6 +139,82 @@ test("taskId comecando com '-' nao vira flag nem nome de arquivo", async () => {
   }
 });
 
+test("promove e registra o artefato na memoria (nivel skills)", async () => {
+  const repo = tempRepo();
+  const artifact = tempArtifact();
+  const memoryDir = mkdtempSync(join(tmpdir(), "selfevopi-mem-"));
+  try {
+    const res = await promoteArtifact({
+      artifactDir: artifact,
+      taskId: "D1-cria-soma",
+      repoRoot: repo,
+      commit: false,
+      checkpoint: false,
+      memoryRoot: memoryDir,
+      request: { goal: "criar um somador", kind: "cli" },
+    });
+    assert.equal(res.ok, true, JSON.stringify(res.reasons));
+    assert.equal(res.registered?.registered, true, JSON.stringify(res.registered));
+
+    const { openStore } = await import("../memory/store.mjs");
+    const store = openStore({ root: memoryDir });
+    const skills = store.query({ level: "skills" });
+    assert.equal(skills.length, 1);
+    assert.match(skills[0].text, /criar um somador/);
+    assert.ok(skills[0].tags.includes("artefato"));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(artifact, { recursive: true, force: true });
+    rmSync(memoryDir, { recursive: true, force: true });
+  }
+});
+
+test("registrar duas vezes nao duplica (idempotente)", async () => {
+  const repo = tempRepo();
+  const memoryDir = mkdtempSync(join(tmpdir(), "selfevopi-mem-"));
+  try {
+    for (let i = 0; i < 2; i++) {
+      const artifact = tempArtifact();
+      const res = await promoteArtifact({
+        artifactDir: artifact,
+        taskId: "B1-providers-present",
+        repoRoot: repo,
+        commit: false,
+        checkpoint: false,
+        memoryRoot: memoryDir,
+      });
+      assert.equal(res.ok, true, JSON.stringify(res.reasons));
+      rmSync(artifact, { recursive: true, force: true });
+    }
+    const { openStore } = await import("../memory/store.mjs");
+    const skills = openStore({ root: memoryDir }).query({ level: "skills" });
+    assert.equal(skills.length, 1, "segunda promocao nao pode duplicar a entrada");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(memoryDir, { recursive: true, force: true });
+  }
+});
+
+test("sem registro a promocao continua funcionando (register:false)", async () => {
+  const repo = tempRepo();
+  const artifact = tempArtifact();
+  try {
+    const res = await promoteArtifact({
+      artifactDir: artifact,
+      taskId: "A1-router-reviewer",
+      repoRoot: repo,
+      commit: false,
+      checkpoint: false,
+      register: false,
+    });
+    assert.equal(res.ok, true, JSON.stringify(res.reasons));
+    assert.equal(res.registered, null);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(artifact, { recursive: true, force: true });
+  }
+});
+
 test("artefato com subdiretorios e copiado inteiro", async () => {
   const repo = tempRepo();
   const artifact = tempArtifact();

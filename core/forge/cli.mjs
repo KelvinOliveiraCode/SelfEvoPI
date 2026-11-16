@@ -121,6 +121,7 @@ async function realPromote({ artifactDir, report, request }) {
   return promoteArtifact({
     artifactDir,
     taskId,
+    request: { ...request, goal: request?.goal ?? taskId },
     repoRoot: ROOT,
     verify: async () => ({
       ok: gateOk,

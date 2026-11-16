@@ -23,8 +23,10 @@ import path from "node:path";
 import process from "node:process";
 
 import { checkpointGood, git, headSha } from "../governance/rollback.mjs";
+import { openStore } from "../memory/store.mjs";
 
 const DEFAULT_ARTIFACTS_REL = path.join(".pi", "harness", "artifacts");
+const DEFAULT_MEMORY_REL = path.join(".pi", "harness", "memory");
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -55,6 +57,56 @@ async function hasFiles(dir) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Registro na memória (Voyager: skill só existe se for recuperável)   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Registra o artefato promovido no nível `skills` da memória.
+ *
+ * Sem isso, o artefato existe em disco mas ninguém o encontra: a próxima sessão
+ * não sabe que a capacidade foi criada, e o loop re-gera a mesma coisa. É a
+ * diferença entre "arquivar" e "aprender".
+ *
+ * A entrada é idempotente: se já existe uma com o mesmo caminho, não duplica.
+ *
+ * @returns {{ registered: boolean, id?: string, reason?: string }}
+ */
+async function registerInMemory({ repoRoot, dest, taskId, request, memoryRoot = null } = {}) {
+  const root = memoryRoot ?? path.join(repoRoot, DEFAULT_MEMORY_REL);
+  let store;
+  try {
+    store = openStore({ root });
+  } catch (err) {
+    return { registered: false, reason: `memória indisponível: ${err?.message ?? err}` };
+  }
+
+  const rel = path.relative(repoRoot, dest).split(path.sep).join("/");
+  // A identidade é a **tarefa**, não o caminho: cada promoção cria um diretório
+  // novo (com timestamp), então deduplicar por caminho duplicaria a cada ciclo.
+  const tag = `tarefa:${taskId}`;
+  const existing = store.query({ level: "skills" });
+  const dupe = existing.find(
+    (e) => !e.invalid && Array.isArray(e.tags) && e.tags.includes(tag),
+  );
+  if (dupe) {
+    return { registered: false, reason: `já registrado (tarefa ${taskId})`, id: dupe.id };
+  }
+
+  const capability = request?.goal ?? taskId;
+  const text = `${capability} — artefato em \`${rel}\` (gerado a partir da lacuna "${taskId}")`;
+  try {
+    const entry = store.append("skills", {
+      text,
+      tags: ["artefato", request?.kind ?? "cli", tag],
+      source: "evo",
+    });
+    return { registered: true, id: entry.id };
+  } catch (err) {
+    return { registered: false, reason: `falha ao registrar: ${err?.message ?? err}` };
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* promoteArtifact                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -71,19 +123,24 @@ async function hasFiles(dir) {
  * @param {string} [opts.message]     assunto do commit
  * @param {boolean} [opts.checkpoint=true] grava last-known-good.json
  * @param {boolean} [opts.commit=true]     faz o commit
+ * @param {boolean} [opts.register=true]   registra o artefato na memória (nível skills)
+ * @param {string|null} [opts.memoryRoot]  raiz da memória (default <repo>/.pi/harness/memory)
  * @param {Function} [opts.now]       relógio
- * @returns {Promise<{ok:boolean, path?:string, commit?:string|null, checkpointed?:boolean, reasons:string[]}>}
+ * @returns {Promise<{ok:boolean, path?:string, commit?:string|null, checkpointed?:boolean, registered?:object, reasons:string[]}>}
  */
 export async function promoteArtifact({
   artifactDir,
   taskId,
   gap = null,
+  request = null,
   repoRoot = process.cwd(),
   artifactsRoot = null,
   verify = null,
   message = null,
   checkpoint = true,
   commit = true,
+  register = true,
+  memoryRoot = null,
   now = () => new Date(),
 } = {}) {
   const reasons = [];
@@ -163,11 +220,27 @@ export async function promoteArtifact({
     }
   }
 
+  // 5. registro na memória: o artefato precisa ser encontrável na próxima sessão.
+  let registered = null;
+  if (register) {
+    registered = await registerInMemory({
+      repoRoot,
+      dest,
+      taskId: seg,
+      request,
+      memoryRoot,
+    });
+    if (registered.registered === false && registered.reason && !/já registrado/.test(registered.reason)) {
+      reasons.push(`memória: ${registered.reason}`);
+    }
+  }
+
   return {
     ok: true,
     path: dest,
     commit: commitSha,
     checkpointed,
+    registered,
     reasons: reasons.length > 0 ? reasons : undefined,
   };
 }
