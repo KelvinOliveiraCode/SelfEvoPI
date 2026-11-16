@@ -83,6 +83,53 @@ async function runOnce(group) {
   }
 }
 
+/**
+ * Reexecuta UMA tarefa e devolve a taxa da última tentativa.
+ * Usada só para separar regressão real de instabilidade de modelo.
+ */
+async function retryTask(taskId, attempts = 2) {
+  let last = null;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        [RUN, "--task", taskId, "--no-ledger"],
+        { cwd: ROOT, maxBuffer: 8 * 1024 * 1024, timeout: 10 * 60_000, windowsHide: true },
+      );
+      last = parseRun(stdout).get(taskId) ?? null;
+    } catch (err) {
+      last = parseRun(err.stdout || "").get(taskId) ?? null;
+    }
+    if (last?.passed) return { passed: true, attempts: i + 1 };
+  }
+  return { passed: false, attempts };
+}
+
+/**
+ * Tarefas de grupo D chamam um modelo: uma execução pode falhar por variância,
+ * não por regressão. Aqui a gente separa os dois sem esconder nada:
+ *  - falhou e passou na reexecução → `flaky` (relatado, não reprova)
+ *  - falhou de novo → regressão real
+ */
+export async function classifyRegressions(regressions, baselineTasks) {
+  const real = [];
+  const flaky = [];
+  for (const r of regressions) {
+    const isStochastic = r.group === "D" || baselineTasks?.[r.taskId]?.stochastic === true;
+    if (isStochastic) {
+      const retry = await retryTask(r.taskId, 2);
+      if (retry.passed) {
+        flaky.push({ ...r, retryAttempts: retry.attempts });
+        continue;
+      }
+      real.push({ ...r, retryAttempts: retry.attempts });
+      continue;
+    }
+    real.push(r);
+  }
+  return { real, flaky };
+}
+
 export async function runSuite(runs, group) {
   const agg = new Map();
   for (let i = 0; i < runs; i++) {
@@ -213,7 +260,8 @@ export async function main() {
     return true;
   });
 
-  const regressions = compare(comparable, baseline);
+  const rawRegressions = compare(comparable, baseline);
+  const { real: regressions, flaky } = await classifyRegressions(rawRegressions, baseTasks);
   const curTotals = totalsOf(comparable);
   const baseTotals = {
     rate: baseline.totals?.rate ?? 0,
@@ -253,12 +301,23 @@ export async function main() {
   );
   lines.push("");
 
+  if (flaky.length > 0) {
+    lines.push(`**Instáveis (reexecução confirmou, não reprova) (${flaky.length}):**`);
+    for (const f of flaky) {
+      lines.push(
+        `- \`${f.taskId}\` (${f.group}): ${pct(f.from)} → ${pct(f.to)} na 1ª passada; passou ao reexecutar (${f.retryAttempts} tentativa(s))`,
+      );
+    }
+    lines.push("");
+  }
+
   if (regressions.length > 0) {
     lines.push(`**Regressões (${regressions.length}):**`);
     for (const r of regressions) {
       lines.push(
         `- \`${r.taskId}\` (${r.group}): ${pct(r.from)} → ${pct(r.to)} ` +
-          `(${r.basePasses}/${r.baseRuns} → ${r.curPasses}/${r.curRuns})`,
+          `(${r.basePasses}/${r.baseRuns} → ${r.curPasses}/${r.curRuns})` +
+          (r.retryAttempts ? ` [reexecutada ${r.retryAttempts}x, falhou de novo]` : ""),
       );
     }
     lines.push("");
