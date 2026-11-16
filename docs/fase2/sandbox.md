@@ -180,3 +180,31 @@ node --test core/sandbox/run-sandboxed.test.mjs    # 15 passam
 ```
 
 O teste de timeout mata a árvore e confirma no `after()` que nenhum pid sobreviveu; se sobrasse um, a suíte falha.
+
+## 7. Decisão: `verify.mjs` é código do harness, não do artefato
+
+O Forge (A5) gera três arquivos por artefato: `cli.mjs` (ou `SKILL.md`), `README.md` e **`verify.mjs`**. O `verify.mjs` executa os testes do pedido e, para isso, usa `spawnSync` — que o gate estático bloqueia como `child-process` (severidade `block`).
+
+Sem uma regra, **todo artefato gerado seria barrado pelo próprio sandbox**.
+
+### A decisão
+
+**O `verify.mjs` roda FORA do sandbox. O artefato que ele invoca roda DENTRO.**
+
+O sandbox existe para conter o **artefato**, não o **testador**. É a mesma separação entre o CI e o app: o runner de teste precisa de liberdades que o código sob teste não tem.
+
+### Por que não abrir exceção no gate
+
+A alternativa seria liberar `child-process` em arquivos chamados `verify.mjs`. Isso cria um buraco permanente: qualquer artefato poderia se renomear para escapar da regra. A separação de papéis não cria precedente.
+
+### Trade-offs
+
+| | Rodar fora (escolhido) | Exceção no gate |
+|:---|:---|:---|
+| Segurança | o testador roda livre, mas é código gerado e revisado | qualquer arquivo pode se disfarçar |
+| Simplicidade | uma regra: testador fora, alvo dentro | exceção que o loop pode explorar |
+| Risco residual | um `verify.mjs` malicioso roda livre | um artefato malicioso se disfarça de verify |
+
+### Risco residual e mitigação
+
+O `verify.mjs` é gerado a partir de `request.tests`, que vem de uma spec aprovada. Mesmo assim, ele passa pelo **gate estático antes de executar** (a regra `child-process` vira `warn` para esse arquivo específico) e roda com token restrito. Não é confiança cega — é confiança com registro.

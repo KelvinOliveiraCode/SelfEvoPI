@@ -36,13 +36,42 @@ function resolvePi() {
   return { cmd: "pi", prefix: [] };
 }
 
+/** Lista as extensões instaladas no projeto (`.pi/npm/node_modules/<pkg>/bundle/index.js`). */
+export async function projectExtensions(root) {
+  const base = path.join(root, ".pi", "npm", "node_modules");
+  try {
+    const entries = await (await import("node:fs/promises")).readdir(base, { withFileTypes: true });
+    const out = [];
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const bundle = path.join(base, e.name, "bundle", "index.js");
+      if (existsSync(bundle)) out.push(bundle);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /** Executa o PI e resume o stream JSON. */
-export async function runPi({ model, prompt, cwd, timeoutMs = 180_000, extraArgs = [], approveProjectPackages = true }) {
+export async function runPi({
+  model,
+  prompt,
+  cwd,
+  timeoutMs = 180_000,
+  extraArgs = [],
+  approveProjectPackages = true,
+  extensions = null,
+}) {
   const { cmd, prefix } = resolvePi();
   // `--approve` confia nos pacotes locais do projeto (.pi/settings.json). Sem ele as
   // extensões instaladas no projeto não carregam e o overhead medido fica irreal.
   const args = [...prefix, "--model", model, "--mode", "json"];
   if (approveProjectPackages) args.push("--approve");
+  // O PI só procura .pi/settings.json no cwd. Como as tarefas rodam em workdirs
+  // temporários, as extensões do projeto vão explícitas com -e.
+  const loaded = extensions ?? (await projectExtensions(path.resolve(import.meta.dirname, "..", "..")));
+  for (const ext of loaded) args.push("-e", ext);
   args.push("--print", ...extraArgs, prompt);
   const started = performance.now();
 

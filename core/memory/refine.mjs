@@ -106,8 +106,14 @@ export function proposeDeltas({ entries, limit = null } = {}) {
     if (!entry || typeof entry !== "object") continue;
 
     // 1) Entradas corrompidas ou sem conteúdo → drop
+    // Linha inválida não tem id; o applyDeltas poda todas as inválidas quando
+    // encontra um drop sem id (ver refine.mjs).
     if (entry.invalid || entry.id === null || entry.id === undefined) {
-      deltas.push({ op: "drop", id: entry.id ?? null, reason: "entrada corrompida (JSONL inválido)" });
+      deltas.push({
+        op: "drop",
+        id: entry.id ?? null,
+        reason: "entrada corrompida (JSONL inválido)",
+      });
       continue;
     }
 
@@ -212,12 +218,20 @@ export function applyDeltas(store, deltas, { level = "project" } = {}) {
   if (!Array.isArray(deltas)) throw new Error("refine: `deltas` precisa ser um array");
 
   const idsToRemove = new Set();
+  let pruneInvalid = false;
   const applied = [];
   const advisory = [];
 
   for (const delta of deltas) {
     if (delta.op === "drop") {
-      if (delta.id !== null && delta.id !== undefined) idsToRemove.add(delta.id);
+      if (delta.id !== null && delta.id !== undefined) {
+        idsToRemove.add(delta.id);
+      } else {
+        // Sem id: é linha corrompida de JSONL. Não dá para removê-la por id nem
+        // por índice (o índice vem de uma lista ordenada, não do arquivo), então
+        // podamos todas as entradas inválidas — são inparseáveis por definição.
+        pruneInvalid = true;
+      }
       applied.push(delta);
     } else if (delta.op === "dedupe") {
       const list = Array.isArray(delta.ids) ? delta.ids : [];
@@ -230,11 +244,15 @@ export function applyDeltas(store, deltas, { level = "project" } = {}) {
   }
 
   let removed = 0;
-  if (idsToRemove.size > 0) {
+  if (idsToRemove.size > 0 || pruneInvalid) {
     const file = levelFile(store.root, level);
     if (existsSync(file)) {
       const entries = readLevel(store.root, level);
-      const kept = entries.filter((e) => !(e.id !== null && e.id !== undefined && idsToRemove.has(e.id)));
+      const kept = entries.filter(
+        (e) => !pruneInvalid || !e.invalid
+      ).filter(
+        (e) => !(e.id !== null && e.id !== undefined && idsToRemove.has(e.id))
+      );
       removed = entries.length - kept.length;
       writeFileSync(file, serialize(kept), "utf8");
     }

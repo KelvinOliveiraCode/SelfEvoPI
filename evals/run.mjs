@@ -98,7 +98,12 @@ async function runChecker(task, workdir) {
 }
 
 async function runTask(task) {
-  const workdir = await mkdtemp(path.join(tmpdir(), `selfevopi-${task.id}-`));
+  // O workspace fica DENTRO do repo (pasta ignorada pelo Git) para que o PI
+  // enxergue o .pi/settings.json do projeto. Em os.tmpdir() a extensão não
+  // carrega e os evals medem um harness que não é o de produção.
+  const tmpRoot = path.join(ROOT, ".pi", "harness", "tmp");
+  await mkdir(tmpRoot, { recursive: true });
+  const workdir = await mkdtemp(path.join(tmpRoot, `selfevopi-${task.id}-`));
   try {
     if (task.fixture) {
       await cp(path.join(FIXTURES, task.fixture), workdir, { recursive: true });

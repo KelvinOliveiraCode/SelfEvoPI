@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-16T00:31:24.253Z",
+  "generatedAt": "2026-11-16T13:03:39.747Z",
   "generator": "evals/gate.mjs --update",
   "runs": 3,
   "group": null,
@@ -9,7 +9,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 106,
+      "avgMs": 411,
       "tokens": 0
     },
     "A2-router-backoff": {
@@ -17,7 +17,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 99,
+      "avgMs": 435,
       "tokens": 0
     },
     "A3-circuit-breaker": {
@@ -25,7 +25,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 113,
+      "avgMs": 511,
       "tokens": 0
     },
     "A4-retry-policy": {
@@ -33,7 +33,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 109,
+      "avgMs": 458,
       "tokens": 0
     },
     "B1-providers-present": {
@@ -41,7 +41,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 101,
+      "avgMs": 537,
       "tokens": 0
     },
     "B2-models-schema": {
@@ -49,7 +49,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 121,
+      "avgMs": 395,
       "tokens": 0
     },
     "B3-import-idempotent": {
@@ -57,7 +57,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 307,
+      "avgMs": 1840,
       "tokens": 0
     },
     "B4-import-rejects-missing": {
@@ -65,7 +65,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 207,
+      "avgMs": 846,
       "tokens": 0
     },
     "C1-gitignore-secrets": {
@@ -73,7 +73,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 166,
+      "avgMs": 564,
       "tokens": 0
     },
     "C2-no-secrets-tracked": {
@@ -81,7 +81,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 209,
+      "avgMs": 546,
       "tokens": 0
     },
     "C3-router-unit-tests": {
@@ -89,7 +89,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 307,
+      "avgMs": 1081,
       "tokens": 0
     },
     "C4-docs-present": {
@@ -97,7 +97,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 102,
+      "avgMs": 559,
       "tokens": 0
     },
     "D1-cria-soma": {
@@ -105,24 +105,24 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 18554,
-      "tokens": 27172
+      "avgMs": 11635,
+      "tokens": 32010
     },
     "D2-corrige-contador": {
       "group": "D",
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 10684,
-      "tokens": 27528
+      "avgMs": 16925,
+      "tokens": 32593
     }
   },
   "totals": {
     "taskRuns": 42,
     "passes": 42,
     "rate": 1,
-    "avgMs": 2227,
-    "tokens": 54700,
+    "avgMs": 2624,
+    "tokens": 64603,
     "costUsd": 0
   }
 }

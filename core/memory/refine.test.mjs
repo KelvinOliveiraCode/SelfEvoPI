@@ -124,3 +124,30 @@ test("applyDeltas não aplica merge-tags/keep, apenas relata", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+test("linha corrompida de JSONL e podada de verdade (sem id, por conteudo)", async () => {
+  const { store, root } = tempStore();
+  try {
+    const valid = store.append("project", { text: "convencao valida que deve sobreviver", source: "teste" });
+    // Grava uma linha quebrada no meio do arquivo (simula JSONL corrompido).
+    const file = join(root, "project.jsonl");
+    const { readFileSync, writeFileSync } = await import("node:fs");
+    const lines = readFileSync(file, "utf8").trim().split("\n");
+    lines.splice(1, 0, "{isto nao e json");
+    writeFileSync(file, lines.join("\n") + "\n", "utf8");
+
+    const entries = store.query({ level: "project", includeInvalid: true });
+    const deltas = proposeDeltas({ entries });
+    const corrupt = deltas.find((d) => d.reason && d.reason.includes("corrompida"));
+    assert.ok(corrupt, "deve propor drop da entrada corrompida");
+    assert.equal(corrupt.id, null, "linha corrompida nao tem id");
+
+    const res = applyDeltas(store, deltas, { level: "project" });
+    assert.ok(res.removed >= 1, `deve remover a linha corrompida (removed=${res.removed})`);
+
+    const after = store.query({ level: "project" });
+    assert.equal(after.length, 1, "sobrou apenas a entrada valida");
+    assert.equal(after[0].id, valid.id, "a entrada valida foi preservada");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

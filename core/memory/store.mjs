@@ -100,13 +100,17 @@ export function openStore({ root } = {}) {
      * Busca entradas de um nível, das mais recentes para as mais antigas.
      * Filtros combinam com AND: `tag` (a entrada tem a tag) e `text` (case-insensitive,
      * substring). Sem filtros, devolve tudo.
-     * @param {{ level: "session"|"project"|"skills", tag?: string, text?: string, limit?: number }} query
+     *
+     * `includeInvalid: true` devolve também as linhas corrompidas do JSONL — é o que
+     * a manutenção (refine) precisa para propor a remoção delas. Por padrão ficam fora.
+     *
+     * @param {{ level: "session"|"project"|"skills", tag?: string, text?: string, limit?: number, includeInvalid?: boolean }} query
      */
-    query({ level, tag = null, text = null, limit = null } = {}) {
+    query({ level, tag = null, text = null, limit = null, includeInvalid = false } = {}) {
       assertLevel(level);
       const needle = typeof text === "string" ? text.toLowerCase() : null;
       let rows = load(level).filter((e) => {
-        if (e.invalid) return false;
+        if (e.invalid && !includeInvalid) return false;
         if (tag && !(Array.isArray(e.tags) && e.tags.includes(tag))) return false;
         if (needle && !String(e.text).toLowerCase().includes(needle)) return false;
         return true;
