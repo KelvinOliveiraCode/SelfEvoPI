@@ -36,21 +36,39 @@ function resolvePi() {
   return { cmd: "pi", prefix: [] };
 }
 
-/** Lista as extensões instaladas no projeto (`.pi/npm/node_modules/<pkg>/bundle/index.js`). */
+/**
+ * Lista as extensões **habilitadas** no projeto.
+ *
+ * Lê `.pi/settings.json` (`{ "packages": ["npm:<nome>", ...] }`) e devolve o
+ * bundle de cada pacote habilitado. Só o que está no settings carrega — é isso
+ * que torna o carregamento preguiçoso de verdade: uma extensão instalada em
+ * `.pi/npm/` mas fora do settings não entra no prompt.
+ *
+ * Fallback: se o settings não existir ou não tiver `packages`, devolve vazio.
+ */
 export async function projectExtensions(root) {
   const base = path.join(root, ".pi", "npm", "node_modules");
+  let declared = null;
   try {
-    const entries = await (await import("node:fs/promises")).readdir(base, { withFileTypes: true });
-    const out = [];
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const bundle = path.join(base, e.name, "bundle", "index.js");
-      if (existsSync(bundle)) out.push(bundle);
-    }
-    return out;
+    const raw = await (await import("node:fs/promises")).readFile(
+      path.join(root, ".pi", "settings.json"),
+      "utf8",
+    );
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.packages)) declared = parsed.packages;
   } catch {
-    return [];
+    declared = null; // sem settings: nada habilitado
   }
+  if (!declared) return [];
+
+  const out = [];
+  for (const spec of declared) {
+    const name = typeof spec === "string" && spec.startsWith("npm:") ? spec.slice(4) : null;
+    if (!name) continue;
+    const bundle = path.join(base, name, "bundle", "index.js");
+    if (existsSync(bundle)) out.push(bundle);
+  }
+  return out;
 }
 
 /** Executa o PI e resume o stream JSON. */
