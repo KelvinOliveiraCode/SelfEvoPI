@@ -2,7 +2,13 @@
 /**
  * Grupo A (codigo) — chooseKind do Forge (core/forge/contract.mjs).
  * Escolhe o kind mais leve que atende às capacidades pedidas, cobre tudo quando
- * possível e, quando nada cobre, devolve o mais leve com menos faltas.
+ * possível e, quando nada cobre, devolve **skill** (o único sempre produzível,
+ * porque não exige inventar interface).
+ *
+ * Esclarecimento de 2026-11-16: este caso 6 dizia "mcp-config". Estava errado —
+ * um pedido que não fala de MCP nenhum não pode virar config de MCP. O `ranked`
+ * continua igual (mcp-config no topo por ser o mais leve); muda só o kind final.
+ *
  * Determinístico, sem chamadas de modelo.
  */
 import path from "node:path";
@@ -43,10 +49,15 @@ expectKind(["server"], "mcp-server");
   if (r.missing.length !== 0) failures.push(`config+cli deveria estar coberto, faltas ${r.missing.join(",")}`);
 }
 
-// 6. capacidade desconhecida: ninguém cobre; devolve o mais leve com a falta
+// 6. capacidade desconhecida: ninguém cobre; cai no artefato sempre produzível
 {
-  const r = expectKind(["zzz"], "mcp-config");
+  const r = expectKind(["zzz"], "skill");
   if (r.missing.join(",") !== "zzz") failures.push(`faltas ${r.missing.join(",")}, esperado "zzz"`);
+  if (r.fallback !== true) failures.push("deveria marcar fallback: true (nenhuma capacidade reconhecida)");
+  // o ranking nao muda: mcp-config continua no topo por ser o mais leve
+  if (r.ranked[0].kind !== "mcp-config") {
+    failures.push(`ranked[0] deveria continuar mcp-config, veio ${r.ranked[0].kind}`);
+  }
 }
 
 // 7. entrada string (não array) é aceita

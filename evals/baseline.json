@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-16T16:05:33.958Z",
+  "generatedAt": "2026-11-16T17:05:51.435Z",
   "generator": "evals/gate.mjs --update",
   "runs": 3,
   "group": null,
@@ -9,7 +9,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 131,
+      "avgMs": 114,
       "tokens": 0
     },
     "A2-router-backoff": {
@@ -17,7 +17,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 124,
+      "avgMs": 112,
       "tokens": 0
     },
     "A3-circuit-breaker": {
@@ -25,7 +25,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 120,
+      "avgMs": 113,
       "tokens": 0
     },
     "A4-retry-policy": {
@@ -33,7 +33,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 171,
+      "avgMs": 112,
       "tokens": 0
     },
     "A5-router-budget": {
@@ -41,7 +41,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 138,
+      "avgMs": 105,
       "tokens": 0
     },
     "A6-router-pick-with-retry": {
@@ -49,7 +49,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 115,
+      "avgMs": 103,
       "tokens": 0
     },
     "A7-router-from-config": {
@@ -57,7 +57,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 123,
+      "avgMs": 108,
       "tokens": 0
     },
     "A8-forge-choose-kind": {
@@ -65,7 +65,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 134,
+      "avgMs": 103,
       "tokens": 0
     },
     "B1-providers-present": {
@@ -73,7 +73,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 169,
+      "avgMs": 118,
       "tokens": 0
     },
     "B10-schema-cli": {
@@ -81,8 +81,8 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 88506,
-      "tokens": 32995,
+      "avgMs": 38080,
+      "tokens": 31749,
       "stochastic": true
     },
     "B11-html-extract": {
@@ -90,8 +90,8 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 63904,
-      "tokens": 32938,
+      "avgMs": 60553,
+      "tokens": 35791,
       "stochastic": true
     },
     "B2-models-schema": {
@@ -99,7 +99,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 138,
+      "avgMs": 119,
       "tokens": 0
     },
     "B3-import-idempotent": {
@@ -107,7 +107,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 432,
+      "avgMs": 301,
       "tokens": 0
     },
     "B4-import-rejects-missing": {
@@ -115,7 +115,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 250,
+      "avgMs": 205,
       "tokens": 0
     },
     "B5-sandbox-static-gate": {
@@ -123,7 +123,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 140,
+      "avgMs": 122,
       "tokens": 0
     },
     "B6-forge-generate-cli": {
@@ -131,7 +131,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 337,
+      "avgMs": 283,
       "tokens": 0
     },
     "B7-memory-store": {
@@ -139,7 +139,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 159,
+      "avgMs": 152,
       "tokens": 0
     },
     "B8-graph-executor": {
@@ -147,7 +147,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 140,
+      "avgMs": 126,
       "tokens": 0
     },
     "B9-csv-cli": {
@@ -155,8 +155,8 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 37132,
-      "tokens": 30903,
+      "avgMs": 36742,
+      "tokens": 30166,
       "stochastic": true
     },
     "C1-gitignore-secrets": {
@@ -164,7 +164,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 180,
+      "avgMs": 198,
       "tokens": 0
     },
     "C2-no-secrets-tracked": {
@@ -172,7 +172,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 344,
+      "avgMs": 282,
       "tokens": 0
     },
     "C3-router-unit-tests": {
@@ -180,7 +180,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 410,
+      "avgMs": 344,
       "tokens": 0
     },
     "C4-docs-present": {
@@ -188,7 +188,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 115,
+      "avgMs": 112,
       "tokens": 0
     },
     "C5-graph-model": {
@@ -196,7 +196,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 129,
+      "avgMs": 121,
       "tokens": 0
     },
     "C6-forge-contract": {
@@ -204,7 +204,7 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 265,
+      "avgMs": 129,
       "tokens": 0
     },
     "D1-cria-soma": {
@@ -212,8 +212,8 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 8291,
-      "tokens": 26954,
+      "avgMs": 10582,
+      "tokens": 27186,
       "stochastic": true
     },
     "D2-corrige-contador": {
@@ -221,17 +221,17 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 14853,
-      "tokens": 27703,
+      "avgMs": 12847,
+      "tokens": 27583,
       "stochastic": true
     },
     "D3-cria-csv": {
       "group": "D",
       "runs": 3,
-      "passes": 3,
-      "rate": 1,
-      "avgMs": 19493,
-      "tokens": 28939,
+      "passes": 2,
+      "rate": 0.6666666666666666,
+      "avgMs": 9461,
+      "tokens": 19500,
       "stochastic": true
     },
     "D4-refatora-preservando": {
@@ -239,17 +239,17 @@
       "runs": 3,
       "passes": 3,
       "rate": 1,
-      "avgMs": 50663,
-      "tokens": 34265,
+      "avgMs": 29039,
+      "tokens": 31725,
       "stochastic": true
     }
   },
   "totals": {
     "taskRuns": 87,
-    "passes": 87,
-    "rate": 1,
-    "avgMs": 9900,
-    "tokens": 214697,
+    "passes": 86,
+    "rate": 0.9885057471264368,
+    "avgMs": 6924,
+    "tokens": 203700,
     "costUsd": 0
   }
 }

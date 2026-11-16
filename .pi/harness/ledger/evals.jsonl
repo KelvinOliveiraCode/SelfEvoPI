@@ -173,3 +173,11 @@
 {"at":"2026-11-16T16:10:34.063Z","taskId":"B6-forge-generate-cli","group":"B","passed":true,"durationMs":264,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"arquivos":3,"casos":4}}
 {"at":"2026-11-16T16:10:34.259Z","taskId":"B7-memory-store","group":"B","passed":true,"durationMs":189,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"entradas":2,"niveis":3}}
 {"at":"2026-11-16T16:10:34.498Z","taskId":"B8-graph-executor","group":"B","passed":true,"durationMs":236,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"casos":4}}
+{"at":"2026-11-16T16:52:33.080Z","taskId":"A1-router-reviewer","group":"A","passed":true,"durationMs":89,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"picks":20}}
+{"at":"2026-11-16T16:52:33.169Z","taskId":"A2-router-backoff","group":"A","passed":true,"durationMs":85,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"attempts":8,"cap":8000}}
+{"at":"2026-11-16T16:52:33.256Z","taskId":"A3-circuit-breaker","group":"A","passed":true,"durationMs":86,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"failures":3}}
+{"at":"2026-11-16T16:52:33.345Z","taskId":"A4-retry-policy","group":"A","passed":true,"durationMs":86,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"attempts":3}}
+{"at":"2026-11-16T16:52:33.445Z","taskId":"A5-router-budget","group":"A","passed":true,"durationMs":98,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"verificacoes":4}}
+{"at":"2026-11-16T16:52:33.549Z","taskId":"A6-router-pick-with-retry","group":"A","passed":true,"durationMs":102,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"verificacoes":4}}
+{"at":"2026-11-16T16:52:33.649Z","taskId":"A7-router-from-config","group":"A","passed":true,"durationMs":96,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"picks":12}}
+{"at":"2026-11-16T16:52:33.736Z","taskId":"A8-forge-choose-kind","group":"A","passed":true,"durationMs":85,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"casos":7}}
