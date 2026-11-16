@@ -56,13 +56,47 @@ Antes disso, a afirmação "gate com extensão ativa" era falsa.
 
 ---
 
-## 5. `pi-subagents` — custo medido, benefício não medido
+## 5. `pi-subagents` — custo medido, benefício não medido, agora sob demanda
 
 Com a extensão ativa, o grupo D passou de ~9.200 para **10.846 tokens** por tarefa, com acurácia **inalterada** (2/2). A baseline inteira subiu de 54.657 para **64.802 tokens**.
 
 **Leitura:** nas tarefas atuais (criar um módulo, corrigir um bug), delegar não ajuda — são tarefas pequenas demais para justificar o overhead. O valor do `pi-subagents` só aparece em tarefas que precisam de revisão paralela ou investigação longa, que ainda não temos nos evals.
 
-**Decisão:** **manter instalado**, porque a Fase 3 (grafo de execução) depende de subagentes, mas **registrar o custo** e reavaliar quando houver tarefas que exijam delegação. O carregamento lazy que ele já faz limita parte do dano.
+### A medição que mudou a decisão (2026-11-16)
+
+Medi o orçamento de prompt do projeto com `scripts/measure-selfevopi-overhead.mjs`
+(3 execuções por configuração, mediana, modelo `kilo1/nvidia/nemotron-3-ultra-550b-a55b:free`):
+
+| Configuração | Tokens | Incremento sobre o PI puro |
+|:---|:---|:---|
+| PI puro (fora do repo) | 8.685 | — |
+| + memória vazia | 8.700 | **+15** |
+| + memória com 5 entradas | 8.839 | **+154** |
+| + memória no teto (400 tok) | 9.185 | **+500** |
+| + `pi-subagents` (sob demanda) | 10.338 | **+1.653** |
+
+O plano exige **prompt incremental < 1.500 tokens**. O código autoral do SelfEvoPI
+cabe com folga (**500 tokens no pior caso, 1/3 do orçamento**). Quem estoura o
+orçamento é a extensão de terceiros: **1.653 tokens sozinhos**.
+
+### Decisão
+
+**`pi-subagents` passa a carregar sob demanda, não por padrão.**
+
+- `.pi/settings.json` fica com `packages: []` — nada carrega no prompt inicial.
+- `scripts/pi-launch.mjs --memory` / `--subagents` liga a extensão pedida, com o
+  custo de cada uma impresso em `--list`.
+- `projectExtensions()` (evals) passou a ler o `settings.json` em vez de varrer
+  `.pi/npm/` — antes, uma extensão instalada carregava mesmo desabilitada.
+
+Isso satisfaz as duas regras do plano que se contradiziam: **orçamento de 1.500
+tokens** e **lazy-loading obrigatório** ("carregando a definição completa da
+ferramenta somente quando a tarefa exigir").
+
+**Gatilho de reavaliação:** quando existir uma tarefa de eval que precise de
+delegação paralela e o ganho de acurácia superar o custo. Reativar é
+`node scripts/pi-launch.mjs --subagents` ou devolver `"npm:pi-subagents"` ao
+`settings.json`.
 
 ---
 
@@ -79,13 +113,16 @@ O `scripts/test-compression.mjs` fica como instrumento reutilizável.
 | Métrica | Valor |
 |:---|:---|
 | Evals | 14 tarefas, 42/42 |
-| Tokens da suíte (com extensão) | 64.802 |
+| Tokens da suíte (configuração padrão) | 54.992 |
+| Prompt incremental do SelfEvoPI | **500 tok** (teto de 400 de memória) — meta 1.500 |
+| `pi-subagents` | +1.653 tok, sob demanda |
+| Cold start | 405 ms |
 | Testes unitários | 172 |
 | Baseline | regenerada em 2026-11-16 |
 
 ## 8. Pendências
 
-- [ ] Crescer a suíte para ~25 tarefas que quebrem de verdade (não decorativas).
-- [ ] Medir o incremento do prompt do SelfEvoPI (meta < 1.500 tokens).
-- [ ] Reavaliar `pi-subagents` quando houver tarefas de delegação.
+- [ ] Crescer a suíte para ~25 tarefas que quebrem de verdade (não decorativas). → A2
+- [x] Medir o incremento do prompt do SelfEvoPI (meta < 1.500 tokens). → **500 tok, dentro**
+- [x] Reavaliar `pi-subagents`. → **sob demanda, fora do prompt padrão**
 - [ ] Resolver a política de keep-alive do sandbox (definida, não implementada).
