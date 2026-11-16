@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createArtifactRequest, chooseKind } from "./contract.mjs";
-import { detectGaps } from "./detect.mjs";
+import { createGap, detectGaps } from "./detect.mjs";
 import { generateCli } from "./generate-cli.mjs";
 import { generateSkill } from "./generate-skill.mjs";
 import { runGate, decidePromotion } from "./gatekeeper.mjs";
@@ -86,6 +86,41 @@ async function defaultRollback({ artifactDir }) {
 /** Stub de eval para dry-run: uma execução neutra, zero token. */
 async function stubRunEvals() {
   return [{ passed: true, tokens: 0 }];
+}
+
+/* ------------------------------------------------------------------ */
+/* Testes sintetizados                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Quando o pedido não traz testes, cria um teste de interface real:
+ * roda o CLI com uma amostra de cada entrada declarada e exige que a saída
+ * tenha as chaves declaradas.
+ *
+ * Sem isso, o default era um "smoke test" que sempre passa — e um artefato com
+ * uma interface errada (ler args posicionais em vez de `--flag`) era promovido
+ * com evidência falsa. O teste de interface é a diferença entre "executou" e
+ * "funciona".
+ */
+export function synthesizeTests(request, { cliPath = "cli.mjs" } = {}) {
+  const inputs = Object.keys(request.inputs ?? {});
+  const outputs = Object.keys(request.outputs ?? {});
+
+  if (inputs.length === 0) {
+    return [{ name: "interface", command: `node ${cliPath}`, expect: null }];
+  }
+
+  const flags = inputs.map((k) => `--${k} 1`).join(" ");
+  // a expect é um regex: exige que TODAS as chaves declaradas apareçam no JSON
+  const expect = outputs.length > 0 ? outputs.map((o) => `"${o}"`).join(".*") : null;
+
+  return [
+    {
+      name: `interface (${inputs.map((k) => `--${k}`).join(" ")})`,
+      command: `node ${cliPath} ${flags}`,
+      expect,
+    },
+  ];
 }
 
 /* ------------------------------------------------------------------ */
@@ -198,6 +233,25 @@ export function createEvolutionLoop(deps = {}) {
     try {
       // 1. Detecta lacuna (se não veio pronta).
       let gap = input.gap;
+      // Objetivo explícito (--goal) sintetiza a lacuna na hora: é o caminho do
+      // "gere um artefato para isto" sem depender de uma falha no ledger.
+      if (!gap && typeof input.goal === "string" && input.goal.trim() !== "") {
+        const slug = input.goal
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+          .slice(0, 40) || "objetivo";
+        gap = createGap({
+          kind: "tool-missing",
+          taskId: input.taskId ?? slug,
+          capability: input.goal.trim(),
+          goal: input.goal.trim(),
+          evidence: ["--goal (pedido explícito do operador)"],
+          meta: { source: "cli" },
+        });
+      }
       if (!gap) {
         const ledger = input.ledger;
         const det = await detect({
@@ -233,13 +287,21 @@ export function createEvolutionLoop(deps = {}) {
       let request = input.request;
       if (!request) {
         const goal = gap.goal || gap.capability;
+        // Testes: os do operador, ou um teste de interface sintetizado.
+        // Nunca um smoke test vazio: evidência falsa é pior que evidência nenhuma.
+        const tests = Array.isArray(input.tests) && input.tests.length > 0
+          ? input.tests
+          : synthesizeTests({
+              inputs: input.inputs ?? {},
+              outputs: input.outputs ?? {},
+            });
         request = createArtifactRequest({
           goal,
           kind: finalKind,
           inputs: input.inputs ?? {},
           outputs: input.outputs ?? {},
           forbidden: input.forbidden ?? ["acessar rede", "escrever fora do workspace"],
-          tests: input.tests ?? [{ name: "smoke", command: 'node -e "process.exit(0)"' }],
+          tests,
         });
         request.taskId = gap.taskId ?? null;
       }

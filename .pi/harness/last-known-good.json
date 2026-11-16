@@ -1,35 +1,18 @@
 {
   "version": 1,
-  "sha": "ad08e8c",
-  "branch": "main",
+  "sha": "f16d275",
+  "branch": "dev",
   "verifiedAt": "2026-11-16",
   "phase": "1",
   "checks": [
     {
-      "name": "unit-tests",
-      "command": "node --test core/router/*.test.mjs core/forge/*.test.mjs core/memory/*.test.mjs core/graph/*.test.mjs core/sandbox/*.test.mjs",
+      "name": "verify",
+      "command": "promoção de calcular-o-imc-a-partir-de-peso-e-altura",
       "result": "pass",
-      "detail": "101 testes em 6 arquivos (router, budget, forge, memory, graph, sandbox)"
-    },
-    {
-      "name": "evals-estruturais",
-      "command": "node evals/run.mjs --group A/B/C",
-      "result": "pass",
-      "detail": "12/12"
-    },
-    {
-      "name": "evals-modelo-real",
-      "command": "node evals/run.mjs --group D",
-      "result": "pass",
-      "detail": "2/2 com fallback de provider (17.452 tokens medidos)"
-    },
-    {
-      "name": "providers",
-      "command": "node scripts/check-providers.mjs",
-      "result": "pass",
-      "detail": "8/8 HTTP 200"
+      "detail": "sem tarefa de eval; evidência do artefato"
     }
   ],
-  "notes": "Primeira leva de subagentes integrada: A3 orcamento, A4 bake-off, A5 forge, A6 sandbox, A7 memoria, A8 grafo. Segunda leva em curso.",
+  "notes": "artefato promovido para .pi\\harness\\artifacts\\calcular-o-imc-a-partir-de-peso-e-altura-2026-11-16T14-38-45-917Z",
+  "label": "promoção de calcular-o-imc-a-partir-de-peso-e-altura",
   "tag": "ckpt/f0-overhead"
 }

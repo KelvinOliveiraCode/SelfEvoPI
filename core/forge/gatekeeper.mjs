@@ -83,17 +83,20 @@ export async function runGate(opts = {}) {
   }
 
   const totalRuns = evalRuns.length;
+  const skipped = totalRuns > 0 && evalRuns.every((r) => r && r.skipped === true);
   const passes = evalRuns.filter((r) => r && r.passed === true).length;
   const tokensList = evalRuns.map((r) => Number(r?.tokens) || 0);
-  const avgTokens = totalRuns > 0
+  const avgTokens = totalRuns > 0 && !skipped
     ? Math.round(tokensList.reduce((a, b) => a + b, 0) / totalRuns)
     : 0;
 
   // 3. Baseline: regressão é cair vs. taxa/tokens de referência.
   const base = isPlainObject(baseline) && baseline[taskId] ? baseline[taskId] : null;
   const baseTokens = base && Number.isFinite(Number(base.tokens)) ? Number(base.tokens) : 0;
-  const deltaTokens = base ? avgTokens - baseTokens : 0;
-  const regressed = base ? passes < totalRuns || avgTokens > baseTokens + numTolerance : false;
+  const deltaTokens = base && !skipped ? avgTokens - baseTokens : 0;
+  // Sem tarefa de eval não há regressão a medir: o veredito vem da evidência
+  // do próprio artefato (testEvidence), não de uma comparação que não existe.
+  const regressed = base && !skipped ? passes < totalRuns || avgTokens > baseTokens + numTolerance : false;
 
   const report = {
     artifactDir,
@@ -101,6 +104,7 @@ export async function runGate(opts = {}) {
     kind: request.kind ?? null,
     runs: totalRuns,
     passes,
+    skipped,
     avgTokens,
     baselineTokens: baseTokens,
     deltaTokens,
@@ -137,6 +141,22 @@ export function decidePromotion(report, opts = {}) {
     : Number(report.toleranceTokens) || 0;
 
   const reasons = [];
+
+  // 0. artefato sem tarefa de eval: o veredito é a evidência do próprio artefato.
+  if (report.skipped) {
+    const evidence = Array.isArray(report.testEvidence) ? report.testEvidence : [];
+    const allPassed = evidence.length > 0 && evidence.every((t) => t && t.passed === true);
+    if (!allPassed) {
+      reasons.push("sem tarefa de eval e sem evidência de teste aprovada");
+    }
+    return {
+      promote: allPassed,
+      reasons: allPassed
+        ? ["sem tarefa de eval; gateado pela evidência do próprio artefato"]
+        : reasons,
+      basis: "artifact",
+    };
+  }
 
   // 1. tarefa-alvo passou (todas as execuções)
   if (!Number.isFinite(report.runs) || report.runs <= 0) {

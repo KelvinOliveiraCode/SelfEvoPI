@@ -14,6 +14,7 @@
  */
 
 import { readFile, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
@@ -26,6 +27,7 @@ const ROOT = path.resolve(import.meta.dirname, "..", "..");
 const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
 const BASELINE = path.join(ROOT, "evals", "baseline.json");
 const TASKS_DIR = path.join(ROOT, "evals", "tasks");
+const DEFAULT_MODEL = process.env.SELFEOPI_MODEL || "kilo1/nvidia/nemotron-3-ultra-550b-a55b:free";
 
 /* ------------------------------------------------------------------ */
 /* Args                                                                */
@@ -71,8 +73,17 @@ async function readJson(file, fallback = null) {
   }
 }
 
-/** runEvals real: chama evals/run.mjs --task <id> --no-ledger e lê o ledger? */
+/**
+ * runEvals real: chama `evals/run.mjs --task <id>` N vezes.
+ *
+ * Quando a tarefa não existe (artefato gerado para um objetivo novo, sem tarefa
+ * no ledger), devolve `{ skipped: true }` em vez de reprovar: o gate passa a
+ * julgar pela evidência do próprio artefato, e diz isso no laudo.
+ */
 async function realRunEvals({ taskId, runs }) {
+  if (!taskId || !existsSync(path.join(TASKS_DIR, `${taskId}.json`))) {
+    return [{ skipped: true, reason: `sem tarefa de eval "${taskId}"` }];
+  }
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
   const execFileAsync = promisify(execFile);
@@ -103,17 +114,64 @@ async function realRunEvals({ taskId, runs }) {
  */
 async function realPromote({ artifactDir, report, request }) {
   const taskId = request?.taskId ?? report?.taskId ?? "tarefa";
-  const gateOk = report?.regressed !== true && (report?.passes ?? 0) === (report?.runs ?? 0);
+  // Sem tarefa de eval, a evidência é a do próprio artefato (mesmo critério do gate).
+  const gateOk = report?.skipped
+    ? (report?.testEvidence ?? []).length > 0 && report.testEvidence.every((t) => t?.passed === true)
+    : report?.regressed !== true && (report?.passes ?? 0) === (report?.runs ?? 0);
   return promoteArtifact({
     artifactDir,
     taskId,
     repoRoot: ROOT,
     verify: async () => ({
       ok: gateOk,
-      detail: `gate: ${report?.passes ?? 0}/${report?.runs ?? 0} execucoes, delta ${report?.deltaTokens ?? 0} tokens`,
+      detail: report?.skipped
+        ? "sem tarefa de eval; evidência do artefato"
+        : `gate: ${report?.passes ?? 0}/${report?.runs ?? 0} execucoes, delta ${report?.deltaTokens ?? 0} tokens`,
     }),
     message: `evo(${taskId}): artefato aprovado pelo gate`,
   });
+}
+
+/** Converte "a,b,c" em { a: "a", b: "b" } (ou null). */
+function parseList(value) {
+  if (typeof value !== "string") return null;
+  const items = value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (items.length === 0) return null;
+  const out = {};
+  for (const k of items) out[k] = k;
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Modelo (usado pelo gerador com modelo)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Cria um `runModel` que chama o PI em modo texto.
+ *
+ * Vive no CLI (camada de composição) e não em `core/`: assim o núcleo não
+ * depende de `evals/`, que é área protegida.
+ */
+function makeRunModel({ model, timeoutMs = 120_000 } = {}) {
+  return async ({ prompt }) => {
+    const { spawnSync } = await import("node:child_process");
+    const bundle = path.join(
+      process.env.APPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Roaming"),
+      "npm", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "bundle", "cli.js",
+    );
+    const args = process.platform === "win32" ? [bundle] : [];
+    const cmd = process.platform === "win32" ? process.execPath : "pi";
+    const res = spawnSync(
+      cmd,
+      [...args, "--model", model, "--approve", "--mode", "text", "--print", prompt],
+      { cwd: ROOT, encoding: "utf8", maxBuffer: 32 * 1024 * 1024, windowsHide: true, timeout: timeoutMs },
+    );
+    if (res.status !== 0) {
+      const detail = String(res.stderr || res.stdout || "").trim().split("\n")[0] || `exit ${res.status}`;
+      throw new Error(`pi saiu com código ${res.status}: ${detail.slice(0, 200)}`);
+    }
+    return { text: String(res.stdout ?? ""), tokens: null };
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -139,9 +197,23 @@ async function cmdDetect(args) {
 
 async function cmdEvolve(args) {
   const taskId = args.flags.task;
-  if (!taskId || taskId === true) {
-    if (args.flags.json) jsonLine({ ok: false, error: "informe --task <id>" });
-    else text("erro: informe --task <id>");
+  const goal = typeof args.flags.goal === "string" ? args.flags.goal : null;
+
+  // Duas formas de pedir um ciclo: por tarefa do ledger (detect) ou por objetivo
+  // explícito (--goal), que sintetiza a lacuna na hora.
+  if ((!taskId || taskId === true) && !goal) {
+    if (args.flags.json) jsonLine({ ok: false, error: "informe --task <id> ou --goal \"<objetivo>\"" });
+    else text("erro: informe --task <id> ou --goal \"<objetivo>\"");
+    return 2;
+  }
+
+  // Um CLI sem entradas declaradas não tem teste de interface possível: gerar
+  // assim produziria evidência fraca. Melhor recusar e pedir o contrato.
+  const wantKind = typeof args.flags.kind === "string" ? args.flags.kind : null;
+  if (goal && wantKind === "cli" && typeof args.flags.inputs !== "string") {
+    const msg = "para --kind cli, declare --inputs \"nome,nome\" (e --outputs \"chave,chave\"): sem contrato não há teste de interface";
+    if (args.flags.json) jsonLine({ ok: false, error: msg });
+    else text(`erro: ${msg}`);
     return 2;
   }
 
@@ -149,14 +221,40 @@ async function cmdEvolve(args) {
   // dry-run não toca em modelo real: stub neutro determinístico, 1 execução.
   const dryRun = Boolean(args.flags["dry-run"]);
   const runEvals = dryRun ? async () => [{ passed: true, tokens: 0 }] : (opts) => realRunEvals(opts);
+
+  // `--llm` troca o gerador de esqueleto pelo gerador com modelo. Se ele falhar,
+  // o loop cai no gerador de template (o artefato existe, mas é esqueleto).
+  const useLlm = Boolean(args.flags.llm) && !dryRun;
+  let generate;
+  let onGenerateError = null;
+  if (useLlm) {
+    const model = typeof args.flags.model === "string" ? args.flags.model : DEFAULT_MODEL;
+    const runModel = makeRunModel({ model });
+    const { generateWithModel } = await import("./generate-llm.mjs");
+    generate = async (request, outDir) => {
+      try {
+        return await generateWithModel({ request, outDir, runModel, model });
+      } catch (err) {
+        onGenerateError = { code: err?.code ?? "erro", message: err?.message ?? String(err) };
+        const { generateCli } = await import("./generate-cli.mjs");
+        return generateCli(request, outDir);
+      }
+    };
+  }
+
   const loop = createEvolutionLoop({
     runEvals,
     promote: realPromote,
+    ...(generate ? { generate } : {}),
     onEvent: args.flags.json ? null : (e) => text(`  · ${e.event}${e.reason ? ` (${e.reason})` : ""}`),
   });
 
   const report = await loop.evolve({
-    taskId,
+    taskId: taskId === true ? null : taskId,
+    goal,
+    kind: wantKind ?? undefined,
+    inputs: parseList(args.flags.inputs),
+    outputs: parseList(args.flags.outputs),
     ledger: LEDGER,
     baseline,
     toleranceTokens: Number(args.flags["tolerance-tokens"] ?? 0),
@@ -165,13 +263,21 @@ async function cmdEvolve(args) {
   });
 
   if (args.flags.json) {
-    jsonLine({ ok: report.outcome !== "error", report });
+    jsonLine({ ok: report.outcome !== "error", report, generate: useLlm ? "modelo" : "template", generateError: onGenerateError });
   } else {
     text(`outcome: ${report.outcome}`);
     if (report.gap) text(`gap: [${report.gap.kind}] ${report.gap.taskId}`);
     if (report.kind) text(`kind: ${report.kind}`);
-    if (report.verify) text(`verify: ${report.verify.ok ? "pass" : "fail"} (exit ${report.verify.status})`);
+    if (report.verify) {
+      text(`verify: ${report.verify.ok ? "pass" : "fail"} (exit ${report.verify.status})`);
+      if (report.verify.ok === false) {
+        const detail = String(report.verify.stdout || report.verify.stderr || "").trim().split("\n").slice(0, 6);
+        for (const line of detail) text(`  | ${line}`);
+      }
+    }
     if (report.decision) text(`gate: ${report.decision.promote ? "promover" : "reprovar"} ${report.decision.reasons.join("; ")}`);
+    if (report.promoted?.path) text(`artefato: ${report.promoted.path}`);
+    if (onGenerateError) text(`gerador com modelo falhou (${onGenerateError.code}): caiu no template`);
   }
   return report.outcome === "rejected" || report.outcome === "error" ? 1 : 0;
 }

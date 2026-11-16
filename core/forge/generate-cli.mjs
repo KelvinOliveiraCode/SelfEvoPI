@@ -34,7 +34,7 @@ async function exists(path) {
 /* cli.mjs                                                             */
 /* ------------------------------------------------------------------ */
 
-function renderCli(request) {
+export function renderCli(request) {
   const inputsJson = JSON.stringify(request.inputs ?? {}, null, 2);
   const outputsJson = JSON.stringify(request.outputs ?? {}, null, 2);
   const goal = JSON.stringify(request.goal);
@@ -100,21 +100,38 @@ if (missing.length > 0) {
 /* verify.mjs                                                          */
 /* ------------------------------------------------------------------ */
 
-function renderVerify(request) {
+export function renderVerify(request) {
   const testsJson = JSON.stringify(request.tests, null, 2);
   return `#!/usr/bin/env node
 /**
  * verify.mjs — verificação autogerada pelo Forge.
  * Roda cada teste do pedido e sai 0 só se todos passarem.
+ * Quando o teste traz "expect", a saída também precisa casar (substring ou regex).
  */
 import { spawnSync } from "node:child_process";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Os comandos do pedido são relativos ao artefato, não ao diretório de onde
+// o verify foi chamado.
+const AQUI = dirname(fileURLToPath(import.meta.url));
 
 const tests = ${testsJson};
 
+function matchesExpect(stdout, expect) {
+  if (!expect) return true;
+  const out = String(stdout ?? "");
+  try {
+    return new RegExp(expect).test(out);
+  } catch {
+    return out.includes(expect);
+  }
+}
+
 let failed = 0;
 for (const t of tests) {
-  const r = spawnSync(t.command, { shell: true, encoding: "utf8" });
-  const ok = r.status === 0;
+  const r = spawnSync(t.command, { shell: true, encoding: "utf8", cwd: AQUI });
+  const ok = r.status === 0 && matchesExpect(r.stdout, t.expect);
   if (!ok) failed++;
   console.log((ok ? "PASS " : "FAIL ") + t.name + "  (" + t.command + ")");
   if (!ok) {
@@ -136,7 +153,7 @@ console.log("\\nTodos os " + tests.length + " teste(s) passaram");
 /* README.md                                                           */
 /* ------------------------------------------------------------------ */
 
-function renderReadme(request) {
+export function renderReadme(request) {
   const flags = Object.keys(request.inputs ?? {})
     .map((k) => `--${k}`)
     .join(" ");
