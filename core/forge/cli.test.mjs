@@ -69,6 +69,24 @@ test("cli status imprime estado do harness", () => {
   assert.match(r.stdout, /baseline:/);
 });
 
+test("cli skills lista e busca na memoria sem quebrar", () => {
+  const list = run(["skills"]);
+  assert.equal(list.status, 0);
+  assert.match(list.stdout, /memória \(skills\)/);
+
+  const json = run(["skills", "qualquer termo", "--json"]);
+  assert.equal(json.status, 0);
+  const j = lastJson(json.stdout);
+  assert.equal(j.ok, true);
+  assert.ok(Array.isArray(j.terms));
+  assert.ok(Array.isArray(j.results));
+  assert.equal(typeof j.count, "number");
+
+  const vazio = run(["skills", "a o de", "--json"]);
+  assert.equal(vazio.status, 0, "consulta sem termo nao pode falhar");
+  assert.equal(lastJson(vazio.stdout).count, 0);
+});
+
 test("cli comando desconhecido sai 2", () => {
   const r = run(["--json", "nada"]);
   assert.equal(r.status, 2);

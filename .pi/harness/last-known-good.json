@@ -1,36 +1,18 @@
 {
   "version": 1,
-  "sha": "1313af6",
+  "sha": "677d1a2",
   "branch": "main",
   "verifiedAt": "2026-11-16",
   "phase": "2",
   "checks": [
     {
-      "name": "unit-tests",
-      "command": "node --test core/*/*.test.mjs",
+      "name": "verify",
+      "command": "promoção de calcular-o-imc-de-uma-pessoa",
       "result": "pass",
-      "detail": "328 testes em 8 suites"
-    },
-    {
-      "name": "evals",
-      "command": "node evals/gate.mjs",
-      "result": "pass",
-      "detail": "87/87 (29 tarefas, 3 execucoes)"
-    },
-    {
-      "name": "cold-start",
-      "command": "node scripts/measure-overhead.mjs",
-      "result": "pass",
-      "detail": "433 ms (meta < 500)"
-    },
-    {
-      "name": "prompt-budget",
-      "command": "node scripts/measure-selfevopi-overhead.mjs",
-      "result": "pass",
-      "detail": "+501 tok (meta < 1.500)"
+      "detail": "sem tarefa de eval; evidência do artefato"
     }
   ],
-  "notes": "Cinco kinds com gerador, SpecWriter, sonda por kind, ponte do grafo, rotina diaria.",
-  "label": "estado final verificado (5 kinds + ponte)",
+  "notes": "artefato promovido para .pi\\harness\\artifacts\\calcular-o-imc-de-uma-pessoa-2026-11-16T17-33-40-022Z",
+  "label": "promoção de calcular-o-imc-de-uma-pessoa",
   "tag": "v0.5-desktop"
 }

@@ -331,6 +331,46 @@ async function cmdStatus() {
   return 0;
 }
 
+/**
+ * `skills [termo]` — o que o loop já produziu e está registrado na memória.
+ * Existe para que a pergunta "isso já foi feito?" tenha resposta antes de gerar
+ * de novo. Sem termo, lista tudo o que está no nível skills.
+ */
+async function cmdSkills(args) {
+  const query = args._.slice(1).join(" ").trim();
+  const level = typeof args.flags.level === "string" ? args.flags.level : "skills";
+  const levels = level === "all" ? ["skills", "project"] : [level];
+  const { openStore } = await import("../memory/store.mjs");
+  const { searchCapabilities } = await import("../memory/search.mjs");
+  const store = openStore({ root: path.join(ROOT, ".pi", "harness", "memory") });
+
+  if (query === "") {
+    const entries = store.query({ level }).filter((e) => !e.invalid);
+    if (args.flags.json) {
+      jsonLine({ ok: true, level, count: entries.length, entries });
+      return 0;
+    }
+    text(`memória (${level}): ${entries.length} entrada(s)`);
+    for (const e of entries) text(`  ${e.id}  ${e.text}`);
+    return 0;
+  }
+
+  const res = searchCapabilities(store, query, { levels, limit: Number(args.flags.limit ?? 10) });
+  if (args.flags.json) {
+    jsonLine({ ok: true, ...res });
+    return 0;
+  }
+  text(`busca: "${query}"  (${res.count} resultado(s))`);
+  if (res.count === 0) {
+    text("  nada encontrado — talvez ainda não tenha sido gerado");
+    return 0;
+  }
+  for (const r of res.results) {
+    text(`  [${r.score}] ${r.text.slice(0, 100)}`);
+  }
+  return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* main                                                                */
 /* ------------------------------------------------------------------ */
@@ -343,6 +383,7 @@ async function main() {
   else if (cmd === "evolve") code = await cmdEvolve(args);
   else if (cmd === "gate") code = await cmdGate(args);
   else if (cmd === "status") code = await cmdStatus();
+  else if (cmd === "skills") code = await cmdSkills(args);
   else {
     if (args.flags.json) jsonLine({ ok: false, error: "comando desconhecido" });
     else {
@@ -350,6 +391,7 @@ async function main() {
       text("  node core/forge/cli.mjs detect [--json]");
       text("  node core/forge/cli.mjs evolve --task <id> [--dry-run] [--json]");
       text("  node core/forge/cli.mjs gate --artifact <dir> --task <id>");
+      text("  node core/forge/cli.mjs skills [termo] [--level skills|project|all] [--json]");
       text("  node core/forge/cli.mjs status");
     }
     code = 2;
