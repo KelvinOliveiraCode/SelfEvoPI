@@ -215,11 +215,13 @@ test("loop: kind sem gerador falha honestamente em vez de recair para cli", asyn
     staticGate: async () => ({ decision: "allow" }),
   });
 
+  // os cinco kinds do contrato têm gerador; um sexto, inventado, não tem.
+  // O loop tem que dizer isso, não gerar um cli.mjs disfarçado.
   const report = await loop.evolve({
-    gap: { kind: "tool-missing", taskId: "Y", capability: "mcp-server" },
+    gap: { kind: "tool-missing", taskId: "Y", capability: "mágico" },
     request: {
-      goal: "servidor",
-      kind: "mcp-server",
+      goal: "artefato",
+      kind: "mágico",
       inputs: {},
       outputs: {},
       forbidden: ["acessar rede"],
@@ -230,7 +232,7 @@ test("loop: kind sem gerador falha honestamente em vez de recair para cli", asyn
   });
 
   assert.equal(report.outcome, "error", "nao pode gerar o artefato errado");
-  assert.match(report.reasons.join(" "), /sem gerador para kind "mcp-server"/);
+  assert.match(report.reasons.join(" "), /sem gerador para kind "mágico"/);
   await rm(out, { recursive: true, force: true });
 });
 

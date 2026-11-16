@@ -1,18 +1,18 @@
 {
   "version": 1,
-  "sha": "718547d",
+  "sha": "7c91ab8",
   "branch": "main",
   "verifiedAt": "2026-11-16",
   "phase": "2",
   "checks": [
     {
       "name": "verify",
-      "command": "promoção de extrair-a-tabela-de-um-html-salvo",
+      "command": "promoção de configurar-um-servidor-mcp-de-arquivos",
       "result": "pass",
       "detail": "sem tarefa de eval; evidência do artefato"
     }
   ],
-  "notes": "artefato promovido para .pi\\harness\\artifacts\\extrair-a-tabela-de-um-html-salvo-2026-11-16T16-00-45-374Z",
-  "label": "promoção de extrair-a-tabela-de-um-html-salvo",
+  "notes": "artefato promovido para .pi\\harness\\artifacts\\configurar-um-servidor-mcp-de-arquivos-2026-11-16T16-08-54-964Z",
+  "label": "promoção de configurar-um-servidor-mcp-de-arquivos",
   "tag": "v0.5-desktop"
 }

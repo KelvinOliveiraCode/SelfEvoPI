@@ -223,8 +223,9 @@ async function cmdEvolve(args) {
   const dryRun = Boolean(args.flags["dry-run"]);
   const runEvals = dryRun ? async () => [{ passed: true, tokens: 0 }] : (opts) => realRunEvals(opts);
 
-  // `--llm` troca o gerador de esqueleto pelo gerador com modelo. Se ele falhar,
-  // o loop cai no gerador de template (o artefato existe, mas é esqueleto).
+  // `--llm` troca o gerador de esqueleto pelo gerador com modelo **para CLIs**,
+  // que é o único kind que o generate-llm sabe produzir. Os outros quatro usam
+  // seus geradores próprios (template), e isso é dito no relatório.
   const useLlm = Boolean(args.flags.llm) && !dryRun;
   let generate;
   let onGenerateError = null;
@@ -232,14 +233,18 @@ async function cmdEvolve(args) {
     const model = typeof args.flags.model === "string" ? args.flags.model : DEFAULT_MODEL;
     const runModel = makeRunModel({ model });
     const { generateWithModel } = await import("./generate-llm.mjs");
+    const { defaultGenerate } = await import("./loop.mjs");
     generate = async (request, outDir) => {
-      try {
-        return await generateWithModel({ request, outDir, runModel, model });
-      } catch (err) {
-        onGenerateError = { code: err?.code ?? "erro", message: err?.message ?? String(err) };
-        const { generateCli } = await import("./generate-cli.mjs");
-        return generateCli(request, outDir);
+      if (request.kind === "cli") {
+        try {
+          return await generateWithModel({ request, outDir, runModel, model });
+        } catch (err) {
+          onGenerateError = { code: err?.code ?? "erro", message: err?.message ?? String(err), kind: request.kind };
+          // cai no gerador de template: o artefato existe, mas é esqueleto
+          return defaultGenerate(request, outDir);
+        }
       }
+      return defaultGenerate(request, outDir);
     };
   }
 

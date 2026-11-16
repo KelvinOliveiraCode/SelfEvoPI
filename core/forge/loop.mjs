@@ -52,7 +52,7 @@ const NEEDS_HUMAN_RULES = new Set([
 /* ------------------------------------------------------------------ */
 
 /** Gera o artefato conforme o kind (dispatcher dos cinco kinds reais). */
-async function defaultGenerate(request, outDir) {
+export async function defaultGenerate(request, outDir) {
   if (request.kind === "mcp-config") return generateMcpConfig(request, outDir);
   if (request.kind === "skill") return generateSkill(request, outDir);
   if (request.kind === "cli") return generateCli(request, outDir);
