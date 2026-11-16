@@ -1,18 +1,36 @@
 {
   "version": 1,
-  "sha": "f16d275",
-  "branch": "dev",
+  "sha": "9df480e",
+  "branch": "main",
   "verifiedAt": "2026-11-16",
-  "phase": "1",
+  "phase": "2",
   "checks": [
     {
-      "name": "verify",
-      "command": "promoção de calcular-o-imc-a-partir-de-peso-e-altura",
+      "name": "unit-tests",
+      "command": "node --test core/*/*.test.mjs",
       "result": "pass",
-      "detail": "sem tarefa de eval; evidência do artefato"
+      "detail": "280 testes em 7 suites"
+    },
+    {
+      "name": "evals",
+      "command": "node evals/gate.mjs",
+      "result": "pass",
+      "detail": "78/78 (26 tarefas, 3 execucoes)"
+    },
+    {
+      "name": "cold-start",
+      "command": "node scripts/measure-overhead.mjs",
+      "result": "pass",
+      "detail": "433 ms (meta < 500)"
+    },
+    {
+      "name": "prompt-budget",
+      "command": "node scripts/measure-selfevopi-overhead.mjs",
+      "result": "pass",
+      "detail": "+501 tok (meta < 1.500)"
     }
   ],
-  "notes": "artefato promovido para .pi\\harness\\artifacts\\calcular-o-imc-a-partir-de-peso-e-altura-2026-11-16T14-38-45-917Z",
-  "label": "promoção de calcular-o-imc-a-partir-de-peso-e-altura",
-  "tag": "ckpt/f0-overhead"
+  "notes": "Fases P, 0, 1, 2, 3, 4 e 5 entregues e verificadas.",
+  "label": "estado final verificado",
+  "tag": "v0.5-desktop"
 }
