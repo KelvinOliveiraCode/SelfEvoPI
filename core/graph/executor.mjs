@@ -70,23 +70,60 @@ async function invokeWithTimeout(fn, node, ctx, timeoutMs) {
  * @param {Function} opts.runNode      `async (node, { state, previous }) => any`
  * @param {boolean}  [opts.autoApprove=false]  quando true, nós `human` rodam como os outros
  * @param {number}   [opts.timeoutMs=null]     teto padrão por nó (nó pode sobrescrever com `node.timeoutMs`)
+ * @param {object}   [opts.initialState=null]  estado compartilhado herdado (retomada)
+ * @param {object}   [opts.resumeFrom=null]    Map/obj id -> registro terminal a reusar (não re-roda)
+ * @param {Function} [opts.shouldStop=null]    `async (node, { state, previous }) => boolean`:
+ *                                             verdadeiro pausa a execução ENTRE nós
+ * @param {Function} [opts.onNode=null]        `(record) => void|Promise` chamado após cada
+ *                                             nó terminal (checkpoint por nó)
  * @returns {Promise<{ status: string, nodes: Array, state: object, waitingFor: (string|null) }>}
  */
-export async function createExecutor({ graph, runNode, autoApprove = false, timeoutMs = null } = {}) {
+export async function createExecutor({
+  graph,
+  runNode,
+  autoApprove = false,
+  timeoutMs = null,
+  initialState = null,
+  resumeFrom = null,
+  shouldStop = null,
+  onNode = null,
+} = {}) {
   if (typeof runNode !== "function") {
     throw new TypeError("createExecutor: runNode deve ser uma função");
   }
 
   const order = topologicalOrder(graph); // ids; lança se houver ciclo
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const state = {}; // estado compartilhado, mutado por runNode
+  const state = initialState ?? {}; // estado compartilhado, mutado por runNode
   const records = new Map(); // id -> registro final (mantém a ordem de `order`)
+  // Registros terminais herdados da retomada: nó `done`/`failed` não re-roda.
+  const prior = resumeFrom instanceof Map ? resumeFrom : new Map(Object.entries(resumeFrom ?? {}));
+  // checkpoint por nó: chamado ao fim de cada nó (não bloqueia o fluxo)
+  const checkpoint = async (rec) => {
+    if (typeof onNode === "function") await onNode(rec);
+  };
 
   let previous = null; // registro do nó processado imediatamente antes
   let waitingFor = null;
+  let stopped = false; // pausa cooperativa pedida entre nós
 
   for (const id of order) {
     const node = byId.get(id);
+
+    // 0) retomada: nó já concluído (done/failed) não re-roda
+    if (prior.has(id)) {
+      const rec = prior.get(id);
+      records.set(id, rec);
+      previous = rec;
+      continue;
+    }
+
+    // 0.5) pausa cooperativa: interrompe ENTRE nós, nunca no meio de um
+    if (typeof shouldStop === "function" && (await shouldStop(node, { state, previous }))) {
+      stopped = true;
+      break;
+    }
+
     const deps = Array.isArray(node.dependsOn) ? node.dependsOn : [];
 
     // 1) dependências precisam estar `done`
@@ -95,6 +132,7 @@ export async function createExecutor({ graph, runNode, autoApprove = false, time
       const rec = { id, status: "blocked", reason: "dependencies-not-done", deps: unmet };
       records.set(id, rec);
       previous = rec;
+      await checkpoint(rec);
       continue;
     }
 
@@ -103,6 +141,7 @@ export async function createExecutor({ graph, runNode, autoApprove = false, time
       const rec = { id, status: "waiting", reason: "human" };
       records.set(id, rec);
       waitingFor = id;
+      await checkpoint(rec);
       break; // demais nós ficam `skipped`
     }
 
@@ -113,6 +152,7 @@ export async function createExecutor({ graph, runNode, autoApprove = false, time
       const rec = { id, status: "done", result };
       records.set(id, rec);
       previous = rec;
+      await checkpoint(rec);
     } catch (err) {
       const timedOut = err instanceof TimeoutError || err?.code === "timeout";
       const rec = timedOut
@@ -120,6 +160,7 @@ export async function createExecutor({ graph, runNode, autoApprove = false, time
         : { id, status: "failed", reason: "error", error: err };
       records.set(id, rec);
       previous = rec;
+      await checkpoint(rec);
       // segue: um nó falho não derruba a execução, só bloqueia os dependentes
     }
   }
@@ -136,6 +177,7 @@ export async function createExecutor({ graph, runNode, autoApprove = false, time
   const allDone = nodes.every((n) => n.status === "done");
   let status;
   if (waitingFor) status = "waiting-human";
+  else if (stopped) status = "paused";
   else if (anyFailed) status = "failed";
   else if (allDone) status = "completed";
   else status = "blocked";

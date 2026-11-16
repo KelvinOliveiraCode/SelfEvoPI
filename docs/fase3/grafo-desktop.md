@@ -7,6 +7,14 @@
 Arquivos:
 - `core/graph/model.mjs` — modelo (sem dependências)
 - `core/graph/model.test.mjs` — 18 casos com `node:test`
+- `core/graph/executor.mjs` — executor (ordem topológica, timeout, gate humano)
+- `core/graph/executor.test.mjs` — 11 casos
+- `core/graph/runtime.mjs` — runtime persistente (checkpoint por nó, pausa/retomada)
+- `core/graph/runtime.test.mjs` — 6 casos
+- `core/graph/panel.mjs` — painel (ASCII + HTML autocontido)
+- `core/graph/panel.test.mjs` — 5 casos
+- `docs/fase3/painel.md` — como usar o painel
+- `docs/fase4-desktop.md` — avaliação honesta da Fase 4 (desktop)
 - Este documento
 
 ---
