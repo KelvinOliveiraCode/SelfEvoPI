@@ -174,7 +174,36 @@ extensão no formato que o PI carrega: **função default `(pi) => void`** (conf
 | `session_start` | abre o store em `<cwd>/.pi/harness/memory`, carrega os fatos do nível `project`, monta o bloco e avisa o usuário (`ctx.ui.notify`) |
 | `before_agent_start` | injeta o bloco como mensagem de contexto (`customType: "selfevopi-memory"`, `display: false`) — respeitando o teto de tokens |
 | `session_shutdown` | confirma a persistência das entradas novas e limpa o estado |
-| comando `/mem` | `/mem` (lista) · `/mem add <texto>` (acrescenta) · `/mem promote <id>` (promove de `project` para `skills`) |
+| comando `/mem` | `/mem` (lista) · `/mem find <termo>` (busca capacidades) · `/mem add <texto>` (acrescenta) · `/mem promote <id>` (promove de `project` para `skills`) |
+
+### Perguntar "isso já existe?" dentro da sessão
+
+O problema que o `/mem find` resolve: um artefato promovido é gravado no nível `skills`
+com o caminho no texto (`… — artefato em \`<rel>\` …`), mas dentro de uma sessão do PI o
+agente não tinha como perguntar "isso já foi feito?" sem sair do agente. O `/mem find`
+traz a busca de `core/memory/search.mjs` para dentro da sessão.
+
+```
+/mem find soma
+```
+
+O que o agente recebe (bloco compacto, uma linha por resultado, no máximo ~10):
+
+```
+Busca: "soma" — 1 resultado(s):
+- [skills] 774ab4a9-… — soma dois numeros - artefato em [skills/soma-1/cli.mjs] (gerado da lacuna D1)
+```
+
+Cada linha traz **nível**, **id**, **texto curto** e o **caminho** do artefato (extraído
+do texto quando há `artefato em \`…\``). A busca casa no texto **e** nas tags (tag pesa
+3×), ordena por cobertura e depois por pontos — a mesma lógica do
+`core/memory/search.mjs`, sem duplicação. Se nada casar, responde
+`nada encontrado` sem quebrar a sessão.
+
+**Orçamento:** o `/mem find` é um bloco de contexto, então é curto por desenho — no
+máximo `FIND_LIMIT` (10) resultados, cada linha cortada em `FIND_TEXT_CHARS` (90) com
+`…` no meio do texto longo. `/mem` sozinho continua listando tudo (comportamento
+antigo, inalterado).
 
 ### Orçamento de contexto
 
