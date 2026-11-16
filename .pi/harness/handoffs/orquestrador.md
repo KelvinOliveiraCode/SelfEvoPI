@@ -45,8 +45,10 @@
 | Prompt com `pi-subagents` | **10.554 tokens** | idem |
 | Overhead do `pi-subagents` | **+1.880 tokens/turno** | idem (A4 mediu +1.808) |
 | Evals | **14 tarefas, 42/42** | `node evals/gate.mjs` |
-| Testes unitários | **171** em 7 arquivos | `node --test` |
+| Testes unitários | **172** em 7 arquivos | `node --test` |
+| Tokens da suíte (com extensão) | **64.802** | gate |
 | Memória injetada | **~48 tokens** por entrada | medição em sessão real |
+| `pi-subagents` | **+1.650 tokens/tarefa**, acurácia inalterada | evals com e sem extensão |
 | Providers ativos | **4** (`kilo1`–`kilo4`), 20 modelos | `scripts/check-providers.mjs` |
 | Custo por tarefa (grupo D) | US$ 0,00 (free tier) | ledger |
 
@@ -70,6 +72,8 @@
 4. **`icacls` com `%USERNAME%`.** Em processo de serviço vale `SYSTEM` e tranca o arquivo para o dono. Usar `whoami`.
 5. **Worktree velho = "regressão" fantasma.** O gate do A2 acusou D1 67%→0% só porque o worktree estava 29 commits atrás. Sincronizar antes de medir.
 6. **PowerShell engole acentos** ao ler UTF-8 sem `-Encoding UTF8`. Usar `read` ou `Get-Content -Encoding UTF8`.
+7. **O PI só lê `.pi/settings.json` no cwd e não sobe a árvore.** Evals em `os.tmpdir()` mediam o PI puro. Corrigido: workdir em `.pi/harness/tmp/` + extensões explícitas com `-e` (`projectExtensions()`).
+8. **`*/` dentro de comentário de bloco fecha o comentário.** Quebrou o gerador de CLI do A5 e a minha própria correção. Revisar sempre o código gerado com `node --check`.
 
 ## 7. Equipe (8 subagentes Traycer)
 
@@ -111,13 +115,13 @@ node core/router/cli.mjs --profile orchestrator
 
 ## 9. Pendências imediatas
 
-1. **Agentes em campo (1):** A2 testa `billion-context`. (A7 concluiu a integração da memória; A5 concluiu o gerador de CLI.)
-2. **~~Integrar `core/memory/`~~** ✓ feito — `core/memory/extension.mjs`, 15 testes, carrega no PI real.
-3. **Testar `billion-context`** — só manter se preservar acurácia.
-4. **Medir o incremento do prompt** quando houver extensão própria (meta < 1.500 tokens). O incremento autoral atual é a memória: ~48 tokens por entrada.
-5. **Fase 1 completa:** falta só o veredito da compressão.
-6. **Fase 2:** ligar as peças do Forge (detecção → spec → geração → sandbox → gatekeeper → rollback) num loop único.
-7. **Lacunas de design registradas:** (a) gate do A6 bloqueia `child-process` e o `verify.mjs` do A5 usa `spawnSync` — todo artefato gerado seria barrado pelo próprio sandbox; (b) linhas corrompidas de JSONL nunca saem do store.
+1. **Agentes ociosos.** A7 (memória) e A5 (gerador de CLI) concluíram; A2 (compressão) entregou veredito DESCARTAR. Nenhum em campo agora.
+2. **Crescer a suíte para ~25 tarefas** que quebrem de verdade (hoje são 14, várias estruturais).
+3. **Medir o incremento do prompt do SelfEvoPI** (meta < 1.500 tokens). O incremento autoral atual é a memória: ~48 tokens por entrada.
+4. **Reavaliar `pi-subagents`** quando houver tarefas de delegação. Hoje custa +1.650 tokens/tarefa sem ganho de acurácia.
+5. **Fase 1 pode fechar** — falta só a decisão sobre crescer a suíte.
+6. **Fase 2:** ligar as peças do Forge num loop único (detecção → spec → geração → sandbox → gatekeeper → rollback).
+7. **Decisões registradas:** `docs/fase1/decisoes.md` (verify.mjs fora do sandbox, poda de linhas corrompidas, `or` desativado com gatilho, correção da medição de evals).
 
 ## 10. Áreas protegidas
 
