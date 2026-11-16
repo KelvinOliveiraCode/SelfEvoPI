@@ -26,6 +26,8 @@ import { join } from "node:path";
 
 import { createExecutor } from "./executor.mjs";
 import { topologicalOrder } from "./model.mjs";
+import { toHarnessState } from "./harness-state.mjs";
+import { createHarnessStore } from "./harness-store.mjs";
 
 /* ------------------------------------------------------------------ */
 /* Store                                                               */
@@ -71,6 +73,11 @@ function newRunId(now = () => Date.now()) {
  * @param {boolean}  [opts.autoApprove=false]
  * @param {number}   [opts.timeoutMs=null]
  * @param {string}   [opts.runId]      id fixo (para retomar um run gravado)
+ * @param {boolean}  [opts.harness=false]  quando true, grava TAMBÉM no formato da
+ *                                       ponte (harness-state) via harness-store
+ * @param {object}   [opts.harnessStore]   store da ponte; default = `.pi/harness/graph`
+ * @param {object}   [opts.stateAdapter]   `{ toHarnessState, fromHarnessState }`; default = harness-state.mjs
+ * @param {object}   [opts.harnessMeta]    `{ sha?, label? }` amarrado aos checkpoints (git-nativo)
  */
 export function createRuntime({
   graph,
@@ -79,9 +86,38 @@ export function createRuntime({
   autoApprove = false,
   timeoutMs = null,
   runId = newRunId(),
+  harness = false,
+  harnessStore = null,
+  stateAdapter = null,
+  harnessMeta = {},
 } = {}) {
   if (typeof runNode !== "function") {
     throw new TypeError("createRuntime: runNode deve ser uma função");
+  }
+
+  // ponte opcional: só monta o store da ponte quando pedido
+  const bridge =
+    harness && harnessStore
+      ? { store: harnessStore, adapter: stateAdapter ?? defaultAdapter(), meta: harnessMeta }
+      : harness
+        ? { store: createHarnessStore(), adapter: stateAdapter ?? defaultAdapter(), meta: harnessMeta }
+        : null;
+
+  function defaultAdapter() {
+    // import lazy evita ciclo percebido e mantém o módulo testável isolado
+    return { toHarnessState, fromHarnessState: null };
+  }
+
+  // converte o estado do runtime (formato próprio) + grafo para o formato da ponte
+  function toBridgeDoc(runState) {
+    const rs = { ...runState, graph };
+    return bridge.adapter.toHarnessState(rs, bridge.meta ?? {});
+  }
+
+  async function saveBridge(runState) {
+    if (!bridge) return;
+    const doc = toBridgeDoc(runState);
+    await bridge.store.save(runId, doc);
   }
 
   /* estado durável ------------------------------------------------- */
@@ -139,6 +175,7 @@ export function createRuntime({
         const saved = await store.load(runId).catch(() => null);
         state = saved && saved.runId === runId ? saved : freshState();
       }
+      if (!state.startedAt) state.startedAt = new Date().toISOString();
       state.waitingFor = null;
 
       // registros terminais a reusar (não re-rodar nós done/failed)
@@ -168,7 +205,9 @@ export function createRuntime({
           if (!state.order.includes(rec.id)) state.order.push(rec.id);
           if (!state.checkpoints) state.checkpoints = [];
           state.checkpoints.push({ id: rec.id, status: rec.status, at: stamped.at });
+          state.updatedAt = stamped.at;
           await store.save(state);
+          await saveBridge(state);
         },
       });
 
@@ -203,7 +242,9 @@ export function createRuntime({
       else status = "blocked";
 
       state.status = status;
+      state.updatedAt = new Date().toISOString();
       await store.save(state);
+      await saveBridge(state);
       return { status, state: result.state, result };
     } finally {
       running = false;

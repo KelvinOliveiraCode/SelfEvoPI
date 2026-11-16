@@ -96,6 +96,15 @@ test("renderHtml com pollUrl injeta o fetch", () => {
   assert.match(html, /setInterval/);
 });
 
+test("renderHtml com indexUrl injeta a lista de runs", () => {
+  const html = renderHtml(graph(), {}, { indexUrl: "/index.json" });
+  assert.ok(html.includes("/index.json"));
+  // tem o container de runs e a função que o preenche
+  assert.match(html, /id="runs"/);
+  assert.match(html, /renderRuns/);
+  assert.match(html, /setInterval/);
+});
+
 test("renderAscii não quebra com grafo vazio", () => {
   const out = renderAscii(createGraph({ nodes: [], edges: [] }), {});
   assert.equal(typeof out, "string");

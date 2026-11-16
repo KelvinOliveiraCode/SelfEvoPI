@@ -158,8 +158,19 @@ const esc = (s) =>
  * O HTML não embute dependências nem usa rede externa. Ele lê um `state` inicial
  * (embutido) e, se `pollUrl` for informado, faz `fetch` periódico desse JSON para
  * atualizar o painel em tempo real. Sem `pollUrl`, mostra o estado inicial.
+ *
+ * `indexUrl` (opcional) aponta para o `index.json` da ponte (`harness-store`): quando
+ * existir, o painel mostra a lista de runs com status/progresso — é o que um desktop
+ * lê sem varrer diretório.
+ *
+ * @param {object} graph
+ * @param {object} state
+ * @param {object} [opts]
+ * @param {string} [opts.pollUrl]    JSON do estado de um run (runtime.status())
+ * @param {string} [opts.indexUrl]   JSON do index.json da ponte (lista de runs)
+ * @param {string} [opts.title]
  */
-export function renderHtml(graph, state = {}, { pollUrl = null, title = "SelfEvoPI — Grafo" } = {}) {
+export function renderHtml(graph, state = {}, { pollUrl = null, indexUrl = null, title = "SelfEvoPI — Grafo" } = {}) {
   const nodes = graph?.nodes ?? [];
   const edges = graph?.edges ?? [];
   const sm = statusMap(state);
@@ -181,9 +192,9 @@ export function renderHtml(graph, state = {}, { pollUrl = null, title = "SelfEvo
     checkpoints: state?.checkpoints ?? 0,
   }).replace(/</g, "\\u003c");
 
-  const poll = pollUrl
+  const poll = (pollUrl || indexUrl)
     ? `setInterval(refresh, 1500);`
-    : `/* sem pollUrl: estado estático */`;
+    : `/* sem pollUrl/indexUrl: estado estático */`;
 
   return `<!doctype html>
 <html lang="pt-BR">
@@ -217,6 +228,17 @@ export function renderHtml(graph, state = {}, { pollUrl = null, title = "SelfEvo
   .kind { color: var(--muted); font-size: 12px; }
   .wait { color: var(--waiting); font-weight: 600; }
   footer { margin-top: 20px; color: var(--muted); font-size: 12px; }
+  .runs { margin-bottom: 20px; }
+  .runs h2 { font-size: 14px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+  .runlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .runitem { display: grid; grid-template-columns: 130px 1fr 90px; gap: 10px; align-items: center;
+    background: var(--panel); border: 1px solid #334155; border-radius: 8px; padding: 8px 10px; }
+  .runid { font-family: ui-monospace, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+  .bar { height: 8px; background: #0b1220; border-radius: 999px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--done); width: 0%; }
+  .runstat { font-size: 12px; color: var(--muted); text-align: right; }
+  .runitem.active { border-color: var(--running); }
+  .hidden { display: none; }
 </style>
 </head>
 <body>
@@ -225,11 +247,13 @@ export function renderHtml(graph, state = {}, { pollUrl = null, title = "SelfEvo
   <div class="meta" id="meta"></div>
 </header>
 <div class="legend" id="legend"></div>
+<div id="runs"></div>
 <div id="root"></div>
 <footer id="foot"></footer>
 <script>
 const DATA = ${payload};
 const POLL = ${pollUrl ? JSON.stringify(pollUrl) : null};
+const INDEX = ${indexUrl ? JSON.stringify(indexUrl) : null};
 const SYMBOLS = ${JSON.stringify(SYMBOLS)};
 const COLORS = ${JSON.stringify(COLORS)};
 
@@ -312,7 +336,10 @@ function renderMeta(){
     legend.appendChild(sp);
   }
   const foot = document.getElementById('foot');
-  foot.textContent = POLL ? ('atualizando de ' + POLL + ' a cada 1,5 s') : 'estado estático (sem polling)';
+  const bits = [];
+  if(POLL) bits.push('estado de ' + POLL);
+  if(INDEX) bits.push('runs de ' + INDEX);
+  foot.textContent = bits.length ? ('atualizando ' + bits.join(' + ') + ' a cada 1,5 s') : 'estado estático (sem polling)';
 }
 
 function applyState(s){
@@ -326,13 +353,50 @@ function applyState(s){
   if('checkpoints' in s) DATA.checkpoints = s.checkpoints;
 }
 
+function renderRuns(runs){
+  const box = document.getElementById('runs');
+  if(!INDEX || !Array.isArray(runs) || runs.length === 0){ box.innerHTML = ''; return; }
+  const wrap = document.createElement('div');
+  wrap.className = 'runs';
+  const h = document.createElement('h2');
+  h.textContent = 'Runs (' + runs.length + ')';
+  wrap.appendChild(h);
+  const ul = document.createElement('ul');
+  ul.className = 'runlist';
+  for(const r of runs){
+    const li = document.createElement('li');
+    li.className = 'runitem' + (r.runId === DATA.runId ? ' active' : '');
+    const id = document.createElement('span');
+    id.className = 'runid';
+    id.textContent = r.runId;
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    const fill = document.createElement('i');
+    const pct = Math.round((r.progress ?? 0) * 100);
+    fill.style.width = pct + '%';
+    bar.appendChild(fill);
+    const stat = document.createElement('span');
+    stat.className = 'runstat';
+    stat.textContent = (r.status ?? '?') + ' ' + (r.done ?? 0) + '/' + (r.nodes ?? 0);
+    li.appendChild(id); li.appendChild(bar); li.appendChild(stat);
+    ul.appendChild(li);
+  }
+  wrap.appendChild(ul);
+  box.innerHTML = '';
+  box.appendChild(wrap);
+}
+
 async function refresh(){
-  if(!POLL) return;
+  if(!POLL && !INDEX) return;
   try{
-    const res = await fetch(POLL, { cache: 'no-store' });
-    if(!res.ok) return;
-    applyState(await res.json());
-    buildTree(); renderMeta();
+    if(POLL){
+      const res = await fetch(POLL, { cache: 'no-store' });
+      if(res.ok){ applyState(await res.json()); buildTree(); renderMeta(); }
+    }
+    if(INDEX){
+      const res = await fetch(INDEX, { cache: 'no-store' });
+      if(res.ok){ const doc = await res.json(); renderRuns(doc.runs || []); }
+    }
   }catch(e){ /* offline: mantém o último estado */ }
 }
 
