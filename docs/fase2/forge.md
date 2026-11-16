@@ -300,12 +300,67 @@ usa um stub de eval determinístico (não chama modelo real) e não promove.
   verify que falha, `needs-human`, dry-run.
 - `cli.test.mjs` — detect/evolve/gate/status via subprocess, JSON e texto.
 
+## Geradores dos cinco kinds
+
+O `defaultGenerate` do loop agora despacha os cinco kinds reais. Antes só
+`cli` e `skill` existiam, e o loop recaía para `cli` quando `chooseKind`
+escolhia outro — uma "mentira educada". Agora cada kind tem seu gerador:
+
+| Kind | Módulo | Artefato | verify.mjs confere |
+|:---|:---|:---|:---|
+| `mcp-config` | `generate-mcp-config.mjs` | `.mcp.json` (formato MCP do PI) | JSON válido + `mcpServers` com command/args/env |
+| `skill` | `generate-skill.mjs` | `SKILL.md` | roda request.tests |
+| `cli` | `generate-cli.mjs` | `cli.mjs` + README | roda request.tests |
+| `extension` | `generate-extension.mjs` | `index.mjs` (`export default (pi) => …`) | importa com `pi` falso, confere `registerCommand` + handler |
+| `mcp-server` | `generate-mcp-server.mjs` | `server.mjs` (JSON-RPC 2.0 stdio, só builtins) | sobe o server, manda initialize + tools/list |
+
+### mcp-config (o mais leve)
+
+`generateMcpConfig(request, outDir)` escreve um `.mcp.json` com `mcpServers`
+contendo o nome do artefato, `command: "node"`, `args: ["server.mjs"]` e
+`env: {}`. Recusa sobrescrever. O verify faz parse do JSON e confere as chaves.
+
+### mcp-server
+
+`generateMcpServer(request, outDir)` escreve `server.mjs` usando **apenas
+builtins do Node** (sem `@modelcontextprotocol/sdk`): o artefato roda sem
+`npm install`. Fala JSON-RPC 2.0 sobre stdio (`initialize`, `tools/list`,
+`tools/call`). Cada entrada de `request.inputs` vira uma ferramenta; cada
+saída de `request.outputs` é um campo do resultado. O verify sobe o servidor,
+manda `initialize` + `tools/list` e confere que voltou JSON com a ferramenta.
+O gerador roda `node --check` no `server.mjs` antes de escrever o resto.
+
+### extension
+
+`generateExtension(request, outDir)` escreve `index.mjs` no formato de
+extensão do PI: `export default function (pi) { pi.registerCommand(...) }`.
+Cada entrada vira uma flag; o handler responde JSON com as saídas. O verify
+importa o módulo com um `pi` falso (mock com `on`, `registerCommand`,
+`registerFlag`) e confere que o comando foi registrado e que o handler responde.
+
+### Loop sem fallback silencioso
+
+O loop não recai mais para `cli`. Se o gerador do kind escolhido não existir,
+o loop retorna `outcome: "error"` com motivo explícito — nunca gera o
+artefato errado. O kind pedido por `--kind` (ou `input.forceKind`) tem
+prioridade sobre o `chooseKind`. O gate estático varre o arquivo-fonte primário
+de cada kind (`.mcp.json`, `SKILL.md`, `cli.mjs`, `index.mjs`, `server.mjs`).
+
+### Exemplos
+
+```bash
+node core/forge/cli.mjs evolve --goal "configurar um servidor MCP" --kind mcp-config --dry-run
+node core/forge/cli.mjs evolve --goal "expor uma ferramenta de soma" --kind mcp-server --inputs "a,b" --outputs "soma" --dry-run
+node core/forge/cli.mjs evolve --goal "registrar comando no PI" --kind extension --dry-run
+```
+
 ## Pendências
 
 - [x] Detector de lacunas (`detect.mjs`) — os três gatilhos.
 - [x] Gatekeeper (`gatekeeper.mjs`) — runGate + decidePromotion.
 - [x] Loop ponta a ponta (`loop.mjs`) + CLI (`cli.mjs`).
-- [ ] Promoção real: `promote` hoje só marca; falta commit + `last-known-good.json`.
-- [ ] Geradores dos demais kinds (`extension`, `mcp-server`, `mcp-config`) — A6.
+- [x] Promoção real (`promote.mjs`): copia + commit atômico + `last-known-good`.
+- [x] Geradores dos cinco kinds (`mcp-config`, `skill`, `cli`, `extension`, `mcp-server`).
+- [x] Gerador com modelo (`generate-llm.mjs`) + testes de interface sintetizados.
 - [ ] Etapa 5 (sandbox Windows) — fase posterior, com Job Objects + `cc-safety-net`.
 - [ ] Indexação semântica do registro (Voyager-style) na promoção.

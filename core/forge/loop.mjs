@@ -23,6 +23,9 @@ import { createGap, detectGaps } from "./detect.mjs";
 import { generateCli } from "./generate-cli.mjs";
 import { generateSkill } from "./generate-skill.mjs";
 import { specifyGap } from "./specify.mjs";
+import { generateMcpConfig } from "./generate-mcp-config.mjs";
+import { generateMcpServer } from "./generate-mcp-server.mjs";
+import { generateExtension } from "./generate-extension.mjs";
 import { runGate, decidePromotion } from "./gatekeeper.mjs";
 
 /* ------------------------------------------------------------------ */
@@ -48,38 +51,16 @@ const NEEDS_HUMAN_RULES = new Set([
 /* Defaults reais                                                      */
 /* ------------------------------------------------------------------ */
 
-/** Gera o artefato conforme o kind (dispatcher por módulo). */
+/** Gera o artefato conforme o kind (dispatcher dos cinco kinds reais). */
 async function defaultGenerate(request, outDir) {
-  const spec = GENERATOR_BY_KIND[request.kind];
-  if (!spec) {
-    throw new Error(
-      `forge-loop: sem gerador para kind "${request.kind}" (conhecidos: ${Object.keys(GENERATOR_BY_KIND).join(", ")})`,
-    );
-  }
-  const mod = await import(spec.module).catch((err) => {
-    const needsGenerators = Object.entries(GENERATOR_BY_KIND)
-      .filter(([, s]) => s.module === spec.module)
-      .map(([k]) => k);
-    throw new Error(
-      `forge-loop: sem gerador para kind "${request.kind}" ` +
-        `(${spec.module} ausente: ${err?.message ?? err})`,
-    );
-  });
-  const fn = mod[spec.exportName];
-  if (typeof fn !== "function") {
-    throw new Error(`forge-loop: ${spec.module} não exporta ${spec.exportName}`);
-  }
-  return fn(request, outDir);
+  if (request.kind === "mcp-config") return generateMcpConfig(request, outDir);
+  if (request.kind === "skill") return generateSkill(request, outDir);
+  if (request.kind === "cli") return generateCli(request, outDir);
+  if (request.kind === "extension") return generateExtension(request, outDir);
+  if (request.kind === "mcp-server") return generateMcpServer(request, outDir);
+  // Sem gerador => erro honesto. Nunca gerar o artefato errado.
+  throw new Error(`forge-loop: sem gerador para kind "${request.kind}"`);
 }
-
-/** Mapa kind -> módulo e exportação do gerador. */
-const GENERATOR_BY_KIND = {
-  cli: { module: "./generate-cli.mjs", exportName: "generateCli" },
-  skill: { module: "./generate-skill.mjs", exportName: "generateSkill" },
-  "mcp-config": { module: "./generate-mcp-config.mjs", exportName: "generateMcpConfig" },
-  "mcp-server": { module: "./generate-mcp-server.mjs", exportName: "generateMcpServer" },
-  extension: { module: "./generate-extension.mjs", exportName: "generateExtension" },
-};
 
 /** Roda a verificação do artefato FORA do sandbox (spawnSync). */
 async function defaultRunVerification(command) {
@@ -331,7 +312,11 @@ export function createEvolutionLoop(deps = {}) {
         ? input.capabilities
         : null;
       const choice = needed && typeof choose === "function" ? choose(needed) : null;
-      const kind = input.forceKind ?? choice?.kind ?? "skill";
+      // Um kind pedido explicitamente (input.forceKind ou input.kind, vindos do
+      // CLI) tem prioridade sobre o palpite do chooseKind.
+      const forced = input.forceKind ?? input.kind ?? null;
+      const kind = forced ?? choice?.kind ?? "skill";
+      // Sem gerador => erro honesto no generate (nunca artefato errado).
       report.kind = kind;
       emit({ event: "kind", kind, covers: choice?.covers ?? null, fallback: choice?.fallback ?? false });
 
@@ -405,13 +390,18 @@ export function createEvolutionLoop(deps = {}) {
       emit({ event: "generated", kind, files: report.files });
 
       // 5. Gate estático: rede/credencial/fora do workspace => needs-human.
+      //    Varre o arquivo-fonte primário do artefato (um por kind).
+      const PRIMARY = {
+        "mcp-config": ".mcp.json",
+        skill: "SKILL.md",
+        cli: "cli.mjs",
+        extension: "index.mjs",
+        "mcp-server": "server.mjs",
+      };
       let staticDecision = null;
-      const target = gen.cliCommand || gen.verifyCommand;
-      if (typeof staticGate === "function" && target) {
-        const scriptPath = gen.cliCommand
-          ? gen.cliCommand.replace(/^node\s+/, "")
-          : null;
-        const fileToScan = scriptPath || artifactDir;
+      const primaryName = PRIMARY[request.kind] ?? null;
+      const fileToScan = primaryName ? join(artifactDir, primaryName) : null;
+      if (typeof staticGate === "function" && fileToScan) {
         try {
           const dec = await staticGate(fileToScan, artifactDir);
           if (dec && dec.decision) staticDecision = dec;
