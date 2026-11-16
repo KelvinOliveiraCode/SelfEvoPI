@@ -1,18 +1,36 @@
 {
   "version": 1,
-  "sha": "a5cee5a",
+  "sha": "1313af6",
   "branch": "main",
   "verifiedAt": "2026-11-16",
   "phase": "2",
   "checks": [
     {
-      "name": "verify",
-      "command": "promoção de expor-uma-ferramenta-que-soma-dois-numer",
+      "name": "unit-tests",
+      "command": "node --test core/*/*.test.mjs",
       "result": "pass",
-      "detail": "sem tarefa de eval; evidência do artefato"
+      "detail": "328 testes em 8 suites"
+    },
+    {
+      "name": "evals",
+      "command": "node evals/gate.mjs",
+      "result": "pass",
+      "detail": "87/87 (29 tarefas, 3 execucoes)"
+    },
+    {
+      "name": "cold-start",
+      "command": "node scripts/measure-overhead.mjs",
+      "result": "pass",
+      "detail": "433 ms (meta < 500)"
+    },
+    {
+      "name": "prompt-budget",
+      "command": "node scripts/measure-selfevopi-overhead.mjs",
+      "result": "pass",
+      "detail": "+501 tok (meta < 1.500)"
     }
   ],
-  "notes": "artefato promovido para .pi\\harness\\artifacts\\expor-uma-ferramenta-que-soma-dois-numer-2026-11-16T16-19-31-711Z",
-  "label": "promoção de expor-uma-ferramenta-que-soma-dois-numer",
+  "notes": "Cinco kinds com gerador, SpecWriter, sonda por kind, ponte do grafo, rotina diaria.",
+  "label": "estado final verificado (5 kinds + ponte)",
   "tag": "v0.5-desktop"
 }
