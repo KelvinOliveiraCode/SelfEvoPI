@@ -14,8 +14,12 @@ import {
   ruleById,
 } from "./static-gate.mjs";
 
-/** Workspace fictício: os testes não tocam no disco, só passam a raiz. */
-const WS = "C:\\Users\\Kelvin\\Desktop\\SelfEvoPI\\.worktrees\\A6";
+/**
+ * Workspace fictício: os testes não tocam no disco, só passam a raiz.
+ * Fica FORA do diretório de trabalho de propósito — vários casos precisam de um
+ * caminho "fora do workspace" para provar que o gate o classifica assim.
+ */
+const WS = process.env.TMPDIR || "C:\\work\\selfevopi-a6";
 
 const CLEAN = `
 // modulo de exemplo: soma dois numeros e devolve um status
@@ -59,12 +63,12 @@ const CASOS = [
   ["credential-store", `const a = fs.readFileSync(".pi/auth.json", "utf8");`],
   ["credential-store", `const b = fs.readFileSync(".pi/agent/settings.json", "utf8");`],
   ["credential-store", `const c = fs.readFileSync("secrets.json");`],
-  ["credential-store", `const d = fs.readFileSync("C:/Users/Kelvin/.config/opencode/auth.json");`],
+  ["credential-store", `const d = fs.readFileSync("C:\\Users\\exemplo/.config/opencode/auth.json");`],
   ["userprofile-config", `fs.readFileSync(process.env.USERPROFILE + "\\\\.config\\\\opencode\\\\auth.json");`],
   ["registry-exe", `execFileSync("reg.exe", ["add", "HKCU\\\\Software\\\\X", "/v", "Y"]);`],
   ["registry-exe", `child.execSync('reg query HKEY_LOCAL_MACHINE\\\\Software');`],
-  ["recursive-force-delete", `Remove-Item -Recurse -Force C:\\\\Users\\\\Kelvin\\\\Documents;`],
-  ["recursive-force-delete", `rm -rf /c/Users/Kelvin/Desktop;`],
+  ["recursive-force-delete", `Remove-Item -Recurse -Force C:\\Users\\exemplo\\Documents;`],
+  ["recursive-force-delete", `rm -rf /home/exemplo/Desktop;`],
   ["child-process", `const { execSync } = require("node:child_process");`],
   ["child-process", `import { spawn } from "child_process";`],
   ["child-process", `const out = execSync("dir");`],
@@ -118,7 +122,7 @@ test("cada regra esta declarada como block ou warn", () => {
 });
 
 test("Remove-Item -Recurse -Force fora do workspace bloqueia", () => {
-  const v = scanSource(`Remove-Item -Recurse -Force C:\\Users\\Kelvin\\Documents;`, { workspace: WS });
+  const v = scanSource(`Remove-Item -Recurse -Force C:\\Users\\exemplo\\Documents;`, { workspace: WS });
   assert.equal(v.find((x) => x.rule === "recursive-force-delete").severity, "block");
 });
 
@@ -228,7 +232,7 @@ test("classifyPath separa dentro, fora e desconhecido", () => {
   assert.equal(classifyPath(".\\dist", WS), "inside");
   assert.equal(classifyPath("core/router", WS), "inside");
   assert.equal(classifyPath(`${WS}\\core\\router\\x.mjs`, WS), "inside");
-  assert.equal(classifyPath("C:\\Users\\Kelvin\\Documents", WS), "outside");
+  assert.equal(classifyPath("C:\\Users\\exemplo\\Documents", WS), "outside");
   assert.equal(classifyPath("..\\..\\Windows", WS), "outside");
   assert.equal(classifyPath("/etc/passwd", WS), "outside");
   assert.equal(classifyPath("$env:TEMP\\x", WS), "unknown");
@@ -250,7 +254,7 @@ test("formatDecision emite uma linha parseavel para o ledger", () => {
 });
 
 test("formatDecision nao quebra com caminho que tem espaco", () => {
-  const laudo = evaluate(CLEAN, { file: "C:\\Users\\Kelvin\\Meus arquivos\\t.mjs", workspace: WS });
+  const laudo = evaluate(CLEAN, { file: "C:\\Users\\exemplo\\Meus arquivos\\t.mjs", workspace: WS });
   const json = JSON.parse(formatDecision(laudo).slice("gate ".length));
-  assert.equal(json.file, "C:\\Users\\Kelvin\\Meus arquivos\\t.mjs");
+  assert.equal(json.file, "C:\\Users\\exemplo\\Meus arquivos\\t.mjs");
 });

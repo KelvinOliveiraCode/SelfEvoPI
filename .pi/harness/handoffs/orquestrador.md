@@ -2,7 +2,7 @@
 
 > **Propósito:** memória durável da sessão. Se o contexto for compactado, é por aqui que se retoma.
 > **Atualizado:** 2026-11-16
-> **Repositório:** `C:\Users\Kelvin\Desktop\SelfEvoPI` · GitHub privado `KelvinOliveiraCode/SelfEvoPI`
+> **Repositório:** `SelfEvoPI` · GitHub privado `KelvinOliveiraCode/SelfEvoPI`
 > **HEAD:** `89a9c77` em `main` e `dev`
 
 ---
