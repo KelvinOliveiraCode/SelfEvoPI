@@ -16,7 +16,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
@@ -169,6 +169,30 @@ export async function loadBaseline(file = DEFAULT_BASELINE) {
   }
 }
 
+/**
+ * Mapa taskId -> { group, hasPrompt } lido de evals/tasks/*.json.
+ * `hasPrompt` marca tarefas que rodam um modelo (grupo B/D reais): são
+ * estocásticas e, portanto, sujeitas a instabilidade de modelo, não a regressão.
+ */
+export async function loadTaskDefs() {
+  const dir = path.join(ROOT, "evals", "tasks");
+  const files = (await readdir(dir).catch(() => [])).filter((f) => f.endsWith(".json"));
+  const map = new Map();
+  for (const file of files) {
+    let doc;
+    try {
+      doc = JSON.parse(await readFile(path.join(dir, file), "utf8"));
+    } catch {
+      continue;
+    }
+    for (const t of Array.isArray(doc) ? doc : [doc]) {
+      if (!t || typeof t.id !== "string") continue;
+      map.set(t.id, { group: t.group, hasPrompt: typeof t.prompt === "string" && t.prompt.trim().length > 0 });
+    }
+  }
+  return map;
+}
+
 export function totalsOf(tasks) {
   const taskRuns = tasks.reduce((n, t) => n + t.runs, 0);
   const passes = tasks.reduce((n, t) => n + t.passes, 0);
@@ -223,6 +247,7 @@ export async function main() {
       process.exit(2);
     }
     tasks.sort((a, b) => a.taskId.localeCompare(b.taskId));
+    const defs = await loadTaskDefs();
     const doc = {
       generatedAt: new Date().toISOString(),
       generator: "evals/gate.mjs --update",
@@ -231,7 +256,15 @@ export async function main() {
       tasks: Object.fromEntries(
         tasks.map((t) => [
           t.taskId,
-          { group: t.group, runs: t.runs, passes: t.passes, rate: t.rate, avgMs: t.avgMs, tokens: t.tokens },
+          {
+            group: t.group,
+            runs: t.runs,
+            passes: t.passes,
+            rate: t.rate,
+            avgMs: t.avgMs,
+            tokens: t.tokens,
+            ...(defs.get(t.taskId)?.hasPrompt ? { stochastic: true } : {}),
+          },
         ]),
       ),
       totals: totalsOf(tasks),

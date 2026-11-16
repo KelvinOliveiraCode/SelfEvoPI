@@ -1,0 +1,14 @@
+{
+  "id": "B9-csv-cli",
+  "group": "B",
+  "title": "criar cli.mjs que lê CSV (aspas, CRLF) e devolve JSON",
+  "description": "Lacuna de ferramenta real: o modelo precisa criar um cli.mjs executável que lê um CSV e imprime JSON. O verificador roda o artefato contra fixtures (vírgula entre aspas, aspa escapada, CRLF, linha em branco) e compara o JSON exato.",
+  "prompt": "Crie um arquivo cli.mjs no diretório atual que lê um arquivo CSV e imprime um JSON no stdout. Uso: `node cli.mjs <arquivo.csv>`. A primeira linha é o cabeçalho; devolva um array de objetos, um por linha de dados, com as chaves do cabeçalho e os valores como texto. Campos podem conter vírgula quando estão entre aspas duplas, e aspas duplas dentro de um campo são escapadas como \"\". Ignore linhas em branco. Imprima apenas o JSON. Não crie outros arquivos.",
+  "fixture": "B9-csv",
+  "profile": "worker",
+  "fallbackProfile": "orchestrator",
+  "checker": "node evals/checks/check-csv-cli.mjs",
+  "timeoutMs": 180000,
+  "checkerTimeoutMs": 40000,
+  "tags": ["modelo-real", "ferramenta", "grupo-b", "csv"]
+}
