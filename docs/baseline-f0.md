@@ -73,3 +73,26 @@ node evals/gate.mjs --runs 1        # 1 execução, também sai 0
 node evals/gate.mjs --group D       # só um grupo
 node evals/gate.mjs --update        # regrava a baseline
 ```
+
+## Overhead fixo do harness
+
+Medido por `node scripts/measure-overhead.mjs` em 2026-11-15 (10 execuções, Windows nativo, `kilo1`).
+
+| Métrica | Medido | Meta | Situação |
+|:---|:---|:---|:---|
+| Cold start (`pi --version`) | **405 ms** (mediana 396, mín 378, máx 456) | < 500 ms | ✓ |
+| Prompt do PI (entrada com cache) | **8.674 tokens** | — | linha de base |
+| Prompt incremental do SelfEvoPI | — | < 1.500 tokens | pendente (não há extensão própria ainda) |
+
+A meta de 1.500 tokens do plano refere-se ao **incremento** que o SelfEvoPI adiciona — não ao prompt do PI, que já são ~8,7 mil. O número acima é a régua: tudo que o SelfEvoPI injetar entra **sobre** esses 8.674.
+
+## Time-machine
+
+```
+node scripts/checkpoint.mjs status
+node scripts/checkpoint.mjs create f0-baseline
+node scripts/checkpoint.mjs restore ckpt/f0-baseline --force
+node scripts/checkpoint.mjs verify
+```
+
+`restore` é destrutivo (`git reset --hard`) e exige `--force`; antes de restaurar, o script cria uma tag de backup do estado atual.

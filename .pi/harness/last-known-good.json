@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "sha": "8dd4f2f",
+  "sha": "ad08e8c",
   "branch": "main",
-  "verifiedAt": "2026-11-15",
+  "verifiedAt": "2026-11-16",
   "phase": "1",
   "checks": [
     {
@@ -30,5 +30,6 @@
       "detail": "8/8 HTTP 200"
     }
   ],
-  "notes": "Primeira leva de subagentes integrada: A3 orcamento, A4 bake-off, A5 forge, A6 sandbox, A7 memoria, A8 grafo. Segunda leva em curso."
+  "notes": "Primeira leva de subagentes integrada: A3 orcamento, A4 bake-off, A5 forge, A6 sandbox, A7 memoria, A8 grafo. Segunda leva em curso.",
+  "tag": "ckpt/f0-overhead"
 }
