@@ -1,0 +1,56 @@
+# SelfEvoPI — integração contínua
+#
+# O que roda aqui é só o que **não precisa de chave de API**:
+#   - os testes unitários (rede, disco e sandbox, tudo local)
+#   - os evals dos grupos A e C (verificadores determinísticos, zero token)
+#   - o gate de URLs citadas na pesquisa
+#
+# Ficam de fora, por precisarem de credencial que não vai para o repositório:
+#   - o grupo B (B9/B10/B11 chamam modelo real: 32.298 tokens medidos)
+#   - o grupo D e o `evals/gate.mjs` completo
+#
+# Rodar o gate inteiro continua sendo comando local: `npm run gate`.
+
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: testes + evals estruturais
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: dependências
+        run: npm ci --no-audit --no-fund
+
+      - name: testes unitários
+        run: npm test
+
+      - name: evals estruturais — grupo A (roteador e forge)
+        run: node evals/run.mjs --group A
+
+      - name: evals estruturais — grupo C (regressão)
+        run: node evals/run.mjs --group C
+
+      - name: URLs da pesquisa ainda de pé
+        run: node scripts/verify-urls.mjs
+
+      # O grupo B NÃO roda aqui: B9, B10 e B11 chamam modelo real (32.298 tokens
+      # medidos) e as chaves vivem fora do repositório. Rodar só A e C é o que
+      # se pode provar sem credencial.
