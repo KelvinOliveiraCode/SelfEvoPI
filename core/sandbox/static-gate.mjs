@@ -237,7 +237,13 @@ const RAW_RULES = [
       /[\\/]\.config[\\/]opencode\b/i.test(raw) ||
       /[\\/]\.local[\\/]share[\\/]opencode\b/i.test(raw) ||
       /(?:^|[\\/"'\s])(?:auth|credentials|secrets|providers\.local)\.json\b/i.test(raw) ||
-      /(?:^|[\\/"'\s])[A-Za-z0-9_.-]+\.(?:key|pem|p12|pfx)\b/i.test(raw),
+      /(?:^|[\\/"'\s])[A-Za-z0-9_.-]+\.(?:key|pem|p12|pfx)\b/i.test(raw) ||
+      // .aws/credentials guarda chaves de acesso da AWS; sem esta regra o gate
+      // deixava passar e so o Permission Model barrava (descoberto na prova de
+      // sandbox da Fase 2). Regra faltando, nao comportamento desejado.
+      /(?:^|[\\/"'\s])\.aws(?:[\\/'"`\s]|$)/i.test(raw) ||
+      /[\\/]\.aws[\\/](?:credentials|config)\b/i.test(raw) ||
+      /\baws_access_key_id\b/i.test(raw),
   },
   {
     id: "userprofile-config",

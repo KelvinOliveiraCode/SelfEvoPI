@@ -237,7 +237,10 @@ const CASOS_DE_CREDENCIAL = [
     id: "aws",
     rotulo: "aws",
     caminho: () => path.join(os.homedir(), ".aws", "credentials"),
-    gateDeveBarrar: false,
+    // Era `false` — a lacuna que a propria prova de sandbox apontou: o gate nao
+    // tinha regra para `.aws` e so o Permission Model barrava. Regra adicionada
+    // em static-gate.mjs (credential-store), entao agora o gate tambem barra.
+    gateDeveBarrar: true,
   },
   {
     id: "config-opencode",
