@@ -149,6 +149,46 @@ test("estado compartilhado persiste entre nós e entre retomadas", async () => {
   assert.equal(saved.shared.count, 2);
 });
 
+test("runtime com harness:true grava os dois formatos (próprio + ponte)", async () => {
+  const { createHarnessStore } = await import("./harness-store.mjs");
+  const graph = createGraph({ nodes: [task("t1"), task("t2", ["t1"])], edges: [] });
+
+  const ownStore = memoryStore();
+  const bridgeDir = ".pi/harness/tmp/runtime-harness-teste";
+  const bridgeStore = createHarnessStore({ dir: bridgeDir });
+
+  const rt = createRuntime({
+    graph,
+    store: ownStore,
+    harness: true,
+    harnessStore: bridgeStore,
+    runId: "run-bridge",
+    harnessMeta: { sha: "deadbee", label: "ckpt/f3" },
+    runNode: async (node) => node.id,
+  });
+
+  const out = await rt.run();
+  assert.equal(out.status, "completed");
+
+  // formato próprio
+  assert.ok(ownStore._get(), "formato do runtime gravado");
+  // formato da ponte
+  const bridged = await bridgeStore.load("run-bridge");
+  assert.ok(bridged, "ponte gravada");
+  assert.equal(bridged.runId, "run-bridge");
+  assert.equal(bridged.nodes.length, 2);
+  assert.deepEqual(bridged.nodes.map((n) => n.id), ["t1", "t2"]);
+  assert.ok(bridged.checkpoints.every((c) => c.sha === "deadbee"));
+
+  // index.json
+  const list = await bridgeStore.list();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].runId, "run-bridge");
+  assert.equal(list[0].progress, 1);
+
+  await (await import("node:fs/promises")).rm(bridgeDir, { recursive: true, force: true });
+});
+
 test("createFileStore grava e carrega JSON em disco", async () => {
   const dir = ".pi/harness/tmp/test-graph-store";
   const store = createFileStore({ dir });
