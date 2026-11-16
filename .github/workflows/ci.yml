@@ -39,18 +39,11 @@ jobs:
       - name: dependências
         run: npm ci --no-audit --no-fund
 
-      - name: testes unitários
-        run: npm test
+      # `npm run verify` e exatamente o que o CI faz: testes, evals A/C e URLs.
+      # Rodar o mesmo comando local e na esteira evita "passa na minha maquina".
+      - name: verificação completa (testes + evals A/C + URLs)
+        run: npm run verify
 
-      - name: evals estruturais — grupo A (roteador e forge)
-        run: node evals/run.mjs --group A
-
-      - name: evals estruturais — grupo C (regressão)
-        run: node evals/run.mjs --group C
-
-      - name: URLs da pesquisa ainda de pé
-        run: node scripts/verify-urls.mjs
-
-      # O grupo B NÃO roda aqui: B9, B10 e B11 chamam modelo real (32.298 tokens
-      # medidos) e as chaves vivem fora do repositório. Rodar só A e C é o que
-      # se pode provar sem credencial.
+      # O grupo B NÃO entra: B9, B10 e B11 chamam modelo real (32.298 tokens
+      # medidos) e as chaves vivem fora do repositório. O grupo D e o gate
+      # completo também ficam de fora, pelo mesmo motivo.
