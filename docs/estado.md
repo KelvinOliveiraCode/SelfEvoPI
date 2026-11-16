@@ -1,7 +1,7 @@
 # SelfEvoPI — estado do projeto
 
 > **Atualizado:** 2026-11-16 · **HEAD:** `80f41d4` em `main` e `dev`
-> **Repositório:** `KelvinOliveiraCode/SelfEvoPI` (privado)
+> **Repositório:** `SelfEvoPI` (privado)
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
 ---

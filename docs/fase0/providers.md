@@ -8,7 +8,7 @@
 | Git | `core.longpaths true`, `core.autocrlf false` | `git config --get core.longpaths` → `true` |
 | Branches | `main` (estável) + `dev` (integração) | `git branch -v` |
 | Worktrees | `.worktrees/A1` … `A8` com branches `agent/A*` | `git worktree list` |
-| Repositório | privado, `KelvinOliveiraCode/SelfEvoPI` | `gh repo view` |
+| Repositório | privado | `gh repo view` |
 | Providers **ativos** | 4 contas (`kilo1`–`kilo4`), 20 modelos | `node scripts/check-providers.mjs` |
 | Providers desativados | `or1`–`or4` (OpenRouter, free tier) — ver abaixo | `DISABLED_FAMILIES` em `router.mjs` |
 
