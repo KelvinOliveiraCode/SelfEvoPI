@@ -3,7 +3,8 @@
  * O modelo recebe slugify.mjs funcionando e deve extrair a remoção de acentos
  * para uma função exportada `semAcentos`, sem mudar o que `slugify` devolve.
  * O checker prova as duas coisas: semAcentos existe e remove acentos, e slugify
- * mantém exatamente as mesmas saídas em vários casos.
+ * mantém exatamente as mesmas saídas em vários casos, incluindo entradas
+ * surpresa que o modelo não viu (derrota lookup table).
  */
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -41,6 +42,10 @@ const casos = [
   ["ação e reação", "acao-e-reacao"],
   ["Çedilha", "cedilha"],
   ["", ""],
+  // surpresa: entradas que o modelo não viu (derrota lookup table)
+  ["Texto Qualquer", "texto-qualquer"],
+  ["São Paulo", "sao-paulo"],
+  ["C++ & C#", "c-c"],
 ];
 
 if (typeof mod.slugify === "function") {
@@ -57,10 +62,10 @@ if (typeof mod.slugify === "function") {
 }
 
 if (problems.length > 0) {
-  console.error("slugify.mjs inválido:");
-  for (const p of problems) console.error("  - " + p);
+  console.error(`slugify.mjs inválido: ${problems[0]}`);
+  for (let i = 1; i < problems.length; i++) console.error("  - " + problems[i]);
   process.exit(1);
 }
 
 console.log(JSON.stringify({ tokens: 0, metrics: { casos: casos.length } }));
-console.error("ok: refatoração extrai semAcentos e preserva o comportamento de slugify");
+console.error("ok: refatoração extrai semAcentos e preserva o comportamento de slugify (incl. surpresa)");
