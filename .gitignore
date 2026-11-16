@@ -48,6 +48,8 @@ yarn-error.log*
 # Estado efemero do harness
 .pi/harness/tmp/
 .pi/harness/*.tmp
+.pi/harness/graph/
+.pi/harness/reports/
 *.swp
 *.swo
 
