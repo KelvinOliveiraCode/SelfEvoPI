@@ -221,10 +221,91 @@ PASS smoke  (node -e "process.exit(0)")
 - Testes: `core/forge/generate-cli.test.mjs` (7 casos), incluindo a execução
   real do CLI via `spawnSync` (JSON válido, exit 2 sem argumento) e do `verify.mjs`.
 
+## O loop evolutivo (ponta a ponta)
+
+O loop amarra as peças: **detecta** lacuna -> **escolhe** kind -> **gera** ->
+**verifica** fora do sandbox -> **gate** -> **promove** ou **reverte**. É o
+coração do SelfEvoPI (Fase 2) e vive em `core/forge/loop.mjs`.
+
+### Módulos
+
+| Módulo | Papel |
+|:---|:---|
+| `core/forge/detect.mjs` | `detectGaps({ ledger, threshold, maxGaps })` — lê a trilha JSONL real e devolve gaps |
+| `core/forge/gatekeeper.mjs` | `runGate(...) -> GateReport` e `decidePromotion(report, { toleranceTokens })` |
+| `core/forge/loop.mjs` | `createEvolutionLoop(deps)` — o ciclo, com tudo injetável |
+| `core/forge/cli.mjs` | linha de frente: `detect`, `evolve`, `gate`, `status` |
+
+### Gatilhos reais do `detect.mjs`
+
+`GAP_KINDS = ["tool-failing", "tool-missing", "tool-fragile"]`:
+
+- **tool-failing** — mesma `taskId` com ≥ `threshold` falhas (default 3) no ledger.
+- **tool-missing** — `goal` que nenhuma capability existente cobre.
+- **tool-fragile** — tarefa acima do teto de tokens, marcada como frágil
+  (`metrics.fragile`), ou que usou screenshot onde caberia CLI.
+
+O detector lê `ledger` (array ou caminho do JSONL). Linhas corrompidas são
+ignoradas, não derrubam a detecção. Deduplica por `(kind, taskId)` e respeita
+`maxGaps`.
+
+### Regra de promoção do `gatekeeper.mjs`
+
+`runGate` recebe `runEvals` **injetado** (assíncrono) — o módulo nunca chama
+`evals/run.mjs` sozinho; quem injeta é o CLI. `decidePromotion` promove se:
+
+1. a tarefa-alvo passou (todas as execuções), **E**
+2. zero regressões vs baseline, **E**
+3. `deltaTokens <= tolerância`.
+
+Sem baseline, não há o que comparar: `deltaTokens = 0` e `regressed = false`.
+
+### Ciclo do `loop.mjs`
+
+`createEvolutionLoop(deps)` recebe todas as peças com defaults reais
+(`detectGaps`, `chooseKind`, `generateCli`/`generateSkill`,
+`runGate`, `decidePromotion`, `promote`, `rollback`, `runEvals`, `onEvent`).
+`evolve(input)` faz:
+
+1. **detecta** a lacuna (ou usa a recebida; filtra pela tarefa pedida);
+2. **escolhe** o kind via `chooseKind` (recai para `cli` se o escolhido não tem gerador);
+3. **monta** o request (`createArtifactRequest`) do gap;
+4. **gera** em isolamento (mkdtemp);
+5. **gate estático** (reusa `core/sandbox/static-gate.mjs`): rede/credencial/fora
+   do workspace => `needs-human`;
+6. **verifica fora do sandbox** (roda o `verify.mjs` gerado);
+7. **gate de promoção**;
+8. **promove** (aplica) ou **reverte** (rollback).
+
+Paradas honestas: `needs-human` (pede rede/credencial/escrita fora do
+workspace), `rejected` (gate reprova), `promoted` (passou).
+
+### CLI
+
+```bash
+node core/forge/cli.mjs detect [--json]
+node core/forge/cli.mjs evolve --task D1-cria-soma [--dry-run] [--json]
+node core/forge/cli.mjs gate --artifact <dir> --task <id>
+node core/forge/cli.mjs status
+```
+
+`--json` imprime JSON compacto (uma linha); sem ele, texto curto. `--dry-run`
+usa um stub de eval determinístico (não chama modelo real) e não promove.
+
+### Testes
+
+- `detect.test.mjs` — os três gatilhos, dedup, ledger corrompido.
+- `gatekeeper.test.mjs` — aprovação, regressão, tolerância, runEvals injetado.
+- `loop.test.mjs` — lacuna→artefato aprovado, reprovado por regressão (rollback),
+  verify que falha, `needs-human`, dry-run.
+- `cli.test.mjs` — detect/evolve/gate/status via subprocess, JSON e texto.
+
 ## Pendências
 
-- [ ] Etapas 1 e 3 (detector de lacunas e hierarquia) — A1/A2.
-- [ ] Etapas 6 e 7 (gatekeeper, registro) — A6.
+- [x] Detector de lacunas (`detect.mjs`) — os três gatilhos.
+- [x] Gatekeeper (`gatekeeper.mjs`) — runGate + decidePromotion.
+- [x] Loop ponta a ponta (`loop.mjs`) + CLI (`cli.mjs`).
+- [ ] Promoção real: `promote` hoje só marca; falta commit + `last-known-good.json`.
 - [ ] Geradores dos demais kinds (`extension`, `mcp-server`, `mcp-config`) — A6.
 - [ ] Etapa 5 (sandbox Windows) — fase posterior, com Job Objects + `cc-safety-net`.
 - [ ] Indexação semântica do registro (Voyager-style) na promoção.
