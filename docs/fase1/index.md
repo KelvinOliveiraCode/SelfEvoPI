@@ -46,7 +46,16 @@ Confere com a medição do A4 (+1.808) e com a do site do PI (as descrições da
 
 `core/memory/store.mjs` implementa os 3 níveis (session/project/skills) com JSONL append-only e `promote()`. `core/memory/refine.mjs` propõe deltas por regra (dedupe, drop, keep, merge-tags) e aplica os seguros.
 
-**Falta ligar ao PI.** A memória existe e é testada (16 testes), mas ainda não é invocada pelo harness — é a próxima tarefa da fase.
+**Integrada ao PI** por `core/memory/extension.mjs`:
+
+- `session_start`: abre o store em `<cwd>/.pi/harness/memory`, carrega o nível `project` e monta o bloco
+- `before_agent_start`: injeta o bloco como mensagem de contexto (`display: false`)
+- `/mem` · `/mem add <texto>` · `/mem promote <id>`
+- Teto de tokens: flag `--mem-tokens` > env `SELFEOPI_MEM_TOKENS` > **400** (estimativa de 4 chars/token, corta as entradas mais antigas)
+
+**Medido em sessão real:** uma entrada de convenção adiciona **~48 tokens** ao prompt. Com o teto de 400, cabem cerca de 8 entradas.
+
+Verificado com `pi -e ./core/memory/extension.mjs --help` → a flag `--mem-tokens` aparece (a extensão carregou de verdade).
 
 ## 5. Estado da fase
 
@@ -55,12 +64,13 @@ Confere com a medição do A4 (+1.808) e com a do site do PI (as descrições da
 | Bake-off com vencedor | ✓ |
 | `pi-subagents` instalado no projeto | ✓ |
 | Overhead medido | ✓ +1.880 tokens |
-| Memória persistente | ✓ implementada, ✗ não integrada |
-| Compressão (`billion-context`) | pendente — precisa de teste empírico |
+| Memória persistente | ✓ implementada, ✓ integrada, ✓ medida |
+| Compressão (`billion-context`) | em teste (A2) |
 | Gate com extensão ativa | ✓ 42/42 |
+| Testes totais | 171 |
 
 ## 6. Pendências
 
-- [ ] Integrar `core/memory/` ao ciclo do PI (handoffs e fatos de projeto).
-- [ ] Testar `billion-context` contra os evals: só manter se preservar acurácia.
-- [ ] Medir o incremento do prompt do SelfEvoPI (meta < 1.500 tokens) quando houver extensão própria.
+- [ ] Resultado do teste de `billion-context` (A2) e veredito.
+- [ ] Medir o incremento do prompt do SelfEvoPI (meta < 1.500 tokens) — hoje a memória é o único incremento autoral e custa ~48 tokens por entrada.
+- [ ] Resolver o conflito gate × `verify.mjs` (ver `docs/fase2/sandbox.md`).
