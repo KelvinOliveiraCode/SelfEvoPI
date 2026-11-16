@@ -162,10 +162,69 @@ Execute `node verify.mjs`. Ele sai 0 somente se todos os testes passarem:
 - Testes: `core/forge/generate-skill.test.mjs` (6 casos), incluindo a execução
   real do `verify.mjs` gerado (passa quando os testes passam, reprova quando falham).
 
+## Gerando um CLI
+
+O nível 3 da hierarquia — script/CLI local, entre a skill e a extensão — tem sua
+peça executável em `core/forge/generate-cli.mjs`. `generateCli(request, outDir)`
+transforma um pedido de kind `"cli"` em um CLI Node de verdade.
+
+### Fluxo: contrato → arquivo → execução
+
+```
+createArtifactRequest            generateCli                 cli.mjs
+  { goal, kind:"cli",       →    cli.mjs    (shebang,        node cli.mjs --path x
+    inputs, outputs,             flags --<entrada>,         → {"ok":true,...}  (1 linha)
+    forbidden, tests }           JSON de saída)                │
+                                 README.md (uso)               ├─ faltando arg → exit 2
+                                 verify.mjs (autocontido)  ──┤
+                                 testes embutidos              └─ exit 0 só se todos passam
+```
+
+1. **Contrato** — `createArtifactRequest` valida (kind, `forbidden` não-vazio,
+   `tests` não-vazio). Só um request válido chega ao gerador.
+2. **Arquivo** — `generateCli(request, outDir)` escreve:
+   - `cli.mjs`: shebang, expõe cada entrada de `request.inputs` como flag
+     `--<nome> <valor>`, valida as obrigatórias, imprime **JSON compacto numa
+     linha** conforme `request.outputs`, usa `process.exitCode` (não
+     `process.exit`) e **sai 2** se faltar argumento obrigatório.
+   - `README.md`: uso e exemplos curtos.
+   - `verify.mjs`: autocontido, roda `request.tests` e sai 0 só se todos passarem.
+3. **Execução** — o chamador roda `node cli.mjs ...` e `node verify.mjs`. O
+   `verify.mjs` é a evidência que o Gatekeeper (`validateArtifactResult`) exige.
+
+### Exemplo de uso do CLI gerado
+
+Pedido: `{ goal: "detectar mudancas de arquivos", kind: "cli", inputs: { path: "arquivo ou pasta a observar" }, outputs: { changed: "...", count: "..." }, forbidden: ["acessar rede"], tests: [...] }`
+
+```bash
+# com argumento (exit 0) — JSON compacto numa linha
+$ node cli.mjs --path src/index.js
+{"ok":true,"goal":"detectar mudancas de arquivos","inputs":{"path":"src/index.js"},"outputs":{"changed":null,"count":null}}
+
+# sem argumento obrigatório (exit 2) — erro em JSON no stderr
+$ node cli.mjs
+{"ok":false,"error":"faltando argumentos obrigatorios: path"}
+
+# verificação (exit 0)
+$ node verify.mjs
+PASS smoke  (node -e "process.exit(0)")
+```
+
+### Garantias
+
+- **Recusa** `kind` diferente de `"cli"`.
+- **Recusa** sobrescrever um `cli.mjs` já existente no `outDir`.
+- O CLI gerado é honesto: valida entradas e devolve as saídas declaradas (com
+  `null` quando não há cálculo) — não inventa lógica de negócio.
+- `process.exitCode` em vez de `process.exit`: permite ao processo pai ler o
+  stdout/stderr antes de o processo terminar.
+- Testes: `core/forge/generate-cli.test.mjs` (7 casos), incluindo a execução
+  real do CLI via `spawnSync` (JSON válido, exit 2 sem argumento) e do `verify.mjs`.
+
 ## Pendências
 
 - [ ] Etapas 1 e 3 (detector de lacunas e hierarquia) — A1/A2.
 - [ ] Etapas 6 e 7 (gatekeeper, registro) — A6.
-- [ ] Geradores dos demais kinds (`cli`, `extension`, `mcp-server`) — A6.
+- [ ] Geradores dos demais kinds (`extension`, `mcp-server`, `mcp-config`) — A6.
 - [ ] Etapa 5 (sandbox Windows) — fase posterior, com Job Objects + `cc-safety-net`.
 - [ ] Indexação semântica do registro (Voyager-style) na promoção.
