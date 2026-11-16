@@ -232,19 +232,21 @@ async function cmdEvolve(args) {
   if (useLlm) {
     const model = typeof args.flags.model === "string" ? args.flags.model : DEFAULT_MODEL;
     const runModel = makeRunModel({ model });
-    const { generateWithModel } = await import("./generate-llm.mjs");
+    const { generateArtifactWithModel } = await import("./generate-llm.mjs");
     const { defaultGenerate } = await import("./loop.mjs");
     generate = async (request, outDir) => {
-      if (request.kind === "cli") {
-        try {
-          return await generateWithModel({ request, outDir, runModel, model });
-        } catch (err) {
-          onGenerateError = { code: err?.code ?? "erro", message: err?.message ?? String(err), kind: request.kind };
-          // cai no gerador de template: o artefato existe, mas é esqueleto
-          return defaultGenerate(request, outDir);
-        }
+      // `cli`, `mcp-server` e `extension` produzem código: o modelo escreve.
+      // `mcp-config` e `skill` são documento/configuração: o template é a
+      // implementação certa, e devolvê-los ao modelo seria inventar.
+      const target = (await import("./generate-llm.mjs")).TARGETS[request.kind];
+      if (!target) return defaultGenerate(request, outDir);
+      try {
+        return await generateArtifactWithModel({ request, outDir, runModel, model });
+      } catch (err) {
+        onGenerateError = { code: err?.code ?? "erro", message: err?.message ?? String(err), kind: request.kind };
+        // cai no gerador de template: o artefato existe, mas é esqueleto
+        return defaultGenerate(request, outDir);
       }
-      return defaultGenerate(request, outDir);
     };
   }
 

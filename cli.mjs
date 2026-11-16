@@ -1,54 +1,59 @@
 import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
 
-const args = process.argv.slice(2);
-let arquivo = '';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-for (let i = 0; i < args.length; i++) {
-  if (args[i] === '--arquivo' && i + 1 < args.length) {
-    arquivo = args[i + 1];
-    break;
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 2; i < argv.length; i++) {
+    const key = argv[i];
+    if (key.startsWith('--')) {
+      const value = argv[i + 1];
+      if (value && !value.startsWith('--')) {
+        args[key.slice(2)] = value;
+        i++;
+      } else {
+        args[key.slice(2)] = true;
+      }
+    }
+  }
+  return args;
+}
+
+function validateJson(jsonString) {
+  try {
+    JSON.parse(jsonString);
+    return { valido: true, erros: [] };
+  } catch (e) {
+    return { valido: false, erros: [e.message] };
   }
 }
 
-if (!arquivo) {
-  process.exitCode = 2;
-  console.log(JSON.stringify({ ok: false, erro: 'argumento --arquivo obrigatório' }));
-  process.exit(2);
-}
+function main() {
+  const args = parseArgs(process.argv);
+  const arquivo = args.arquivo;
 
-let html;
-try {
-  html = readFileSync(arquivo, 'utf8');
-} catch (e) {
-  process.exitCode = 2;
-  console.log(JSON.stringify({ ok: false, erro: 'erro ao ler arquivo: ' + e.message }));
-  process.exit(2);
-}
-
-const tableMatch = html.match(/<table[^>]*>([\s\S]*?)<\/table>/i);
-if (!tableMatch) {
-  console.log(JSON.stringify({ linhas: [] }));
-  process.exit(0);
-}
-
-const tableContent = tableMatch[1];
-const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
-
-const linhas = [];
-let rowMatch;
-while ((rowMatch = rowRegex.exec(tableContent)) !== null) {
-  const rowContent = rowMatch[1];
-  const cells = [];
-  let cellMatch;
-  while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
-    let text = cellMatch[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
-    text = text.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"').replace(/'/g, "'");
-    cells.push(text);
+  if (!arquivo) {
+    console.error(JSON.stringify({ valido: false, erros: ['argumento --arquivo obrigatório'] }));
+    process.exitCode = 2;
+    return;
   }
-  if (cells.length > 0) {
-    linhas.push(cells);
+
+  const filePath = resolve(__dirname, arquivo);
+  let content;
+  try {
+    content = readFileSync(filePath, 'utf8');
+  } catch (e) {
+    console.error(JSON.stringify({ valido: false, erros: [`erro ao ler arquivo: ${e.message}`] }));
+    process.exitCode = 1;
+    return;
   }
+
+  const result = validateJson(content);
+  console.log(JSON.stringify(result));
+  if (!result.valido) process.exitCode = 1;
 }
 
-console.log(JSON.stringify({ linhas }));
+main();

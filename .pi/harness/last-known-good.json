@@ -1,18 +1,18 @@
 {
   "version": 1,
-  "sha": "7c91ab8",
+  "sha": "a5cee5a",
   "branch": "main",
   "verifiedAt": "2026-11-16",
   "phase": "2",
   "checks": [
     {
       "name": "verify",
-      "command": "promoção de configurar-um-servidor-mcp-de-arquivos",
+      "command": "promoção de expor-uma-ferramenta-que-soma-dois-numer",
       "result": "pass",
       "detail": "sem tarefa de eval; evidência do artefato"
     }
   ],
-  "notes": "artefato promovido para .pi\\harness\\artifacts\\configurar-um-servidor-mcp-de-arquivos-2026-11-16T16-08-54-964Z",
-  "label": "promoção de configurar-um-servidor-mcp-de-arquivos",
+  "notes": "artefato promovido para .pi\\harness\\artifacts\\expor-uma-ferramenta-que-soma-dois-numer-2026-11-16T16-19-31-711Z",
+  "label": "promoção de expor-uma-ferramenta-que-soma-dois-numer",
   "tag": "v0.5-desktop"
 }

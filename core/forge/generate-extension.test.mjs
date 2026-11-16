@@ -55,7 +55,7 @@ test("extension: o handler responde ok:true com as saídas", async () => {
         'import mod from "' + url + '";',
         "const commands = {};",
         "const handlers = {};",
-        "const pi = { on(){}, registerFlag(){}, registerCommand(n,d,h){ commands[n]=d; handlers[n]=h; } };",
+        "const pi = { on(){}, registerFlag(){}, registerCommand(n,d){ commands[n]=d; handlers[n]=d.handler; } };",
         "mod(pi);",
         "const name = Object.keys(commands)[0];",
         "const out = handlers[name]({});",

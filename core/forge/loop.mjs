@@ -14,7 +14,7 @@
  *  - "promoted"    : passou o gate e foi promovido.
  */
 
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,6 +23,7 @@ import { createGap, detectGaps } from "./detect.mjs";
 import { generateCli } from "./generate-cli.mjs";
 import { generateSkill } from "./generate-skill.mjs";
 import { specifyGap } from "./specify.mjs";
+import { probeTest } from "./probe.mjs";
 import { generateMcpConfig } from "./generate-mcp-config.mjs";
 import { generateMcpServer } from "./generate-mcp-server.mjs";
 import { generateExtension } from "./generate-extension.mjs";
@@ -97,61 +98,20 @@ async function stubRunEvals() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Testes sintetizados                                                 */
+/* Testes sintetizados (sonda por kind)                                */
 /* ------------------------------------------------------------------ */
 
 /**
- * Quando o pedido não traz testes, cria um teste de interface real:
- * roda o CLI com uma amostra de cada entrada declarada e exige que a saída
- * tenha as chaves declaradas.
+ * Quando o pedido nao traz testes, cria uma sonda de interface real: um
+ * `probe.mjs` gravado no diretorio do artefato que exercita o artefato do
+ * jeito que ele e chamado (flags para cli, JSON-RPC para mcp-server, modulo
+ * para extension).
  *
  * Sem isso, o default era um "smoke test" que sempre passa — e um artefato com
- * uma interface errada (ler args posicionais em vez de `--flag`) era promovido
- * com evidência falsa. O teste de interface é a diferença entre "executou" e
- * "funciona".
+ * uma interface errada (ler args posicionais em vez de --flag) era promovido
+ * com evidencia falsa.
  */
-export function synthesizeTests(request, { cliPath = "cli.mjs" } = {}) {
-  const inputs = Object.keys(request.inputs ?? {});
-  const outputs = Object.keys(request.outputs ?? {});
-
-  if (inputs.length === 0) {
-    return [{ name: "interface", command: `node ${cliPath}`, expect: null }];
-  }
-
-  // Entradas que são caminho de arquivo recebem um fixture real: passar "1"
-  // para um `--arquivo` faz um CLI honesto falhar por um motivo irrelevante
-  // (arquivo inexistente), e o artefato seria reprovado por azar.
-  //
-  // O comando usa aspas simples de propósito: ele vai para um shell, e aspas
-  // duplas aqui brigariam com as do próprio comando.
-  const FILEISH = /(arquivo|file|path|csv|html|json|input|entrada|dir|pasta)/i;
-  const fixtures = [];
-  const flags = [];
-
-  for (const k of inputs) {
-    if (FILEISH.test(k)) {
-      const name = `fixture-${k.replace(/[^a-z0-9_-]/gi, "")}.txt`;
-      fixtures.push(`require('fs').writeFileSync('${name}','a,b,c\\n1,2,3\\n4,5,6\\n')`);
-      flags.push(`--${k} ${name}`);
-    } else {
-      flags.push(`--${k} 1`);
-    }
-  }
-
-  // a expect é um regex: exige que TODAS as chaves declaradas apareçam no JSON
-  const expect = outputs.length > 0 ? outputs.map((o) => `"${o}"`).join(".*") : null;
-
-  const prelude = fixtures.length > 0 ? `node -e "${fixtures.join("; ")}" && ` : "";
-  const command = `${prelude}node ${cliPath} ${flags.join(" ")}`;
-
-  return [
-    {
-      name: `interface (${inputs.map((k) => `--${k}`).join(" ")})`,
-      command,
-      expect,
-    },
-  ];
-}
+export { PRIMARY_FILE, renderProbe, probeTest } from "./probe.mjs";
 
 /* ------------------------------------------------------------------ */
 /* createEvolutionLoop                                                 */
@@ -361,7 +321,7 @@ export function createEvolutionLoop(deps = {}) {
           ? input.tests
           : baseKindMatches && Array.isArray(base?.tests) && base.tests.length > 0
             ? base.tests
-            : synthesizeTests({ inputs: opInputs ?? {}, outputs: opOutputs ?? {} });
+            : [probeTest({ kind: opKind })];
 
         request = createArtifactRequest({
           goal: opGoal,
@@ -387,6 +347,13 @@ export function createEvolutionLoop(deps = {}) {
       const gen = await generate(request, artifactDir);
       report.files = gen.files ?? [];
       report.verifyCommand = gen.verifyCommand ?? null;
+
+      // Sonda de interface: um probe.mjs no diretorio do artefato, para o
+      // verify poder exercitar o artefato do jeito certo (flags, JSON-RPC, módulo).
+      if (Array.isArray(request.tests) && request.tests.some((t) => t?.command === "node probe.mjs")) {
+        const { renderProbe } = await import("./probe.mjs");
+        await writeFile(join(artifactDir, "probe.mjs"), renderProbe(request), "utf8");
+      }
       emit({ event: "generated", kind, files: report.files });
 
       // 5. Gate estático: rede/credencial/fora do workspace => needs-human.
