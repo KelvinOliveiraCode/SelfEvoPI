@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "configurar-um-servidor-mcp-de-arquivos": {
+      "command": "node",
+      "args": [
+        "server.mjs"
+      ],
+      "env": {}
+    }
+  }
+}
