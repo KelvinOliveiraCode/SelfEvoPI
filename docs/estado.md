@@ -39,8 +39,8 @@ lacunas, gera artefatos e só promove o que não causa regressão.
 | Incremento do SelfEvoPI | **+501 tok** (memória no teto) | < 1.500 tok | `node scripts/measure-selfevopi-overhead.mjs` |
 | `pi-subagents` (sob demanda) | +1.654 tok | — | idem |
 | Evals | **29 tarefas, 87/87 (100%)** | sem regressão | `node evals/gate.mjs` |
-| Tokens da suíte | **214.747** (5 tarefas com modelo) | — | idem |
-| Testes unitários | **328** | — | `node --test core/*/*.test.mjs` |
+| Tokens da suíte | **~210.600** (5 tarefas com modelo) | — | idem |
+| Testes unitários | **371** | — | `npm test` |
 | Custo | US$ 0,00 (free tier) | — | ledger |
 
 ## 4. Os cinco kinds, todos com gerador real
@@ -168,23 +168,28 @@ no próprio arquivo e regerei a baseline. É o gate fazendo o que ele existe par
 ## 8. Como verificar
 
 ```powershell
-node --test core/router/*.test.mjs core/forge/*.test.mjs core/memory/*.test.mjs core/graph/*.test.mjs core/governance/*.test.mjs core/sandbox/*.test.mjs scripts/refine-loop.test.mjs
+npm test
 node evals/gate.mjs
 node scripts/measure-overhead.mjs --runs 10
 node scripts/measure-selfevopi-overhead.mjs --runs 3
 node core/forge/cli.mjs detect --json
+node core/forge/cli.mjs skills <termo>
 node core/forge/cli.mjs status
 node scripts/daily.mjs --dry-run
 ```
+
+No CI (`.github/workflows/ci.yml`) rodam os testes unitários e os evals dos grupos
+A e C — os únicos que não precisam de chave de API. O gate completo fica local.
 
 ## 9. O que ficou honestamente por fazer
 
 | Item | Por quê |
 |:---|:---|
-| Ponte fina `core/graph` ↔ Pi-Harness instalado | a ponte de estado está entregue e testada; faltar validar contra o app real (não instalado aqui) |
-| Indexação semântica de skills (Voyager) | a promoção registra a capacidade na memória por tarefa; falta recuperação por descrição |
-| Política de keep-alive do sandbox | definida, não implementada |
-| Grupo B com lacunas reais | B9/B10/B11 agora exigem criar ferramenta; as tarefas B1–B8 seguem estruturais |
+| Validar a ponte contra o Pi-Harness instalado | a ponte de estado está entregue e testada; falta o app real, que não está nesta máquina |
+| Grupo B mistura structural e real | B9/B10/B11 chamam modelo (32.298 tok) e por isso o CI não roda o grupo B; B1–B8 seguem estruturais |
+| Auto-disparo do loop evolutivo | o ciclo é autônomo dado um gatilho, mas nada o agenda; a rotina diária faz refine, não evolução |
+| Recuperação de skills é lexical | busca por termo em texto e tags, sem embeddings — "semântica" exigiria vetores |
+| Job Objects e keep-alive do sandbox | avaliados e descartados com número na mesa (ver `docs/fase2/sandbox.md`) |
 
 Nada disso impede o ciclo de funcionar. São as peças que faltam para o loop ficar
 autônomo de ponta a ponta sem operador.
