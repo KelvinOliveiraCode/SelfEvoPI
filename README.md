@@ -35,19 +35,25 @@ Requisitos: **Windows nativo** (sem Docker, VM ou WSL), Node ≥ 22.19.1, PI Cod
 ```powershell
 git clone https://github.com/KelvinOliveiraCode/SelfEvoPI.git
 cd SelfEvoPI
-node scripts/check-providers.mjs     # as contas respondem?
-node evals/gate.mjs                  # a suíte passa?
+npm run verify                      # testes + evals A/C + URLs
 ```
 
 ## Uso diário
 
+O jeito mais simples é o atalho **`SelfEvoPI.cmd`** na Área de Trabalho: um menu com
+estado do harness, detecção de lacunas, evals, verificação completa, gate e o painel
+gráfico (`SelfEvoPI-Painel.cmd`).
+
+Sem atalho, pela linha de comando:
+
 ```powershell
 node core/router/cli.mjs --profile worker        # qual modelo o roteador escolheria
 node evals/run.mjs --group D                     # rodar só as tarefas de modelo
-node evals/gate.mjs                              # comparar com a linha de base
+npm run gate                                     # comparar com a linha de base
 node core/forge/cli.mjs detect --json            # quais lacunas o harness detectou
 node core/forge/cli.mjs skills parser            # o que já foi gerado sobre "parser"
 node core/forge/cli.mjs status                   # estado do harness
+node scripts/desktop.mjs                         # painel local em 127.0.0.1:7777
 ```
 
 ## O ciclo evolutivo
@@ -83,10 +89,13 @@ Os cinco artefatos possíveis, do mais leve ao mais pesado: `mcp-config`, `skill
 ## Verificação
 
 ```powershell
-node --test core/router/*.test.mjs core/forge/*.test.mjs core/memory/*.test.mjs core/graph/*.test.mjs core/governance/*.test.mjs core/sandbox/*.test.mjs scripts/refine-loop.test.mjs
-node evals/gate.mjs
-node scripts/verify-urls.mjs
+npm run verify                       # testes + evals A/C + gate de URLs (o mesmo do CI)
+npm test                             # só os 371 testes unitários
+npm run gate                         # gate completo (modelo real, lento)
 ```
+
+No CI (`.github/workflows/ci.yml`) roda `npm run verify`: os grupos B e D chamam modelo
+real e ficam de fora porque as chaves não vão para o repositório.
 
 ## Estrutura
 
@@ -96,11 +105,12 @@ core/forge/        núcleo evolutivo (contrato, detecção, geração, gate, loo
 core/sandbox/      isolamento de processo e gate estático
 core/governance/   rollback verificado e aprovação humana
 core/memory/       memória em 3 níveis com busca e poda
-core/graph/        grafo de execução com checkpoint e painel
+core/graph/        grafo de execução com checkpoint, ponte e painel
 evals/             29 tarefas, verificadores e gate de regressão
-scripts/            medições, checkpoints e rotinas
-.pi/harness/        estado persistente (memória, ledger, relatórios)
+scripts/            medições, desktop local, checkpoints e rotinas
+.pi/harness/        estado persistente (memória, ledger, relatórios, artefatos)
 docs/               decisões, estado e pesquisa
+.github/workflows/  integração contínua
 ```
 
 ## Licença

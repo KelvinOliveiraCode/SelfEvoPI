@@ -42,6 +42,7 @@ lacunas, gera artefatos e só promove o que não causa regressão.
 | Tokens da suíte | **~210.600** (5 tarefas com modelo) | — | idem |
 | Testes unitários | **371** | — | `npm test` |
 | Custo | US$ 0,00 (free tier) | — | ledger |
+| Verificação de um comando | **exit 0** | — | `npm run verify` |
 
 ## 4. Os cinco kinds, todos com gerador real
 
