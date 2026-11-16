@@ -2,7 +2,7 @@
 
 O roteador é a Camada 2 do SelfEvoPI. Ele escolhe **qual conta e qual modelo** atender cada tarefa, para que o orquestrador não precise conhecer os 8 providers.
 
-Arquivo: `core/router/router.mjs` (sem dependências). CLI: `core/router/cli.mjs`. Testes: `core/router/router.test.mjs` (12 casos).
+Arquivo: `core/router/router.mjs` (sem dependências). CLI: `core/router/cli.mjs`. Testes: `core/router/router.test.mjs` (14 casos), `core/router/budget.test.mjs` (5 casos), `core/router/pick-with-retry.test.mjs` (6 casos), `core/router/failover.test.mjs` (9 casos).
 
 ## Perfis
 
@@ -138,3 +138,23 @@ O roteador não substitui o PI: ele devolve uma `ref` (`provider/modelo`) que o 
 - [ ] Coletor de latência real alimentando o EWMA (hoje só via `report`).
 - [x] Teto de tokens por tarefa (`budget.mjs`).
 - [x] Retry com troca de provider (`pickWithRetry`).
+- [x] Failover, circuit breaker e teto provados com falha injetada (`failover.test.mjs`, 9 casos).
+
+## O que ficou provado (failover.test.mjs)
+
+| Cenário | Resultado |
+|:---|:---|
+| 429 → troca de provider e completa | ✅ `kilo1` falha, `kilo2` assume |
+| Timeout (ETIMEDOUT) → troca de provider | ✅ `kilo1` timeout, `kilo2` assume |
+| Corpo vazio (exit 0) → não repete no mesmo provider | ✅ erro não-retryable propaga na hora |
+| Circuit breaker abre após N falhas | ✅ provider sai da rotação |
+| Circuit breaker fecha após cooldown + sucesso | ✅ provider volta à rotação |
+| Família `or` nunca é escolhida | ✅ `DISABLED_FAMILIES` em ação |
+| Teto de tokens: `onExceeded` dispara uma vez | ✅ chamada seguinte recusada |
+
+## O que continua sem prova
+
+- **Latência real**: o EWMA só é alimentado via `report()` manual. Não há coletor automático.
+- **Custo real**: o budget acumula custo, mas ninguém calcula o custo por token de cada modelo automaticamente.
+- **Integração com PI**: `pickWithRetry` existe mas o PI ainda não o chama — o wrapper é pendência.
+- **Concorrência**: não há teste de múltiplas tarefas simultâneas competindo pelo mesmo budget ou circuit breaker.
