@@ -1,0 +1,14 @@
+{
+  "id": "D3-cria-csv",
+  "group": "D",
+  "title": "PI cria parseCsv que aceita vírgula entre aspas",
+  "description": "Geração de código com verificação por execução: o modelo cria parseCsv.mjs exportando parseCsv(texto) que separa linhas e campos, tratando vírgulas dentro de aspas e aspas escapadas (\"\").",
+  "prompt": "Crie um arquivo chamado parseCsv.mjs no diretório atual. Ele deve exportar uma função parseCsv(texto) que recebe o conteúdo de um CSV como string e devolve um array de linhas, cada linha um array de campos (strings). Campos podem conter vírgulas quando estão entre aspas duplas. Aspas duplas dentro de um campo são escapadas como \"\". Use a sintaxe: export function parseCsv(texto) { ... }. Não crie outros arquivos e não escreva nada além do código.",
+  "fixture": "D3-csv",
+  "profile": "worker",
+  "fallbackProfile": "orchestrator",
+  "checker": "node evals/checks/check-d3-csv.mjs",
+  "timeoutMs": 180000,
+  "checkerTimeoutMs": 30000,
+  "tags": ["modelo-real", "geracao-de-codigo", "grupo-d", "csv"]
+}

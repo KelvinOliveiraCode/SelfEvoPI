@@ -1,0 +1,9 @@
+{
+  "id": "A8-forge-choose-kind",
+  "group": "A",
+  "title": "chooseKind escolhe o kind mais leve que atende",
+  "description": "Verifica a seleção de kind do Forge: mcp-config para config, skill para skill, cli para cli, mcp-server para server, e o mais leve com menos faltas quando nada cobre tudo.",
+  "checker": "node evals/checks/check-choose-kind.mjs",
+  "timeoutMs": 30000,
+  "tags": ["forge", "artifato", "decisao"]
+}

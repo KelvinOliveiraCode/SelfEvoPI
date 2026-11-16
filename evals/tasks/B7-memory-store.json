@@ -1,0 +1,9 @@
+{
+  "id": "B7-memory-store",
+  "group": "B",
+  "title": "memory store persiste, consulta, filtra e promove entradas",
+  "description": " Exercita a camada de memória: append com id/at, query mais-recente-primeiro, filtro por tag e texto (case-insensitive), promote entre níveis, stats por nível e recusa de nível inválido.",
+  "checker": "node evals/checks/check-memory-store.mjs",
+  "timeoutMs": 30000,
+  "tags": ["memoria", "persistencia", "jsonl"]
+}
