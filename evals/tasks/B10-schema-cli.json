@@ -1,0 +1,14 @@
+{
+  "id": "B10-schema-cli",
+  "group": "B",
+  "title": "criar cli.mjs que valida JSON contra schema (tipo, obrigatório, faixa)",
+  "description": "Lacuna de ferramenta real: o modelo cria um cli.mjs que valida um JSON contra um schema fixo. O verificador roda o artefato em 4 fixtures e confere o código de saída E a mensagem de erro de cada caso.",
+  "prompt": "Crie um arquivo cli.mjs no diretório atual que valida um arquivo JSON contra um schema fixo. Uso: `node cli.mjs <arquivo.json>`. O schema é: `nome` (string, obrigatório), `idade` (número inteiro, obrigatório, entre 0 e 120), `email` (string, opcional). Se o JSON for válido, imprima 'ok' e saia 0. Se for inválido, imprima uma mensagem de erro dizendo qual campo está errado (ex.: 'nome é obrigatório', 'idade deve ser número', 'idade fora da faixa 0-120') e saia 1. Não crie outros arquivos.",
+  "fixture": "B10-schema",
+  "profile": "worker",
+  "fallbackProfile": "orchestrator",
+  "checker": "node evals/checks/check-schema-cli.mjs",
+  "timeoutMs": 180000,
+  "checkerTimeoutMs": 40000,
+  "tags": ["modelo-real", "ferramenta", "grupo-b", "validacao"]
+}
