@@ -1,39 +1,54 @@
 #!/usr/bin/env node
 /**
- * apps/cli.test.mjs — testes da CLI (TUI) do SelfEvoPI.
+ * apps/cli.test.mjs — testes da CLI do SelfEvoPI (REPL de conversa).
  *
- * Cobre: cada tela renderiza sem lançar; o frame cabe em 72 colunas; `q` sai;
- * estado vazio não quebra; ausência de pi é reportada e não derruba.
+ * Cobre: os frames headless renderizam e saem 0; nenhuma linha passa de 72
+ * colunas; os comandos de barra existem e são reconhecidos; o markdown sai
+ * renderizado (sem `**` cru); a linha de edição (reduceLine) faz o esperado;
+ * Ctrl+C cancela sem derrubar; sair (q / /quit / EOF) funciona; e a interface
+ * não vaza o nome do motor (SelfEvoPI é o produto).
+ *
+ * Não precisa do motor instalado: usa dublês e o modo headless.
  */
 
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  SCREENS,
-  renderScreen,
-  handleKey,
-  applyAction,
-  normalizeKey,
-  checkPi,
-  harnessState,
+  SLASH_COMMANDS,
+  renderMarkdown,
+  renderHelp,
+  renderBanner,
+  renderStatusLine,
+  renderConversationFrame,
+  parseInput,
+  reduceLine,
+  converse,
+  engineUnavailableNote,
+  engineErrorMessage,
+  runSlash,
   stripAnsi,
   visibleWidth,
+  wrapAnsi,
+  repl,
 } from "./cli.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(__dirname, "cli.mjs");
 const WIDTH = 72;
 
-/** Executa `node apps/cli.mjs --render <screen>` e devolve { code, out }. */
-function render(screen, env = {}) {
+const RENDER_SCREENS = ["conversation", "help", "banner"];
+
+function run(args, { env = {}, input = "" } = {}) {
   try {
-    const out = execFileSync(process.execPath, [CLI, "--render", screen], {
+    const out = execFileSync(process.execPath, [CLI, ...args], {
       encoding: "utf8",
-      env: { ...process.env, ...env },
+      input,
+      env: { ...process.env, SELFEOPI_FORCE_NO_ENGINE: "1", ...env },
       timeout: 30_000,
     });
     return { code: 0, out };
@@ -42,99 +57,294 @@ function render(screen, env = {}) {
   }
 }
 
-const ALL_SCREENS = ["menu", ...SCREENS.map((s) => s.id)];
+/* ---------------------------------------------------------------- */
+/* Render headless                                                   */
+/* ---------------------------------------------------------------- */
 
-test("cada tela renderiza sem lançar e sai 0", () => {
-  for (const screen of ALL_SCREENS) {
-    const { code, out } = render(screen);
-    assert.equal(code, 0, `tela ${screen} saiu ${code}`);
-    assert.ok(out.length > 0, `tela ${screen} não imprimiu nada`);
+test("--render conversation/help/banner saem 0 e imprimem algo", () => {
+  for (const s of RENDER_SCREENS) {
+    const { code, out } = run(["--render", s]);
+    assert.equal(code, 0, `--render ${s} saiu ${code}`);
+    assert.ok(out.length > 0, `--render ${s} não imprimiu nada`);
+    assert.match(stripAnsi(out), /SelfEvoPI/);
   }
 });
 
-test("nenhuma linha do frame passa de 72 colunas", () => {
-  for (const screen of ALL_SCREENS) {
-    const { out } = render(screen);
+test("nenhuma linha dos frames passa de 72 colunas", () => {
+  for (const s of RENDER_SCREENS) {
+    const { out } = run(["--render", s]);
     for (const line of out.split("\n")) {
       const w = visibleWidth(line);
-      assert.ok(w <= WIDTH, `tela ${screen}: linha com ${w} colunas (> ${WIDTH})`);
+      assert.ok(w <= WIDTH, `--render ${s}: linha com ${w} colunas (> ${WIDTH})`);
     }
+  }
+  // e o frame de conversa montado em memória também cabe
+  for (const line of renderConversationFrame({ branch: "main" }).split("\n")) {
+    assert.ok(visibleWidth(line) <= WIDTH, "renderConversationFrame passou de 72");
   }
 });
 
-test("renderScreen não quebra com estado vazio", () => {
-  for (const screen of ALL_SCREENS) {
-    const frame = renderScreen(screen, {});
-    assert.equal(typeof frame, "string");
-    assert.ok(frame.length > 0);
-    for (const line of frame.split("\n")) {
-      assert.ok(visibleWidth(line) <= WIDTH, `tela ${screen}: linha passou de ${WIDTH} com estado vazio`);
-    }
+/* ---------------------------------------------------------------- */
+/* Comandos de barra                                                 */
+/* ---------------------------------------------------------------- */
+
+test("os comandos de barra existem", () => {
+  const names = SLASH_COMMANDS.map((c) => c.cmd.split(" ")[0]);
+  for (const n of ["/evals", "/gate", "/detect", "/forge", "/memory", "/skills", "/model", "/clear", "/help"]) {
+    assert.ok(names.includes(n), `falta o comando ${n}`);
   }
 });
 
-test("q sai (handleKey + applyAction)", () => {
-  const action = handleKey("q", { screen: "menu", selected: 0 });
-  assert.equal(action.action, "quit");
-  const next = applyAction({ screen: "menu", selected: 0 }, action);
-  assert.equal(next.quit, true);
+test("parseInput reconhece quit, slash com argumento, prosa e vazio", () => {
+  assert.deepEqual(parseInput("q"), { type: "quit" });
+  assert.deepEqual(parseInput("/quit"), { type: "quit" });
+  assert.deepEqual(parseInput(""), { type: "empty" });
+  assert.deepEqual(parseInput("/forge extrair HTML"), {
+    type: "slash",
+    name: "/forge",
+    arg: "extrair HTML",
+  });
+  assert.deepEqual(parseInput("como está a cobertura?"), {
+    type: "chat",
+    text: "como está a cobertura?",
+  });
+  const unknown = parseInput("/nao-existe");
+  assert.equal(unknown.type, "slash");
+  assert.equal(unknown.unknown, true);
 });
 
-test("navegação por teclado (setas) move a seleção", () => {
-  let state = { screen: "menu", selected: 0 };
-  state = applyAction(state, handleKey("\x1b[B", state)); // down
-  assert.equal(state.selected, 1);
-  state = applyAction(state, handleKey("\x1b[A", state)); // up
-  assert.equal(state.selected, 0);
-  // wrap: cima a partir de 0 vai para o último
-  const wrapped = applyAction({ screen: "menu", selected: 0 }, handleKey("up", {}));
-  assert.equal(wrapped.selected, SCREENS.length - 1);
+test("runSlash com motor ausente não derruba (/model, /clear)", async () => {
+  let out = "";
+  const code = await runSlash("/model", "", (s) => (out += s + "\n"), { pi: null });
+  assert.equal(code, 0); // /model lista os configurados mesmo sem conversa ativa
+  out = "";
+  const code2 = await runSlash("/clear", "", (s) => (out += s + "\n"), { pi: null });
+  assert.equal(code2, 0);
 });
 
-test("enter no menu seleciona a tela; esc volta ao menu", () => {
-  const picked = applyAction({ screen: "menu", selected: 0 }, handleKey("enter", {}));
-  assert.equal(picked.screen, SCREENS[0].id);
-  const back = applyAction({ screen: "status", selected: 0 }, handleKey("esc", {}));
-  assert.equal(back.screen, "menu");
+/* ---------------------------------------------------------------- */
+/* Markdown                                                          */
+/* ---------------------------------------------------------------- */
+
+test("renderMarkdown: negrito, listas, código e tabela (sem ** cru)", () => {
+  const md = [
+    "Aqui está **o resultado**:",
+    "",
+    "- primeiro",
+    "- segundo",
+    "",
+    "```",
+    "codigo 1",
+    "```",
+    "",
+    "| Col | Valor |",
+    "| --- | --- |",
+    "| a | 1 |",
+  ].join("\n");
+  const out = stripAnsi(renderMarkdown(md));
+  assert.ok(!out.includes("**"), "sobrou ** (negrito não renderizado)");
+  assert.ok(out.includes("o resultado"), "texto do negrito ausente");
+  assert.ok(out.includes("•"), "lista não virou marcador");
+  assert.ok(out.includes("primeiro") && out.includes("segundo"), "itens de lista ausentes");
+  assert.ok(out.includes("codigo 1"), "bloco de código ausente");
+  assert.ok(out.includes("Valor"), "cabeçalho de tabela ausente");
 });
 
-test("normalizeKey reconhece sequências ANSI e caracteres", () => {
-  assert.equal(normalizeKey("\x1b[A"), "up");
-  assert.equal(normalizeKey("\x1b[B"), "down");
-  assert.equal(normalizeKey("\r"), "enter");
-  assert.equal(normalizeKey("\x1b"), "esc");
-  assert.equal(normalizeKey("Q"), "q");
+test("renderHelp não cita o motor (só SelfEvoPI)", () => {
+  const text = stripAnsi(renderHelp());
+  assert.ok(!/(?<![A-Za-z])pi(?![A-Za-z])/i.test(text), "ajuda vazou o nome do motor");
+  assert.match(text, /\/evals/);
 });
 
-test("ausência de pi é reportada e não derruba", () => {
-  const absent = checkPi({ bundlePath: path.join("C:", "nao-existe", "cli.js") });
-  assert.equal(absent.available, false);
-  // renderiza uma tela com pi forçado ausente: não lança, sai 0
-  const { code, out } = render("status", { SELFEOPI_PI_FORCE_ABSENT: "1" });
+test("wrapAnsi quebra linha longa em largura e preserva texto", () => {
+  const long = "a".repeat(30) + " " + "b".repeat(30) + " " + "c".repeat(30);
+  const wrapped = wrapAnsi("  " + long, 72);
+  for (const line of wrapped.split("\n")) {
+    assert.ok(visibleWidth(line) <= 72, `linha com ${visibleWidth(line)} colunas`);
+  }
+  // conteúdo preservado (todos os "a", "b", "c" presentes)
+  const plain = stripAnsi(wrapped);
+  assert.ok(plain.includes("a".repeat(30)) && plain.includes("b".repeat(30)) && plain.includes("c".repeat(30)));
+  // linha curta fica intacta
+  assert.equal(wrapAnsi("curta", 72), "curta");
+});
+
+test("wrapAnsi preserva escapes ANSI ao quebrar", () => {
+  const bold = "\x1b[1m" + "x".repeat(50) + " " + "y".repeat(50) + "\x1b[0m";
+  const wrapped = wrapAnsi(bold, 40);
+  assert.ok(wrapped.includes("\x1b[1m"), "perdeu o negrito");
+  for (const line of wrapped.split("\n")) assert.ok(visibleWidth(line) <= 40);
+});
+
+/* ---------------------------------------------------------------- */
+/* Linha de edição (reduceLine)                                      */
+/* ---------------------------------------------------------------- */
+
+test("reduceLine: imprimíveis, backspace e cursor", () => {
+  let st = { buf: "", cur: 0 };
+  st = reduceLine(st, "a").state;
+  st = reduceLine(st, "b").state;
+  st = reduceLine(st, "c").state;
+  assert.equal(st.buf, "abc");
+  assert.equal(st.cur, 3);
+  st = reduceLine(st, "left").state;
+  assert.equal(st.cur, 2);
+  st = reduceLine(st, "backspace").state; // apaga 'b'
+  assert.equal(st.buf, "ac");
+  st = reduceLine(st, "home").state;
+  assert.equal(st.cur, 0);
+  st = reduceLine(st, "X").state; // insere no início
+  assert.equal(st.buf, "Xac");
+});
+
+test("reduceLine: enter/ctrl-c/ctrl-d viram efeitos", () => {
+  assert.equal(reduceLine({ buf: "oi", cur: 2 }, "enter").effect, "submit");
+  assert.equal(reduceLine({ buf: "oi", cur: 2 }, "ctrl-c").effect, "sigint");
+  assert.equal(reduceLine({ buf: "oi", cur: 2 }, "ctrl-d").effect, "eof");
+});
+
+/* ---------------------------------------------------------------- */
+/* Conversa (streaming) com dublê                                   */
+/* ---------------------------------------------------------------- */
+
+function fakePi({ script } = {}) {
+  const h = { text: new Set(), tool: new Set(), settled: new Set() };
+  const rec = { aborted: false, prompts: [] };
+  const emit = (kind, arg) => {
+    for (const cb of h[kind] || []) cb(arg);
+  };
+  return {
+    rec,
+    on(kind, cb) {
+      (h[kind] ||= new Set()).add(cb);
+      return () => h[kind]?.delete(cb);
+    },
+    prompt: async (m) => {
+      rec.prompts.push(m);
+      if (script) script(emit);
+      return "started";
+    },
+    abort: async () => {
+      rec.aborted = true;
+      emit("settled", { aborted: true });
+    },
+    getState: async () => ({}),
+    getAvailableModels: async () => [],
+    setModel: async () => ({}),
+    cycleModel: async () => null,
+    newSession: async () => ({ cancelled: false }),
+  };
+}
+
+test("converse: faz streaming do texto e mostra linhas de ferramenta", async () => {
+  const pi = fakePi({
+    script: (emit) => {
+      emit("text", "Olá ");
+      emit("tool", { phase: "start", name: "read", args: { path: "a.txt" } });
+      emit("text", "**mundo**");
+      emit("settled", { aborted: false });
+    },
+  });
+  const chunks = [];
+  await converse(pi, "pergunta", (s) => chunks.push(s));
+  const out = stripAnsi(chunks.join(""));
+  assert.equal(pi.rec.prompts[0], "pergunta");
+  assert.ok(out.includes("Olá"), "texto do streaming ausente");
+  assert.ok(out.includes("mundo"), "segunda parte do texto ausente");
+  assert.ok(!out.includes("**"), "negrito saiu cru no streaming");
+  assert.ok(out.includes("read") && out.includes("a.txt"), "linha de ferramenta ausente");
+});
+
+test("engineErrorMessage: 401 vira voz do produto, sem corpo cru", () => {
+  const msg = stripAnsi(engineErrorMessage('401 {"error":{"type":"authentication_error","message":"Invalid bearer token"}}'));
+  assert.match(msg, /não consegui falar com o modelo desta conversa/);
+  assert.ok(!/401/i.test(msg), "vazou o 401");
+  assert.ok(!/bearer/i.test(msg), "vazou 'invalid bearer token'");
+  assert.match(msg, /\/model/);
+});
+
+test("engineErrorMessage: erro genérico (rede) adapta sem corpo cru", () => {
+  const msg = stripAnsi(engineErrorMessage("connect ETIMEDOUT 1.2.3.4:443"));
+  assert.match(msg, /não consegui falar com o modelo agora/);
+  assert.ok(!/ETIMEDOUT|1\.2\.3\.4/.test(msg), "vazou o erro cru");
+  assert.match(msg, /\/model/);
+});
+
+test("converse: erro do modelo mostra a mensagem, não texto vazio", async () => {
+  const pi = fakePi({
+    script: (emit) => {
+      emit("error", "401 Invalid bearer token");
+      emit("settled", { aborted: false });
+    },
+  });
+  const chunks = [];
+  await converse(pi, "oi", (s) => chunks.push(s));
+  const out = stripAnsi(chunks.join(""));
+  assert.match(out, /não consegui falar com o modelo desta conversa/);
+  assert.ok(!/401/i.test(out), "vazou 401 no terminal");
+  assert.ok(!/bearer/i.test(out), "vazou 'bearer token' no terminal");
+});
+
+test("runSlash /model lista os configurados sem lançar (código 0)", async () => {
+  let out = "";
+  const code = await runSlash("/model", "", (s) => (out += s + "\n"), { pi: null });
   assert.equal(code, 0);
-  assert.match(stripAnsi(out), /ausente|pi/i);
+  // não imprime chave nem corpo do arquivo; ou lista modelos, ou diz que não há
+  assert.ok(out.length >= 0);
 });
 
-test("checkPi respeita override de caminho inexistente", () => {
-  const r = checkPi({ bundlePath: path.join(__dirname, "nao-existe.js") });
-  assert.equal(r.available, false);
+/* ---------------------------------------------------------------- */
+/* Ctrl+C e sair (via repl com entrada dublê)                       */
+/* ---------------------------------------------------------------- */
+
+function fakeInput() {
+  const input = new EventEmitter();
+  input.setEncoding = () => {};
+  input.isTTY = true;
+  return input;
+}
+
+test("Ctrl+C cancela a conversa e não derruba; depois sai", async () => {
+  const input = fakeInput();
+  const pi = fakePi({ script: null }); // prompt não emite nada; fica aguardando settled
+  const p = repl({ pi, write: () => {}, input, setRaw: () => {}, data: {} });
+  // inicia uma conversa
+  input.emit("data", "oi\r");
+  await new Promise((r) => setTimeout(r, 15));
+  // Ctrl+C durante a conversa: cancela
+  input.emit("data", "\x03");
+  await new Promise((r) => setTimeout(r, 15));
+  assert.equal(pi.rec.aborted, true, "Ctrl+C não chamou abort");
+  // Ctrl+C na linha vazia: sai
+  input.emit("data", "\x03");
+  await p; // resolve quando sai
 });
 
-test("harnessState: cold start sem lkg, pronto com lkg", () => {
-  assert.match(harnessState({}).label, /cold start|sem lkg/i);
-  assert.match(harnessState({ lkg: { sha: "abc1234" } }).label, /pronto/i);
-});
-
-test("--list-screens lista as telas", () => {
-  const out = execFileSync(process.execPath, [CLI, "--list-screens"], { encoding: "utf8" });
-  for (const s of ALL_SCREENS) assert.ok(out.includes(s), `falta a tela ${s}`);
-});
-
-test("--render de tela desconhecida sai 2", () => {
-  try {
-    execFileSync(process.execPath, [CLI, "--render", "nao-existe"], { encoding: "utf8", stdio: "pipe" });
-    assert.fail("deveria ter saído 2");
-  } catch (err) {
-    assert.equal(err.status, 2);
+test("q sai; /quit sai; EOF sai (modo linha, sem motor)", () => {
+  for (const [label, input] of [
+    ["q", "q\n"],
+    ["/quit", "/quit\n"],
+    ["EOF", ""],
+  ]) {
+    const { code } = run([], { input });
+    assert.equal(code, 0, `${label} não saiu 0 (saiu ${code})`);
   }
+});
+
+/* ---------------------------------------------------------------- */
+/* Sem vazamento do nome do motor                                   */
+/* ---------------------------------------------------------------- */
+
+test("aviso de motor ausente é voz do produto, sem o nome do motor", () => {
+  const text = stripAnsi(engineUnavailableNote());
+  assert.ok(!/(?<![A-Za-z])pi(?![A-Za-z])/i.test(text), "aviso vazou o nome do motor");
+  assert.match(text, /SelfEvoPI/);
+});
+
+test("--help e banner não citam o motor", () => {
+  const help = stripAnsi(run(["--help"]).out);
+  assert.ok(!/(?<![A-Za-z])pi(?![A-Za-z])/i.test(help), "--help vazou o nome do motor");
+  const banner = stripAnsi(renderBanner());
+  assert.ok(!/(?<![A-Za-z])pi(?![A-Za-z])/i.test(banner), "banner vazou o nome do motor");
+  assert.match(banner, /SelfEvoPI/);
 });

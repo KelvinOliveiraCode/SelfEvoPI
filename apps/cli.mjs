@@ -1,41 +1,40 @@
 #!/usr/bin/env node
 /**
- * apps/cli.mjs — a CLI (TUI) do SelfEvoPI. Node puro, zero dependência.
+ * apps/cli.mjs — a CLI do SelfEvoPI: uma conversa, não um catálogo.
  *
- * Gramática: TUI de terminal (ANSI). Herda a MARCA (docs/design/marca.md §1.1):
- * símbolo ◍, paleta via truecolor (#000/#fff/#787878) quando o terminal aceita,
- * hierarquia, contenção, estado como ponto. NÃO finge fonte/raio/sombra/transição
- * — isso é do desktop.
+ * Gramática: REPL de conversa (estilo Claude Code / OpenCode). Herda a MARCA
+ * (docs/design/marca.md §1.1 e docs/design/superficies.md):
+ *   - banner ◍ SelfEvoPI + versão (voz do produto; nunca cita o motor);
+ *   - paleta via truecolor (#000/#fff/#787878) quando o terminal aceita,
+ *     degradação honesta para as cores do terminal caso contrário;
+ *   - estado como ponto `●`; régua de 64 `─`; frame em 72 colunas.
  *
- * Não reimplementa nada: chama os módulos existentes (core/forge/detect,
- * core/memory/store) e os comandos evals/run.mjs, evals/gate.mjs, verify-urls.
+ * O SelfEvoPI é o produto. O motor é a conversa e é invisível: a interface
+ * não diz o nome dele em lugar nenhum — banner, erros, logs ou ajuda.
+ *
+ * Não reimplementa nada: a conversa mora em core/agent/pi-rpc.mjs; os comandos
+ * de barra chamam os módulos existentes (evals/, core/forge, core/memory).
  *
  * Uso:
- *   node apps/cli.mjs                      # TUI interativo (exige TTY)
- *   node apps/cli.mjs --render <tela>      # imprime o frame como texto e sai
- *   node apps/cli.mjs --list-screens       # lista as telas
- *
- * Telas: menu, status, detect, evals, verify, gate, skills, panel.
- * Largura 72 colunas (régua de 64 `─`); em 80 não quebra.
- * Sem TTY: mostra o menu uma vez e sai 0 (nunca pendura).
+ *   node apps/cli.mjs                      # conversa (TTY); sem TTY, modo linha
+ *   node apps/cli.mjs --render conversation# imprime um frame como texto e sai
+ *   node apps/cli.mjs --render help        # idem, a ajuda
+ *   node apps/cli.mjs --render banner      # idem, só o banner + estado
+ *   node apps/cli.mjs --help               # uso
+ *   node apps/cli.mjs --version            # versão
  */
 
-import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 
-import { detectGaps } from "../core/forge/detect.mjs";
-import { openStore } from "../core/memory/store.mjs";
+import { findEngine, listConfiguredModels } from "../core/agent/pi-rpc.mjs";
 
-const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(import.meta.dirname, "..");
 const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
 const BASELINE = path.join(ROOT, "evals", "baseline.json");
-const LKG = path.join(ROOT, ".pi", "harness", "last-known-good.json");
-const TASKS = path.join(ROOT, "evals", "tasks");
 const MEMORY = path.join(ROOT, ".pi", "harness", "memory");
 
 const WIDTH = 72; // colunas do frame (em 80 não quebra)
@@ -56,10 +55,12 @@ const PX = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
   dim: "\x1b[2m",
-  // texto
+  italic: "\x1b[3m",
   fg: TRUE ? "\x1b[38;2;255;255;255m" : "", // #ffffff
   muted: TRUE ? "\x1b[38;2;120;120;120m" : "\x1b[90m", // #787878
-  // estado (ponto de 8px / badge) — §2
+  rule: TRUE ? "\x1b[38;2;60;60;60m" : "\x1b[90m",
+  accent: TRUE ? "\x1b[38;2;120;120;120m" : "\x1b[90m",
+  code: TRUE ? "\x1b[38;2;200;200;200m" : "\x1b[37m",
   ok: TRUE ? "\x1b[38;2;63;185;80m" : "\x1b[32m", // #3FB950
   warn: TRUE ? "\x1b[38;2;210;153;34m" : "\x1b[33m", // #D29922
   fail: TRUE ? "\x1b[38;2;248;81;73m" : "\x1b[31m", // #F85149
@@ -74,7 +75,7 @@ function paint(text, key) {
 
 export function stripAnsi(s) {
   // eslint-disable-next-line no-control-regex
-  return String(s).replace(/\x1b\[[0-9;]*m/g, "");
+  return String(s).replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 }
 
 export function visibleWidth(s) {
@@ -89,541 +90,1218 @@ function fit(s, width = WIDTH) {
 }
 
 function rule() {
-  return "  " + "─".repeat(RULE);
+  return "  " + paint("─".repeat(RULE), "rule");
 }
 
 /* ------------------------------------------------------------------ */
-/* Dados (chamam os módulos existentes)                                */
+/* Versão, estado, banner                                             */
 /* ------------------------------------------------------------------ */
 
-async function readJson(file, fallback = {}) {
+let VERSION = "0.0.0";
+try {
+  VERSION = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")).version || VERSION;
+} catch {
+  /* mantém 0.0.0 */
+}
+
+function readJson(file, fallback = {}) {
   try {
-    return JSON.parse(await readFile(file, "utf8"));
+    return JSON.parse(readFileSync(file, "utf8"));
   } catch {
     return fallback;
   }
 }
 
-export async function loadData() {
-  const lkg = await readJson(LKG, {});
-  const baseline = await readJson(BASELINE, {});
-  let gaps = { scanned: 0, counts: {}, gaps: [] };
-  try {
-    gaps = await detectGaps({ ledger: LEDGER, threshold: 3, maxGaps: 20 });
-  } catch {
-    /* ledger ausente: sem lacunas */
-  }
-  let skills = [];
-  try {
-    const store = openStore({ root: MEMORY });
-    skills = store.query({ level: "skills" }).filter((e) => !e.invalid);
-  } catch {
-    /* memória ausente */
-  }
-  const tasks = await loadTaskGroups();
-  return { lkg, baseline, gaps, skills, tasks };
-}
-
-async function loadTaskGroups() {
-  let files = [];
-  try {
-    const { readdir } = await import("node:fs/promises");
-    files = (await readdir(TASKS)).filter((f) => f.endsWith(".json"));
-  } catch {
-    return {};
-  }
-  const groups = {};
-  for (const f of files) {
-    try {
-      const doc = JSON.parse(await readFile(path.join(TASKS, f), "utf8"));
-      for (const t of Array.isArray(doc) ? doc : [doc]) {
-        if (!t || !t.id || !t.group) continue;
-        groups[t.group] = (groups[t.group] || 0) + 1;
-      }
-    } catch {
-      /* ignora arquivo inválido */
-    }
-  }
-  return groups;
-}
-
-/** Estado do harness para a barra de topo (cor = cor de estado, não texto). */
-export function harnessState(data) {
-  const lkg = data.lkg || {};
-  if (lkg.sha) return { label: "pronto", color: "green" };
-  if (data.baseline && Object.keys(data.baseline).length > 0) return { label: "cold start", color: "amber" };
+/** Estado do harness (voz do produto): ponto verde/âmbar + rótulo neutro. */
+export function harnessState(data = {}) {
+  const lkg = data.lkg || readJson(path.join(ROOT, ".pi", "harness", "last-known-good.json"), {});
+  if (lkg && lkg.sha) return { label: "pronto", color: "green" };
   return { label: "cold start", color: "amber" };
 }
 
-/** Disponibilidade do pi (a CLI é do SelfEvoPI; não depende de pi instalado). */
-export function checkPi({ bundlePath } = {}) {
-  if (process.env.SELFEOPI_PI_FORCE_ABSENT === "1") return { available: false, path: "(forçado ausente)" };
-  const p =
-    bundlePath ||
-    path.join(
-      process.env.APPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Roaming"),
-      "npm", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "bundle", "cli.js",
-    );
-  return { available: existsSync(p), path: p };
+/** Linha de estado: branch · estado · baseline. Sem citar o motor. */
+export function renderStatusLine(data = {}) {
+  const st = harnessState(data);
+  const dot = paint("●", STATE_KEY[st.color] || "warn");
+  const base = data.baseline || readJson(BASELINE, {});
+  const t = base.totals || {};
+  const cells = t.taskRuns != null && t.passes != null ? `${t.passes}/${t.taskRuns} baseline` : "baseline ?";
+  const branch = data.branch || "repo";
+  return fit(`  ${dot} ${branch} · ${st.label} · ${cells}`);
 }
 
-/* ------------------------------------------------------------------ */
-/* Banner, barra de estado, rodapé                                     */
-/* ------------------------------------------------------------------ */
-
-let VERSION = "0.0.0";
-
-function banner() {
+/** Banner: ◍ SelfEvoPI ... v0.5.0. Voz do produto; nunca cita o motor. */
+export function renderBanner() {
   const left = `  ${paint("◍", "fg")}  ${paint("SelfEvoPI", "bold")}`;
   const right = paint(`v${VERSION}`, "muted");
   const pad = Math.max(1, WIDTH - visibleWidth(left) - visibleWidth(right));
   return left + " ".repeat(pad) + right;
 }
 
-export function statusBar(data, width = WIDTH) {
-  const st = harnessState(data);
-  const dot = paint("●", STATE_KEY[st.color] || "warn"); // estado como ponto (§1.1)
-  const total = data.baseline?.totals || {};
-  const taskCount = Object.keys(data.baseline?.tasks || data.tasks || {}).length || (data.tasks ? Object.values(data.tasks).reduce((a, b) => a + b, 0) : 0);
-  const baseCell = total.passes != null && total.taskRuns != null ? `${total.passes}/${total.taskRuns}` : "?";
-  const text = `${dot} ${st.label} · ${taskCount} tarefas · baseline ${baseCell}`;
-  return fit(`  ${text}`, width);
-}
-
-export function footer(screenId, width = WIDTH) {
-  const keys = screenId === "menu" ? "↑↓ navegar   enter escolher   q sair" : "esc voltar   ↑↓ navegar   q sair";
-  return fit(paint(`  ${keys}`, "dim"), width);
-}
-
 /* ------------------------------------------------------------------ */
-/* Telas                                                               */
+/* Markdown renderizado (negrito, listas, código, tabelas)            */
 /* ------------------------------------------------------------------ */
 
-export const SCREENS = [
-  { id: "status", label: "Estado do harness", desc: "estado do harness, cold start, baseline" },
-  { id: "detect", label: "Detectar lacunas", desc: "lacunas de ferramenta no ledger" },
-  { id: "evals", label: "Rodar evals estruturais", desc: "grupos A/B/C (sem modelo)" },
-  { id: "verify", label: "Verificação completa", desc: "testes + evals A/B/C + URLs" },
-  { id: "gate", label: "Gate de regressão", desc: "regressão contra a baseline" },
-  { id: "skills", label: "O que já foi gerado", desc: "skills registradas pelo loop" },
-  { id: "panel", label: "Abrir painel", desc: "visão geral do harness" },
-];
-
-const SCREEN_IDS = SCREENS.map((s) => s.id);
-
-function heading(title, subtitle) {
-  return [paint(title, "bold"), paint(subtitle, "muted"), ""];
-}
-
-function kv(key, value, colorKey) {
-  return `  ${key.padEnd(18)} ${colorKey ? paint(String(value), colorKey) : value}`;
-}
-
-/* ---- menu (anatomia §6: > na linha selecionada, lista numerada) ---- */
-
-export function renderMenu(data, state = {}) {
-  const selected = state.selected ?? 0;
-  const lines = [];
-  lines.push("");
-  SCREENS.forEach((s, i) => {
-    const sel = i === selected;
-    const marker = sel ? paint(">", "fg") : " ";
-    const label = sel ? paint(s.label, "bold") : s.label;
-    lines.push(`  ${marker} ${String(i + 1).padEnd(2)}  ${label}`);
+/** Destaca um trecho de texto corrido (inline) e devolve com ANSI. */
+function renderInline(text) {
+  let s = String(text);
+  // links [texto](url) → texto (url)
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, t, u) => `${t} ${paint("(" + u + ")", "muted")}`);
+  // código inline `x` (protege contra os demais)
+  const codeSpans = [];
+  s = s.replace(/`([^`]+)`/g, (_m, c) => {
+    codeSpans.push(c);
+    return `\u0000${codeSpans.length - 1}\u0000`;
   });
-  lines.push(`  ${paint("q", "muted").padEnd(4)}  Sair`);
-  return lines;
-}
-
-/* ---- status ---- */
-
-export function renderStatus(data) {
-  const st = harnessState(data);
-  const total = data.baseline?.totals || {};
-  const lkg = data.lkg || {};
-  const lines = heading("ESTADO DO HARNESS", "last-known-good, baseline e lacunas");
-  lines.push(kv("estado:", st.label));
-  lines.push(kv("last-known-good:", lkg.sha ? `${String(lkg.sha).slice(0, 12)} (${lkg.phase || "?"})` : "nenhum"));
-  lines.push(kv("baseline:", total.taskRuns != null ? `${total.taskRuns} exec, taxa ${Math.round((total.rate || 0) * 100)}%` : "ausente"));
-  lines.push(kv("  latência média:", total.avgMs != null ? `${total.avgMs} ms` : "?"));
-  lines.push(kv("  tokens:", total.tokens != null ? String(total.tokens) : "?"));
-  lines.push(kv("lacunas abertas:", String(data.gaps?.gaps?.length ?? 0)));
-  const pi = checkPi();
-  lines.push(kv("pi:", pi.available ? "disponível" : "ausente (comandos de modelo não rodam)"));
-  return lines;
-}
-
-/* ---- detect ---- */
-
-export function renderDetect(data) {
-  const det = data.gaps || {};
-  const lines = heading("DETECTAR LACUNAS", "lacunas de ferramenta a partir do ledger");
-  lines.push(kv("execuções lidas:", String(det.scanned ?? 0)));
-  lines.push(kv("tool-failing:", String(det.counts?.["tool-failing"] ?? 0)));
-  lines.push(kv("tool-missing:", String(det.counts?.["tool-missing"] ?? 0)));
-  lines.push(kv("tool-fragile:", String(det.counts?.["tool-fragile"] ?? 0)));
-  const gaps = det.gaps || [];
-  lines.push("");
-  if (gaps.length === 0) {
-    lines.push(paint("  nenhum gap acionável", "muted"));
-  } else {
-    for (const g of gaps.slice(0, 10)) {
-      const dot = paint("●", g.kind === "tool-failing" ? "fail" : "warn");
-      lines.push(`  ${dot} [${g.kind}] ${g.taskId} → ${g.capability}`);
-    }
-  }
-  return lines;
-}
-
-/* ---- evals estruturais ---- */
-
-export function renderEvals(data) {
-  const total = data.baseline?.totals || {};
-  const lines = heading("RODAR EVALS ESTRUTURAIS", "grupos A/B/C — determinísticos, sem modelo");
-  const structural = ["A", "B", "C"];
-  for (const g of structural) {
-    const count = data.tasks?.[g] ?? 0;
-    lines.push(`  ${paint(g, "fg")}  ${count} tarefa(s)`);
-  }
-  lines.push("");
-  lines.push(kv("execuções (baseline):", String(total.taskRuns ?? 0)));
-  lines.push(kv("taxa:", total.rate != null ? `${Math.round(total.rate * 100)}%` : "?"));
-  lines.push(kv("tokens (estruturais):", "0"));
-  lines.push("");
-  lines.push(paint("  pressione r para executar os grupos A/B/C", "muted"));
-  return lines;
-}
-
-/* ---- verificação completa ---- */
-
-export function renderVerify(data) {
-  const lines = heading("VERIFICAÇÃO COMPLETA", "o que o CI e o `npm run verify` executam");
-  const steps = [
-    ["npm test", "testes unitários (core/, scripts/)"],
-    ["run.mjs --group A", "evals estruturais A"],
-    ["run.mjs --group B", "evals estruturais B"],
-    ["run.mjs --group C", "evals estruturais C"],
-    ["verify-urls.mjs", "integridade das URLs citadas"],
-  ];
-  for (const [cmd, desc] of steps) {
-    lines.push(`  ${paint("▸", "fg")} ${cmd}`);
-    lines.push(`      ${paint(desc, "muted")}`);
-  }
-  lines.push("");
-  lines.push(paint("  pressione r para executar a verificação completa", "muted"));
-  return lines;
-}
-
-/* ---- gate ---- */
-
-export function renderGate(data) {
-  const total = data.baseline?.totals || {};
-  const lines = heading("GATE DE REGRESSÃO", "compara a suíte atual com a baseline");
-  lines.push(kv("baseline:", total.taskRuns != null ? `${total.taskRuns} exec` : "ausente"));
-  lines.push(kv("taxa de acerto:", total.rate != null ? `${Math.round(total.rate * 100)}%` : "?"));
-  lines.push(kv("latência média:", total.avgMs != null ? `${total.avgMs} ms` : "?"));
-  lines.push(kv("tokens:", total.tokens != null ? String(total.tokens) : "?"));
-  lines.push("");
-  lines.push(paint("  o gate sai 1 se qualquer tarefa cair abaixo da baseline", "muted"));
-  lines.push(paint("  pressione r para executar o gate", "muted"));
-  return lines;
-}
-
-/* ---- skills ---- */
-
-export function renderSkills(data) {
-  const skills = data.skills || [];
-  const lines = heading("O QUE JÁ FOI GERADO", "skills registradas pelo loop evolutivo");
-  if (skills.length === 0) {
-    lines.push(paint("  nenhuma skill registrada ainda", "muted"));
-    return lines;
-  }
-  lines.push(kv("total:", String(skills.length)));
-  lines.push("");
-  for (const s of skills.slice(0, 12)) {
-    const text = String(s.text || "").replace(/\s+/g, " ").slice(0, 60);
-    lines.push(`  ${paint("●", "ok")} ${text}`);
-  }
-  return lines;
-}
-
-/* ---- painel ---- */
-
-export function renderPanel(data) {
-  const st = harnessState(data);
-  const total = data.baseline?.totals || {};
-  const lines = heading("PAINEL", "visão geral do harness");
-  lines.push(kv("estado:", st.label));
-  lines.push(kv("grupos:", Object.entries(data.tasks || {}).map(([g, n]) => `${g}=${n}`).join("  ") || "?"));
-  lines.push(kv("baseline:", total.taskRuns != null ? `${total.taskRuns} exec · ${Math.round((total.rate || 0) * 100)}%` : "ausente"));
-  lines.push(kv("tokens (baseline):", total.tokens != null ? String(total.tokens) : "?"));
-  lines.push(kv("lacunas:", String(data.gaps?.gaps?.length ?? 0)));
-  lines.push(kv("skills:", String(data.skills?.length ?? 0)));
-  const pi = checkPi();
-  lines.push(kv("pi:", pi.available ? "disponível" : "ausente"));
-  return lines;
-}
-
-/* ------------------------------------------------------------------ */
-/* Composição do frame (anatomia §6)                                   */
-/* ------------------------------------------------------------------ */
-
-export function renderScreen(screenId, data, state = {}) {
-  let content;
-  switch (screenId) {
-    case "menu": content = renderMenu(data, state); break;
-    case "status": content = renderStatus(data); break;
-    case "detect": content = renderDetect(data); break;
-    case "evals": content = renderEvals(data); break;
-    case "verify": content = renderVerify(data); break;
-    case "gate": content = renderGate(data); break;
-    case "skills": content = renderSkills(data); break;
-    case "panel": content = renderPanel(data); break;
-    default: content = [paint(`tela desconhecida: ${screenId}`, "fail")];
-  }
-
-  const out = [];
-  out.push(banner()); // ◍  SelfEvoPI ... v0.5.0
-  out.push(rule()); // 64 ─
-  out.push(statusBar(data)); // ● estado · tarefas · baseline
-  out.push(rule());
-  for (const line of content) out.push(fit(line));
-  out.push(rule());
-  out.push(footer(screenId === "menu" ? "menu" : screenId));
-  return out.join("\n");
-}
-
-/* ------------------------------------------------------------------ */
-/* Teclado (puro, testável)                                            */
-/* ------------------------------------------------------------------ */
-
-export function normalizeKey(input) {
-  if (input == null) return null;
-  const s = String(input);
-  if (s === "\x1b[A" || s === "up") return "up";
-  if (s === "\x1b[B" || s === "down") return "down";
-  if (s === "\r" || s === "\n" || s === "enter") return "enter";
-  if (s === "\x1b" || s === "esc" || s === "escape") return "esc";
-  if (s.length === 1) return s.toLowerCase();
+  // negrito **x** ou __x__
+  s = s.replace(/\*\*([^*]+)\*\*/g, (_m, b) => paint(b, "bold"));
+  s = s.replace(/__([^_]+)__/g, (_m, b) => paint(b, "bold"));
+  // itálico *x* (não confunde com ** já resolvido)
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, (_m, pre, it) => pre + paint(it, "italic"));
+  // restaura código inline
+  s = s.replace(/\u0000(\d+)\u0000/g, (_m, i) => paint(codeSpans[Number(i)] ?? "", "code"));
   return s;
 }
 
-export function handleKey(key, state = {}) {
-  const k = normalizeKey(key);
-  const count = SCREEN_IDS.length;
-  const selected = state.selected ?? 0;
-  const screen = state.screen || "menu";
-  if (k === "q") return { action: "quit" };
-  if (k === "up") return { action: "move", delta: -1, screen };
-  if (k === "down") return { action: "move", delta: 1, screen };
-  if (k === "enter") {
-    if (screen === "menu") {
-      const next = SCREENS[selected % count];
-      return { action: "select", screen: next.id };
+/** Tabela markdown → linhas alinhadas em colunas (larguras por conteúdo). */
+function renderTable(rows) {
+  const cells = rows.map((r) =>
+    r.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim()),
+  );
+  const header = cells[0] || [];
+  const body = cells.slice(1).filter((r) => !r.every((c) => /^:?-{2,}:?$/.test(c) || c === ""));
+  const ncol = header.length;
+  const widths = [];
+  for (let c = 0; c < ncol; c++) {
+    let w = stripAnsi(header[c] || "").length;
+    for (const row of body) w = Math.max(w, stripAnsi(row[c] || "").length);
+    widths[c] = w;
+  }
+  const pad = (txt, w) => {
+    const t = stripAnsi(txt);
+    return txt + " ".repeat(Math.max(0, w - t.length));
+  };
+  const out = [];
+  out.push("  " + header.map((h, i) => pad(paint(h, "bold"), widths[i])).join("  "));
+  out.push("  " + widths.map((w) => paint("─".repeat(w), "rule")).join("  "));
+  for (const row of body) {
+    out.push("  " + row.map((c, i) => pad(c, widths[i])).join("  "));
+  }
+  return out;
+}
+
+/**
+ * Quebra uma linha (com escapes ANSI) em largura `width` colunas visíveis,
+ * quebrando em espaços e preservando os escapes. Linhas curtas ficam intactas.
+ *
+ * @param {string} str
+ * @param {number} width
+ * @returns {string} com `\n` nas quebras
+ */
+export function wrapAnsi(str, width) {
+  const s = String(str);
+  if (width <= 0 || visibleWidth(s) <= width) return s;
+
+  // tokeniza em escapes ANSI e caracteres visíveis
+  const tokens = [];
+  const re = /\x1b\[[0-9;]*m/g;
+  let last = 0;
+  let m;
+  const pushChars = (chunk) => {
+    for (const ch of chunk) tokens.push(ch);
+  };
+  while ((m = re.exec(s))) {
+    pushChars(s.slice(last, m.index));
+    tokens.push({ esc: m[0] });
+    last = m.index + m[0].length;
+  }
+  pushChars(s.slice(last));
+
+  const outLines = [];
+  let line = "";
+  let visChars = []; // índices, em `line`, dos caracteres visíveis
+  let vis = 0;
+
+  const reindex = (text) => {
+    const chars = [];
+    let i = 0;
+    while (i < text.length) {
+      if (text[i] === "\x1b") {
+        const mm = /^\x1b\[[0-9;]*m/.exec(text.slice(i));
+        if (mm) {
+          i += mm[0].length;
+          continue;
+        }
+      }
+      chars.push(i);
+      i++;
     }
-    return { action: "run", screen };
+    return chars;
+  };
+  const flush = () => {
+    outLines.push(line);
+    line = "";
+    visChars = [];
+    vis = 0;
+  };
+
+  for (let ti = 0; ti < tokens.length; ) {
+    const tok = tokens[ti];
+    if (tok && typeof tok === "object" && tok.esc !== undefined) {
+      line += tok.esc;
+      ti++;
+      continue;
+    }
+    const ch = tok;
+    if (ch === "\n") {
+      flush();
+      ti++;
+      continue;
+    }
+    if (vis === width) {
+      // procura o último espaço visível para quebrar
+      let sp = -1;
+      for (let k = visChars.length - 1; k >= 0; k--) {
+        if (line[visChars[k]] === " ") {
+          sp = visChars[k];
+          break;
+        }
+      }
+      if (sp > 0) {
+        outLines.push(line.slice(0, sp));
+        line = line.slice(sp + 1); // descarta o espaço da quebra
+        visChars = reindex(line);
+        vis = visChars.length;
+        continue; // NÃO avança ti: reprocessa o mesmo caractere
+      }
+      // sem espaço: quebra dura e reprocessa o caractere na linha nova
+      flush();
+      continue;
+    }
+    visChars.push(line.length);
+    line += ch;
+    vis++;
+    ti++;
   }
-  if (k === "esc") return { action: "back", screen: "menu" };
-  if (k === "r" && screen !== "menu") return { action: "run", screen };
-  return { action: null, screen };
+  if (line !== "" || outLines.length === 0) flush();
+  return outLines.join("\n");
 }
 
-/** Aplica uma ação a um estado, devolvendo o novo estado. */
-export function applyAction(state, action) {
-  const next = { ...state };
-  if (action.action === "quit") return { ...next, quit: true };
-  if (action.action === "back") {
-    next.screen = "menu";
-    return next;
+/**
+ * Renderiza markdown para texto ANSI (linha a linha). Cobre o que o modelo
+ * escreve: blocos de código cercados, títulos, listas, citações, tabelas,
+ * régua horizontal e o texto corrido com ênfase. Cada linha final é quebrada
+ * em `width` colunas (respeitando a largura do frame).
+ *
+ * @param {string} md
+ * @returns {string} texto com ANSI e \n
+ */
+export function renderMarkdown(md) {
+  const lines = String(md ?? "").replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let i = 0;
+  let inCode = false;
+  let codeBuf = [];
+  let listIndent = 0;
+
+  const flushCode = () => {
+    if (codeBuf.length === 0) return;
+    for (const cl of codeBuf) out.push("  " + paint("│", "rule") + " " + paint(cl, "code"));
+    codeBuf = [];
+    out.push("");
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // bloco de código cercado ```
+    if (/^\s*```/.test(line)) {
+      if (inCode) {
+        flushCode();
+        inCode = false;
+      } else {
+        inCode = true;
+      }
+      i++;
+      continue;
+    }
+    if (inCode) {
+      codeBuf.push(line);
+      i++;
+      continue;
+    }
+
+    // régua horizontal
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      out.push("  " + paint("─".repeat(RULE - 2), "rule"));
+      i++;
+      continue;
+    }
+
+    // título # .. ######
+    const h = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (h) {
+      const level = h[1].length;
+      const prefix = level <= 2 ? "" : "  ".repeat(level - 2);
+      out.push("");
+      out.push(prefix + paint(h[2], "bold"));
+      i++;
+      continue;
+    }
+
+    // tabela markdown: linha com | e a próxima é separador |---|
+    if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && lines[i + 1].includes("-")) {
+      const block = [];
+      let j = i;
+      while (j < lines.length && /^\s*\|.*\|\s*$/.test(lines[j])) {
+        block.push(lines[j]);
+        j++;
+      }
+      out.push(...renderTable(block));
+      out.push("");
+      i = j;
+      continue;
+    }
+
+    // citação >
+    const q = /^\s*>\s?(.*)$/.exec(line);
+    if (q) {
+      out.push("  " + paint("│", "rule") + " " + paint(renderInline(q[1]), "muted"));
+      i++;
+      continue;
+    }
+
+    // item de lista
+    const li = /^(\s*)([-*+])\s+(.*)$/.exec(line);
+    if (li) {
+      listIndent = li[1].length;
+      out.push("  ".repeat(1 + Math.floor(listIndent / 2)) + paint("•", "fg") + " " + renderInline(li[3]));
+      i++;
+      continue;
+    }
+
+    // item numerado
+    const lo = /^(\s*)(\d+)\.\s+(.*)$/.exec(line);
+    if (lo) {
+      out.push("  " + paint(`${lo[2]}.`, "fg") + " " + renderInline(lo[3]));
+      i++;
+      continue;
+    }
+
+    // linha em branco: separa parágrafos
+    if (line.trim() === "") {
+      if (out.length > 0 && out[out.length - 1] !== "") out.push("");
+      i++;
+      continue;
+    }
+
+    // parágrafo comum
+    out.push("  " + renderInline(line));
+    i++;
   }
-  if (action.action === "select") {
-    next.screen = action.screen;
-    return next;
-  }
-  if (action.action === "move") {
-    const count = SCREEN_IDS.length;
-    const cur = next.selected ?? 0;
-    next.selected = ((cur + action.delta) % count + count) % count;
-    return next;
-  }
-  return next;
+  if (inCode) flushCode();
+  return out.map((line) => wrapAnsi(line, WIDTH)).join("\n");
 }
 
 /* ------------------------------------------------------------------ */
-/* Execução de ações (r) — chama os comandos existentes                */
+/* Comandos de barra                                                  */
 /* ------------------------------------------------------------------ */
 
-function exec(command, args, opts = {}) {
+export const SLASH_COMMANDS = [
+  { cmd: "/evals", desc: "roda os grupos A/B/C (estruturais)" },
+  { cmd: "/gate", desc: "gate completo (usa modelo; pode demorar)" },
+  { cmd: "/detect", desc: "lacunas de ferramenta em aberto" },
+  { cmd: "/forge <meta>", desc: "inicia um ciclo evolutivo rumo à meta" },
+  { cmd: "/memory <termo>", desc: "busca na memória (lexical + PPMI)" },
+  { cmd: "/skills", desc: "o que o loop já gerou e registrou" },
+  { cmd: "/model [nome]", desc: "mostra ou troca o modelo da conversa" },
+  { cmd: "/clear", desc: "limpa a conversa e começa de novo" },
+  { cmd: "/help", desc: "mostra esta lista" },
+];
+
+const SLASH_NAMES = new Set(SLASH_COMMANDS.map((c) => c.cmd.split(" ")[0]));
+
+/**
+ * Classifica uma linha de entrada.
+ *   { type: "empty" }
+ *   { type: "quit" }                         → q, /quit, /q
+ *   { type: "slash", name, arg }             → /evals, /forge meta
+ *   { type: "chat", text }                    → prosa para o agente
+ *
+ * @param {string} raw
+ */
+export function parseInput(raw) {
+  const line = String(raw ?? "").trim();
+  if (line === "") return { type: "empty" };
+  if (line === "q" || line === "/quit" || line === "/q" || line === "/exit") return { type: "quit" };
+  if (line.startsWith("/")) {
+    const [name, ...rest] = line.slice(1).split(/\s+/);
+    const withSlash = "/" + name;
+    if (SLASH_NAMES.has(withSlash)) {
+      return { type: "slash", name: withSlash, arg: rest.join(" ").trim() };
+    }
+    // barra desconhecida: trata como erro de comando, não vira prosa
+    return { type: "slash", name: withSlash, arg: rest.join(" ").trim(), unknown: true };
+  }
+  return { type: "chat", text: line };
+}
+
+/** Ajuda (/help) — voz do produto, sem citar o motor. */
+export function renderHelp() {
+  const out = [];
+  out.push(paint("COMANDOS", "bold"));
+  out.push("");
+  for (const c of SLASH_COMMANDS) {
+    out.push(`  ${paint(c.cmd.padEnd(16), "fg")}  ${paint(c.desc, "muted")}`);
+  }
+  out.push("");
+  out.push(paint("CONVERSA", "bold"));
+  out.push("");
+  out.push(`  ${paint("escreva", "fg")} e Enter para falar; a resposta aparece em streaming.`);
+  out.push(`  ${paint("Ctrl+C", "fg")} cancela a resposta em curso e devolve a linha.`);
+  out.push(`  ${paint("q", "fg")} / ${paint("/quit", "fg")} / ${paint("Ctrl+D", "fg")} saem.`);
+  return out.map((line) => wrapAnsi(line, WIDTH)).join("\n");
+}
+
+/* ------------------------------------------------------------------ */
+/* Mensagens de estado (voz do produto)                               */
+/* ------------------------------------------------------------------ */
+
+/** Aviso de motor ausente. Nunca cita o motor; diz o que fazer. */
+export function engineUnavailableNote() {
+  return [
+    paint("  não encontrei o motor do SelfEvoPI nesta máquina.", "warn"),
+    paint("  a conversa fica desativada; os comandos / continuam funcionando.", "muted"),
+    paint("  para reativar a conversa, reinstale o SelfEvoPI.", "muted"),
+  ].join("\n");
+}
+
+/**
+ * Traduz um erro cru do modelo/provedor em voz do produto, com a ação.
+ * Nunca mostra o corpo cru (401, stack, etc.). `raw` é só para classificar.
+ */
+export function engineErrorMessage(raw) {
+  const s = String(raw || "").toLowerCase();
+  const auth =
+    s.includes("401") ||
+    s.includes("403") ||
+    s.includes("invalid bearer token") ||
+    s.includes("authentication") ||
+    s.includes("unauthorized") ||
+    s.includes("model not found") ||
+    s.includes("invalid model") ||
+    s.includes("no credential") ||
+    s.includes("apikey") ||
+    s.includes("api key");
+  const lines = [];
+  if (auth) {
+    lines.push(paint("  não consegui falar com o modelo desta conversa.", "warn"));
+    lines.push(paint("  o modelo padrão não tem credencial ativa nesta máquina.", "muted"));
+  } else {
+    lines.push(paint("  não consegui falar com o modelo agora.", "warn"));
+    lines.push(paint("  pode ser conexão ou o modelo estar indisponível; tente de novo.", "muted"));
+  }
+  lines.push("");
+  lines.push(paint("  /model          ver os modelos disponíveis", "fg"));
+  lines.push(paint("  /model <nome>   trocar o modelo desta conversa", "fg"));
+  return lines.join("\n");
+}
+
+/* ------------------------------------------------------------------ */
+/* Processos auxiliares (comandos de barra que rodam algo)            */
+/* ------------------------------------------------------------------ */
+
+/** Roda um processo e devolve { code, out, err }. Nunca rejeita. */
+function runProcess(executable, args, { onLine } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, args, { cwd: ROOT, windowsHide: true, ...opts });
+    const child = spawn(executable, args, { cwd: ROOT, windowsHide: true });
     let out = "";
     let err = "";
-    child.stdout?.on("data", (d) => (out += d.toString()));
+    let buf = "";
+    const pump = (chunk) => {
+      buf += chunk.toString();
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (onLine) onLine(line);
+      }
+    };
+    child.stdout?.on("data", pump);
     child.stderr?.on("data", (d) => (err += d.toString()));
     child.on("error", (e) => resolve({ code: 1, out: "", err: String(e.message) }));
-    child.on("close", (code) => resolve({ code: code ?? 1, out, err }));
+    child.on("close", (code) => {
+      if (buf && onLine) onLine(buf);
+      out += err;
+      resolve({ code: code ?? 1, out, err });
+    });
   });
 }
 
-export async function runAction(screenId) {
-  if (screenId === "evals") {
-    const results = [];
-    for (const g of ["A", "B", "C"]) {
-      const r = await exec("node", [path.join(ROOT, "evals", "run.mjs"), "--group", g, "--no-ledger"]);
-      const last = String(r.out).trim().split("\n").pop() || "";
-      results.push({ group: g, code: r.code, last });
-    }
-    return results;
-  }
-  if (screenId === "verify") {
-    const r = await exec("npm", ["run", "verify"], { shell: process.platform === "win32" });
-    const last = String(r.out).trim().split("\n").slice(-3).join(" | ") || String(r.err).slice(0, 200);
-    return { code: r.code, last };
-  }
-  if (screenId === "gate") {
-    const r = await exec("node", [path.join(ROOT, "evals", "gate.mjs")]);
-    const last = String(r.out).trim().split("\n").pop() || "";
-    return { code: r.code, last };
-  }
-  if (screenId === "detect") return { code: 0, last: "detect re-executado" };
-  return { code: 0, last: "nada a executar" };
+/** Últimas N linhas não vazias de um texto. */
+function tailLines(text, n = 8) {
+  return String(text).trim().split("\n").filter((l) => l.trim() !== "").slice(-n);
 }
 
 /* ------------------------------------------------------------------ */
-/* TUI interativo                                                      */
+/* Handler de um comando de barra                                     */
 /* ------------------------------------------------------------------ */
 
-async function interactive(data) {
-  const stdin = process.stdin;
-  const stdout = process.stdout;
-  if (!stdin.isTTY || !stdout.isTTY) {
-    // Degradação: sem TTY, mostra o menu uma vez e sai (nunca pendura).
-    process.stdout.write(renderScreen("menu", data) + "\n");
-    process.exitCode = 0;
-    return;
-  }
+/**
+ * Executa um comando de barra. Escreve no `out` (função de escrita) e devolve
+ * um código de processo (0 = ok). `ctx` carrega o cliente de conversa (pi) e
+ * dados de estado.
+ */
+export async function runSlash(name, arg, out, ctx = {}) {
+  switch (name) {
+    case "/help":
+      out(renderHelp());
+      return 0;
 
-  let state = { screen: "menu", selected: 0 };
-  let running = false;
-
-  const draw = () => {
-    stdout.write("\x1b[2J\x1b[H");
-    stdout.write(renderScreen(state.screen, data) + "\n");
-  };
-
-  stdin.setRawMode(true);
-  stdin.resume();
-  stdin.setEncoding("utf8");
-
-  const cleanup = () => {
-    try {
-      stdin.setRawMode(false);
-    } catch {}
-    stdin.off("data", onData);
-    stdout.write("\x1b[?25h");
-  };
-
-  const onData = async (chunk) => {
-    if (running) return;
-    const action = handleKey(chunk, state);
-    if (action.action === "quit") {
-      cleanup();
-      process.exitCode = 0;
-      return;
-    }
-    if (action.action === "run") {
-      running = true;
-      stdout.write("\x1b[2J\x1b[H");
-      stdout.write(banner() + "\n" + rule() + "\n");
-      stdout.write("  executando…\n");
-      const result = await runAction(action.screen);
-      stdout.write("\n");
-      if (Array.isArray(result)) {
-        for (const r of result) stdout.write(`  grupo ${r.group}: ${r.last}\n`);
-      } else {
-        stdout.write(`  ${result.last || "(sem saída)"}\n`);
+    case "/detect": {
+      const { detectGaps } = await import("../core/forge/detect.mjs");
+      const det = await detectGaps({ ledger: LEDGER, threshold: 3, maxGaps: 20 });
+      const lines = [
+        paint(`  execuções lidas: ${det.scanned}`, "fg"),
+        paint(`  lacunas abertas: ${det.gaps.length}`, "fg"),
+      ];
+      for (const g of det.gaps.slice(0, 12)) {
+        lines.push(`  ${paint("●", "warn")} [${g.kind}] ${g.taskId} → ${g.capability}`);
       }
-      stdout.write("\n  pressione qualquer tecla para voltar\n");
-      const once = () => {
-        stdin.off("data", once);
-        running = false;
-        draw();
-      };
-      stdin.once("data", once);
-      return;
+      if (det.gaps.length === 0) lines.push(paint("  nenhuma lacuna acionável", "muted"));
+      out(lines.join("\n"));
+      return 0;
     }
-    state = applyAction(state, action);
-    draw();
-  };
 
-  process.on("SIGINT", () => {
-    cleanup();
-    process.exit(0);
-  });
+    case "/skills": {
+      const { openStore } = await import("../core/memory/store.mjs");
+      const store = openStore({ root: MEMORY });
+      const entries = store.query({ level: "skills" }).filter((e) => !e.invalid);
+      if (entries.length === 0) {
+        out(paint("  nenhuma skill registrada ainda", "muted"));
+        return 0;
+      }
+      const lines = [paint(`  ${entries.length} skill(s) registrada(s)`, "fg")];
+      for (const e of entries.slice(0, 15)) {
+        lines.push(`  ${paint("●", "ok")} ${String(e.text).replace(/\s+/g, " ").slice(0, 64)}`);
+      }
+      out(lines.join("\n"));
+      return 0;
+    }
 
-  draw();
-  stdin.on("data", onData);
+    case "/memory": {
+      const termo = arg.trim();
+      const { openStore } = await import("../core/memory/store.mjs");
+      const { searchCapabilities } = await import("../core/memory/search.mjs");
+      const store = openStore({ root: MEMORY });
+      if (!termo) {
+        const all = store.query({ level: "skills" }).filter((e) => !e.invalid);
+        out(paint(`  memória: ${all.length} skill(s). Use /memory <termo> para buscar.`, "muted"));
+        return 0;
+      }
+      const res = searchCapabilities(store, termo, { levels: ["skills", "project", "session"], limit: 10 });
+      if (res.count === 0) {
+        out(paint(`  nada encontrado para "${termo}" — talvez ainda não tenha sido gerado`, "muted"));
+        return 0;
+      }
+      const lines = [paint(`  "${termo}" — ${res.count} resultado(s)`, "fg")];
+      for (const r of res.results) {
+        lines.push(`  ${paint("●", "ok")} [${r.score}] ${String(r.text).replace(/\s+/g, " ").slice(0, 70)}`);
+      }
+      out(lines.join("\n"));
+      return 0;
+    }
+
+    case "/evals": {
+      out(paint("  rodando os grupos estruturais (A/B/C)…", "muted"));
+      const results = [];
+      for (const g of ["A", "B", "C"]) {
+        const r = await runProcess(process.execPath, [path.join(ROOT, "evals", "run.mjs"), "--group", g, "--no-ledger"]);
+        const last = tailLines(r.out, 1)[0] || `grupo ${g}: sem saída`;
+        results.push({ g, code: r.code, last });
+      }
+      const lines = [""];
+      for (const r of results) {
+        lines.push(`  ${paint(r.g, "fg")}  ${r.last}`);
+      }
+      out(lines.join("\n"));
+      return results.every((r) => r.code === 0) ? 0 : 1;
+    }
+
+    case "/gate": {
+      out(paint("  gate completo — usa o modelo e pode demorar…", "muted"));
+      const r = await runProcess(process.execPath, [path.join(ROOT, "evals", "gate.mjs")]);
+      const last = tailLines(r.out, 10);
+      out(last.map((l) => "  " + l).join("\n") || paint("  (sem saída)", "muted"));
+      return r.code;
+    }
+
+    case "/forge": {
+      const meta = arg.trim();
+      if (!meta) {
+        out(paint("  uso: /forge <meta>  (ex.: /forge \"extrair HTML com seletor\")", "muted"));
+        return 2;
+      }
+      out(paint(`  iniciando ciclo evolutivo rumo a: ${meta}`, "muted"));
+      out(paint("  (um ciclo mexe em arquivos e pode demorar; Ctrl+C interrompe)", "muted"));
+      const r = await runProcess(process.execPath, [path.join(ROOT, "core", "forge", "cli.mjs"), "evolve", "--goal", meta], {
+        onLine: (line) => out(paint("  · " + line, "muted")),
+      });
+      out(paint(`  outcome: ${r.code === 0 ? "concluído" : "interrompido ou reprovado"}`, r.code === 0 ? "ok" : "warn"));
+      return r.code;
+    }
+
+    case "/model": {
+      const pi = ctx.pi;
+      const nome = arg.trim();
+      const configured = listConfiguredModels(); // [{ provider, id }] — só nomes, sem chaves
+      if (!nome) {
+        // lista o que está configurado, agrupado por provedor (nunca imprime chaves)
+        let current = null;
+        if (pi) {
+          const state = await pi.getState().catch(() => ({}));
+          current = state.model ? `${state.model.provider}/${state.model.id}` : null;
+        }
+        const lines = [];
+        if (current) lines.push(paint(`  modelo atual: ${current}`, "fg"));
+        if (configured.length === 0) {
+          lines.push(paint("  nenhum modelo configurado encontrado.", "warn"));
+          out(lines.join("\n"));
+          return 0;
+        }
+        const byProv = new Map();
+        for (const m of configured) {
+          if (!byProv.has(m.provider)) byProv.set(m.provider, []);
+          byProv.get(m.provider).push(m.id);
+        }
+        for (const [prov, ids] of byProv) {
+          lines.push("");
+          lines.push(paint(`  ${prov}`, "bold"));
+          for (const id of ids) lines.push(`    ${id}`);
+        }
+        out(lines.join("\n"));
+        return 0;
+      }
+      if (!pi) {
+        out(paint("  a conversa está desativada; não dá para trocar o modelo agora", "muted"));
+        return 2;
+      }
+      const alvo = configured.find((m) =>
+        nome.includes("/") ? `${m.provider}/${m.id}` === nome : m.id === nome || m.id.includes(nome),
+      );
+      if (!alvo) {
+        out(paint(`  não encontrei o modelo "${nome}" entre os configurados. Use /model para ver a lista.`, "warn"));
+        return 2;
+      }
+      await pi.setModel(alvo.provider, alvo.id).catch(() => {});
+      out(paint(`  modelo: ${alvo.provider}/${alvo.id}`, "ok"));
+      return 0;
+    }
+
+    case "/clear": {
+      const pi = ctx.pi;
+      if (pi) {
+        await pi.newSession().catch(() => {});
+      }
+      ctx.onClear?.();
+      out(paint("  conversa limpa", "muted"));
+      return 0;
+    }
+
+    default:
+      out(paint(`  comando desconhecido: ${name}  (tente /help)`, "warn"));
+      return 2;
+  }
 }
 
 /* ------------------------------------------------------------------ */
-/* main                                                                */
+/* Conversa (streaming)                                               */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Conversa uma mensagem: inscreve handlers, envia o prompt, faz streaming do
+ * texto com redesenho ao vivo e mostra as linhas de ferramenta. `write` escreve
+ * no terminal; `setBusy` liga/desliga o estado de execução.
+ */
+export async function converse(pi, text, write, setBusy = () => {}) {
+  let buf = "";
+  let drawn = 0;
+  let hadError = false;
+  const redraw = () => {
+    if (drawn > 0) write(`\x1b[${drawn}A`); // sobe para o topo do bloco
+    const rendered = buf ? renderMarkdown(buf).split("\n") : [];
+    for (const line of rendered) write("\x1b[2K" + line + "\n"); // limpa a linha e escreve
+    if (rendered.length === 0) write("\x1b[2K\n");
+    if (drawn > 0 && rendered.length > 0) {
+      // se o bloco encolheu, limpa as sobras
+      for (let k = rendered.length; k < drawn; k++) write("\x1b[2K\n");
+    }
+    drawn = Math.max(rendered.length, 1);
+    // devolve o cursor ao fim do bloco
+    if (drawn > 0) write(`\x1b[${drawn - 1}A`);
+  };
+  const flush = () => {
+    if (drawn > 0) {
+      write("\n"); // deixa o bloco committed
+      drawn = 0;
+    }
+    buf = "";
+  };
+
+  const offText = pi.on("text", (delta) => {
+    buf += delta;
+    redraw();
+  });
+  const offTool = pi.on("tool", (call) => {
+    if (call.phase !== "start") return;
+    flush();
+    const argHint =
+      call.args && typeof call.args === "object"
+        ? Object.values(call.args).map((v) => String(v)).join(" ").replace(/\s+/g, " ").slice(0, 44)
+        : "";
+    write(`  ${paint("⏺", "fg")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
+  });
+  const offError = pi.on("error", (message) => {
+    hadError = true;
+    flush();
+    write(engineErrorMessage(message) + "\n");
+  });
+  const offSettled = pi.on("settled", () => {});
+
+  setBusy(true);
+  const settled = waitForSettle(pi); // arma o listener de settled ANTES do prompt
+  try {
+    await pi.prompt(text);
+  } catch {
+    flush();
+    write(`  ${paint("não consegui iniciar a conversa agora. Tente novamente.", "fail")}\n`);
+    offText();
+    offTool();
+    offError();
+    offSettled();
+    setBusy(false);
+    return false;
+  }
+  // espera o settled (o redesenho roda nos eventos)
+  await settled;
+  flush();
+  offText();
+  offTool();
+  offError();
+  offSettled();
+  setBusy(false);
+  if (hadError) {
+    write("\n");
+    return false;
+  }
+  if (buf.trim() === "") write("\n");
+  write("\n");
+  return true;
+}
+
+/** Espera o próximo `settled` (ou timeout de segurança). */
+function waitForSettle(pi, timeoutMs = 120_000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const off = pi.on("settled", () => {
+      if (done) return;
+      done = true;
+      off();
+      resolve();
+    });
+    setTimeout(() => {
+      if (done) return;
+      done = true;
+      off();
+      resolve();
+    }, timeoutMs).unref?.();
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Linha de comando (editor puro, testável)                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Reduz uma tecla sobre o estado de edição { buf, cur } e devolve o efeito.
+ * Cobre o que o REPL precisa: imprimíveis, backspace/delete, mover o cursor,
+ * Enter (submit), Ctrl+C (sigint), Ctrl+D (eof).
+ *
+ * @param {{buf:string, cur:number}} st
+ * @param {string} key  caractere, ou "backspace"|"delete"|"left"|"right"|"home"|"end"|"enter"|"ctrl-c"|"ctrl-d"
+ * @returns {{ state:{buf:string,cur:number}, effect:("submit"|"sigint"|"eof"|null) }}
+ */
+export function reduceLine(st, key) {
+  const s = { buf: st.buf ?? "", cur: Math.max(0, Math.min(st.cur ?? (st.buf ?? "").length, (st.buf ?? "").length)) };
+  const effect = (e) => ({ state: s, effect: e ?? null });
+
+  if (key === "enter") return effect("submit");
+  if (key === "ctrl-c") return effect("sigint");
+  if (key === "ctrl-d") return effect("eof");
+  if (key === "left") {
+    s.cur = Math.max(0, s.cur - 1);
+    return effect();
+  }
+  if (key === "right") {
+    s.cur = Math.min(s.buf.length, s.cur + 1);
+    return effect();
+  }
+  if (key === "home") {
+    s.cur = 0;
+    return effect();
+  }
+  if (key === "end") {
+    s.cur = s.buf.length;
+    return effect();
+  }
+  if (key === "backspace") {
+    if (s.cur > 0) s.buf = s.buf.slice(0, s.cur - 1) + s.buf.slice(s.cur), s.cur--;
+    return effect();
+  }
+  if (key === "delete") {
+    if (s.cur < s.buf.length) s.buf = s.buf.slice(0, s.cur) + s.buf.slice(s.cur + 1);
+    return effect();
+  }
+  // imprimível (um caractere)
+  if (typeof key === "string" && key.length === 1) {
+    s.buf = s.buf.slice(0, s.cur) + key + s.buf.slice(s.cur);
+    s.cur++;
+    return effect();
+  }
+  return effect();
+}
+
+/* ------------------------------------------------------------------ */
+/* Frames headless (--render)                                         */
+/* ------------------------------------------------------------------ */
+
+const SAMPLE_QUESTION = "como está a cobertura de testes?";
+const SAMPLE_ANSWER = [
+  "86 de 87 tarefas passam.",
+  "",
+  "A única abaixo é a **B11** (extração de HTML), que é estocástica.",
+  "",
+  "Grupos estruturais:",
+  "",
+  "- **A**: 8 tarefas, todas verdes",
+  "- **B**: 8 tarefas (B11 estocástica)",
+  "- **C**: 6 tarefas",
+].join("\n");
+
+/** Monta o frame de uma conversa de exemplo (para --render conversation). */
+export function renderConversationFrame(data = {}) {
+  const out = [];
+  out.push(renderBanner());
+  out.push(rule());
+  out.push(renderStatusLine(data));
+  out.push("");
+  out.push("  " + paint("›", "fg") + " " + SAMPLE_QUESTION);
+  out.push("");
+  // resposta renderizada (markdown), recuada por "SelfEvoPI  "
+  const rendered = renderMarkdown(SAMPLE_ANSWER).split("\n");
+  rendered.forEach((line, idx) => {
+    if (idx === 0) out.push("  " + paint("SelfEvoPI", "bold") + "  " + line.replace(/^  /, ""));
+    else out.push(line);
+  });
+  out.push("");
+  out.push(`  ${paint("⏺", "fg")} ${paint("read".padEnd(10), "fg")} ${paint("evals/baseline.json", "muted")}`);
+  out.push(`  ${paint("⏺", "fg")} ${paint("bash".padEnd(10), "fg")} ${paint("npm test", "muted")}`);
+  out.push("");
+  out.push(rule());
+  out.push("  " + SLASH_COMMANDS.slice(0, 7).map((c) => paint(c.cmd.split(" ")[0], "muted")).join("  "));
+  out.push(rule());
+  return out.map((line) => wrapAnsi(line, WIDTH)).join("\n");
+}
+
+/* ------------------------------------------------------------------ */
+/* REPL                                                               */
+/* ------------------------------------------------------------------ */
+
+/** Detecta o branch atual lendo o .git (diretoria ou ponteiro de worktree). */
+function detectBranch() {
+  const readHead = (gitPath) => {
+    try {
+      const head = readFileSync(path.join(gitPath, "HEAD"), "utf8").trim();
+      const m = /^ref:\s*refs\/heads\/(.+)$/.exec(head);
+      if (m) return m[1];
+      if (/^[0-9a-f]{7,40}$/.test(head)) return head.slice(0, 8); // detached HEAD
+    } catch {
+      /* segue */
+    }
+    return null;
+  };
+  try {
+    const dotGit = path.join(ROOT, ".git");
+    const asFile = readFileSync(dotGit, "utf8"); // só funciona se .git for arquivo (worktree)
+    if (asFile.startsWith("gitdir:")) return readHead(asFile.slice(7).trim()) || "repo";
+    return readHead(dotGit) || "repo";
+  } catch {
+    return readHead(path.join(ROOT, ".git")) || "repo";
+  }
+}
+
+/** Escreve o banner + estado no topo. */
+function printHeader(write, data) {
+  write(renderBanner() + "\n");
+  write(rule() + "\n");
+  write(renderStatusLine(data) + "\n");
+}
+
+/**
+ * Loop interativo (TTY, modo cru). `pi` pode ser null (conversa desativada;
+ * comandos de barra seguem). `write` escreve no terminal.
+ */
+export async function repl({ pi, write, input, setRaw, data = {} }) {
+  const keymap = makeKeyMap();
+  let line = { buf: "", cur: 0 };
+  let history = [];
+  let histIdx = -1;
+  let running = false;
+  let quitting = false;
+
+  const echo = () => {
+    write("\r\x1b[2K  " + paint("›", "fg") + " " + line.buf);
+    // posiciona o cursor dentro do buffer
+    const back = line.buf.length - line.cur;
+    if (back > 0) write(`\x1b[${back}D`);
+  };
+  const prompt = () => echo();
+
+  const finishRun = async () => {
+    running = false;
+    prompt();
+  };
+
+  const submit = async (text) => {
+    write("\n");
+    history.push(text);
+    histIdx = history.length;
+    const parsed = parseInput(text);
+    if (parsed.type === "quit") {
+      quitting = true;
+      return;
+    }
+    if (parsed.type === "empty") {
+      prompt();
+      return;
+    }
+    if (parsed.type === "slash") {
+      await runSlash(parsed.name, parsed.arg, (s) => write(s + "\n"), { pi, onClear: () => write("\x1b[2J\x1b[H") });
+      prompt();
+      return;
+    }
+    // conversa
+    if (!pi) {
+      write(engineUnavailableNote() + "\n");
+      prompt();
+      return;
+    }
+    running = true;
+    await converse(pi, text, (s) => write(s), (b) => (running = b));
+    if (quitting) return;
+    await finishRun();
+  };
+
+  const onData = (chunk) => {
+    for (const key of keymap(chunk)) {
+      if (quitting) return;
+      if (key === "__sigint") {
+        if (running && pi) {
+          // Ctrl+C durante a conversa: cancela e volta à linha
+          pi.abort().catch(() => {});
+          write("^C\n");
+          running = false;
+          write(engineUnavailableNote().length ? "" : "");
+          prompt();
+        } else {
+          // Ctrl+C na linha: limpa; se já vazia duas vezes, sai
+          if (line.buf === "") {
+            quitting = true;
+            write("\n");
+          } else {
+            line = { buf: "", cur: 0 };
+            write("\n");
+            prompt();
+          }
+        }
+        continue;
+      }
+      if (running) continue; // durante a conversa, só Ctrl+C importa
+      if (key === "up") {
+        if (history.length > 0 && histIdx > 0) {
+          histIdx--;
+          line = { buf: history[histIdx] ?? "", cur: (history[histIdx] || "").length };
+          echo();
+        }
+        continue;
+      }
+      if (key === "down") {
+        if (histIdx < history.length) {
+          histIdx++;
+          line = { buf: history[histIdx] ?? "", cur: (history[histIdx] || "").length };
+          echo();
+        }
+        continue;
+      }
+      const { state, effect } = reduceLine(line, key);
+      line = state;
+      if (effect === "submit") {
+        const text = line.buf;
+        line = { buf: "", cur: 0 };
+        submit(text);
+      } else if (effect === "eof") {
+        quitting = true;
+        write("\n");
+      } else {
+        echo();
+      }
+    }
+  };
+
+  setRaw(true);
+  input.setEncoding("utf8");
+  input.on("data", onData);
+  prompt();
+
+  return new Promise((resolve) => {
+    const check = setInterval(() => {
+      if (quitting) {
+        clearInterval(check);
+        resolve();
+      }
+    }, 20);
+  });
+}
+
+/** Traduz um chunk de teclado em tokens do editor (chars, "enter", "ctrl-c"…). */
+function makeKeyMap() {
+  return function* keymap(chunk) {
+    const s = String(chunk);
+    for (let i = 0; i < s.length; i++) {
+      const code = s.charCodeAt(i);
+      // sequências de escape (setas)
+      if (code === 0x1b) {
+        const next = s[i + 1];
+        if (next === "[") {
+          const code2 = s[i + 2];
+          if (code2 === "A") {
+            yield "up";
+            i += 2;
+            continue;
+          }
+          if (code2 === "B") {
+            yield "down";
+            i += 2;
+            continue;
+          }
+          if (code2 === "C") {
+            yield "right";
+            i += 2;
+            continue;
+          }
+          if (code2 === "D") {
+            yield "left";
+            i += 2;
+            continue;
+          }
+          if (code2 === "H") {
+            yield "home";
+            i += 2;
+            continue;
+          }
+          if (code2 === "F") {
+            yield "end";
+            i += 2;
+            continue;
+          }
+          // outra sequência CSI: pula até a letra final
+          let j = i + 2;
+          while (j < s.length && !/[A-Za-z~]/.test(s[j])) j++;
+          i = j;
+          continue;
+        }
+        // Esc sozinho
+        yield "__ignore";
+        continue;
+      }
+      if (code === 0x03) {
+        yield "__sigint";
+        continue;
+      }
+      if (code === 0x04) {
+        yield "ctrl-d";
+        continue;
+      }
+      if (code === 0x0d || code === 0x0a) {
+        yield "enter";
+        continue;
+      }
+      if (code === 0x7f || code === 0x08) {
+        yield "backspace";
+        continue;
+      }
+      if (code === 0x09) {
+        yield "__ignore"; // Tab: ignora (sem autocompletar)
+        continue;
+      }
+      if (code >= 0x20) {
+        yield String.fromCharCode(code);
+        continue;
+      }
+      yield "__ignore";
+    }
+  };
+}
+
+/** Cria o cliente de conversa e aplica SELFEOPI_MODEL (formato "provedor/modelo"). */
+async function startEngine() {
+  const { createPiClient } = await import("../core/agent/pi-rpc.mjs");
+  const client = await createPiClient({ cwd: ROOT }).catch(() => null);
+  if (client) {
+    const m = process.env.SELFEOPI_MODEL;
+    if (m && m.includes("/")) {
+      const i = m.indexOf("/");
+      await client.setModel(m.slice(0, i), m.slice(i + 1)).catch(() => {});
+    }
+  }
+  return client;
+}
+
+/* ------------------------------------------------------------------ */
+/* main                                                               */
+/* ------------------------------------------------------------------ */
+
+function printHelpText() {
+  const out = [];
+  out.push(paint("SelfEvoPI", "bold") + " — conversa com o agente do SelfEvoPI.");
+  out.push("");
+  out.push("  uso:");
+  out.push("    node apps/cli.mjs                      inicia a conversa");
+  out.push("    node apps/cli.mjs --render conversation  mostra um frame de exemplo");
+  out.push("    node apps/cli.mjs --render help          mostra os comandos");
+  out.push("    node apps/cli.mjs --render banner        mostra só o banner + estado");
+  out.push("    node apps/cli.mjs --help                 esta ajuda");
+  out.push("    node apps/cli.mjs --version              mostra a versão");
+  out.push("");
+  out.push("  comandos de barra: " + SLASH_COMMANDS.map((c) => c.cmd).join("  "));
+  out.push("  modelo da conversa:  SELFEOPI_MODEL=provedor/modelo");
+  out.push("  sair: q / /quit / Ctrl+D");
+  process.stdout.write(out.join("\n") + "\n");
+}
 
 async function main() {
   const args = process.argv.slice(2);
 
+  if (args.includes("--version") || args.includes("-v")) {
+    process.stdout.write(VERSION + "\n");
+    process.exit(0);
+  }
   if (args.includes("--help") || args.includes("-h")) {
-    process.stdout.write(
-      "uso:\n" +
-        "  node apps/cli.mjs                      # TUI interativo (exige TTY)\n" +
-        "  node apps/cli.mjs --render <tela>      # imprime o frame como texto e sai\n" +
-        "  node apps/cli.mjs --list-screens       # lista as telas\n" +
-        `\ntelas: ${SCREEN_IDS.join(", ")}\n`,
-    );
+    printHelpText();
     process.exit(0);
-  }
-
-  if (args.includes("--list-screens")) {
-    const all = [{ id: "menu", label: "Menu" }, ...SCREENS];
-    for (const s of all) process.stdout.write(`${s.id}\t${s.label}\n`);
-    process.exit(0);
-  }
-
-  // versão do package.json (banner)
-  try {
-    const pkg = JSON.parse(await readFile(path.join(ROOT, "package.json"), "utf8"));
-    VERSION = pkg.version || VERSION;
-  } catch {
-    /* mantém 0.0.0 */
   }
 
   const renderIdx = args.indexOf("--render");
   if (renderIdx !== -1) {
     const screen = args[renderIdx + 1];
-    if (!screen) {
-      process.stderr.write("erro: --render exige o nome de uma tela\n");
-      process.stderr.write(`telas: ${SCREEN_IDS.join(", ")}\n`);
+    const data = { branch: "main" };
+    let frame;
+    if (screen === "conversation") frame = renderConversationFrame(data);
+    else if (screen === "help") frame = [renderBanner(), rule(), renderStatusLine(data), "", renderHelp()].join("\n");
+    else if (screen === "banner") frame = [renderBanner(), rule(), renderStatusLine(data)].join("\n");
+    else {
+      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, help, banner)\n`);
       process.exit(2);
     }
-    if (!SCREEN_IDS.includes(screen) && screen !== "menu") {
-      process.stderr.write(`erro: tela desconhecida "${screen}"\n`);
-      process.stderr.write(`telas: ${SCREEN_IDS.join(", ")}\n`);
-      process.exit(2);
-    }
-    const data = await loadData();
-    process.stdout.write(renderScreen(screen === "menu" ? "menu" : screen, data) + "\n");
+    process.stdout.write(frame + "\n");
     process.exit(0);
   }
 
-  const data = await loadData();
-  await interactive(data);
+  const data = { branch: detectBranch() };
+  const engine = findEngine();
+
+  const isTTY = process.stdin.isTTY && process.stdout.isTTY;
+
+  if (!isTTY) {
+    // Modo linha (pipe/CI): lê linhas, processa, sai em q / EOF. Nunca pendura.
+    printHeader((s) => process.stdout.write(s + "\n"), data);
+    if (!engine.available) process.stdout.write(engineUnavailableNote() + "\n");
+    let pi = null;
+    if (engine.available) {
+      pi = await startEngine();
+    }
+    let buf = "";
+    process.stdin.setEncoding("utf8");
+    let chain = Promise.resolve();
+    const handle = (raw) => {
+      chain = chain.then(() => handleOne(raw));
+      return chain;
+    };
+    const handleOne = async (raw) => {
+      const parsed = parseInput(raw);
+      if (parsed.type === "quit") {
+        if (pi) await pi.close().catch(() => {});
+        process.exit(0);
+      }
+      if (parsed.type === "empty") return;
+      if (parsed.type === "slash") {
+        await runSlash(parsed.name, parsed.arg, (s) => process.stdout.write(s + "\n"), { pi });
+        return;
+      }
+      // conversa
+      if (!pi) {
+        process.stdout.write(engineUnavailableNote() + "\n");
+        return;
+      }
+      await converse(pi, parsed.text, (s) => process.stdout.write(s));
+    };
+    process.stdin.on("data", (chunk) => {
+      buf += chunk;
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        handle(line);
+      }
+    });
+    process.stdin.on("end", () => {
+      if (buf.trim() !== "") handle(buf);
+      chain
+        .then(() => (pi ? pi.close().catch(() => {}) : undefined))
+        .then(() => process.exit(0))
+        .catch(() => process.exit(0));
+    });
+    return;
+  }
+
+  // TTY: conversa
+  printHeader((s) => process.stdout.write(s + "\n"), data);
+  let pi = null;
+  if (engine.available) {
+    pi = await startEngine();
+  } else {
+    process.stdout.write(engineUnavailableNote() + "\n\n");
+  }
+
+  const stdin = process.stdin;
+  const stdout = process.stdout;
+  const setRaw = (on) => {
+    try {
+      if (stdin.isTTY) stdin.setRawMode(on);
+    } catch {
+      /* idem */
+    }
+  };
+  await repl({ pi, write: (s) => stdout.write(s), input: stdin, setRaw, data });
+  setRaw(false);
+  if (pi) await pi.close().catch(() => {});
+  process.exitCode = 0;
 }
 
-// Só executa quando chamado direto; importar (testes) não dispara main().
-import { pathToFileURL } from "node:url";
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
   main().catch((err) => {
-    process.stderr.write(`cli: ${err?.stack || err?.message || err}\n`);
-    process.exit(2);
+    process.stderr.write(`SelfEvoPI: ${err?.stack || err?.message || err}\n`);
+    process.exitCode = 2;
   });
 }
