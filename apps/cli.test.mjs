@@ -350,6 +350,40 @@ test("isAuthError e fallbackNotice: classificação e voz do produto", () => {
   assert.match(notice, /\/model/);
 });
 
+test("converseOrFallback: orçamento total curto não pendura", async () => {
+  // default dá erro; candidatos nunca settle (simula provedor pendurado)
+  let attempt = 0;
+  const pi = fakePi({
+    script: (emit) => {
+      attempt += 1;
+      if (attempt === 1) {
+        emit("error", "401 Invalid bearer token");
+        emit("settled", { aborted: false });
+      }
+      // demais tentativas: nada (pendura)
+    },
+  });
+  pi.setModel = async () => ({});
+  pi.getState = async () => ({ model: { provider: "x", id: "y" } });
+  const chunks = [];
+  const t0 = Date.now();
+  const res = await converseOrFallback(pi, "oi", (s) => chunks.push(s), {
+    allowFallback: true,
+    budgetMs: 60,
+    perCandidateMs: 25,
+    candidates: [
+      { provider: "kilo1", id: "a" },
+      { provider: "kilo1", id: "b" },
+      { provider: "kilo1", id: "c" },
+    ],
+  });
+  const elapsed = Date.now() - t0;
+  assert.equal(res.ok, false);
+  assert.ok(elapsed < 1000, `varredura demorou ${elapsed}ms (devia respeitar o teto)`);
+  const out = stripAnsi(chunks.join(""));
+  assert.match(out, /não consegui falar com o modelo/);
+});
+
 test("runSlash /model lista os configurados sem lançar (código 0)", async () => {
   let out = "";
   const code = await runSlash("/model", "", (s) => (out += s + "\n"), { pi: null });

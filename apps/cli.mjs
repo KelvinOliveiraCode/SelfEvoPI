@@ -837,7 +837,14 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
  * usuário vence e o erro aparece.
  */
 export async function converseOrFallback(pi, text, write, opts = {}) {
-  const { allowFallback = false, candidates = [], setBusy = () => {}, maxCandidates = 5 } = opts;
+  const {
+    allowFallback = false,
+    candidates = [],
+    setBusy = () => {},
+    maxCandidates = 5,
+    budgetMs = 30_000, // teto TOTAL da varredura (evita "travamento" perceptível)
+    perCandidateMs = 25_000, // teto por candidato (cobre um modelo real, ~13-20 s)
+  } = opts;
   const usable = (x) => Boolean(x && x.ok && x.text && String(x.text).trim() !== "");
 
   const res = await converse(pi, text, write, setBusy);
@@ -864,10 +871,15 @@ export async function converseOrFallback(pi, text, write, opts = {}) {
     if (tried.length >= maxCandidates) break;
   }
 
+  const sweepStart = Date.now();
   let lastErr = res.error;
   for (const m of tried) {
+    const remaining = budgetMs - (Date.now() - sweepStart);
+    if (remaining <= 0) break; // estourou o orçamento total: mostra o erro
     await pi.setModel(m.provider, m.id).catch(() => {});
-    const r = await converse(pi, text, () => {}, setBusy, { settleTimeoutMs: 45_000 });
+    const r = await converse(pi, text, () => {}, setBusy, {
+      settleTimeoutMs: Math.min(perCandidateMs, remaining),
+    });
     if (r.aborted) return r; // cancelou durante o fallback
     if (usable(r)) {
       const model = `${m.provider}/${m.id}`;
