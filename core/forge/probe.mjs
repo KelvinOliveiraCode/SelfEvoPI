@@ -53,8 +53,9 @@ function sampleFlags(inputs) {
 }
 
 /** Script de sonda para um kind. */
-export function renderProbe(request) {
+export function renderProbe(request, opts = {}) {
   const kind = request?.kind ?? "cli";
+  const sandboxUrl = typeof opts.sandboxUrl === "string" && opts.sandboxUrl !== "" ? opts.sandboxUrl : null;
   const inputs = Object.keys(request?.inputs ?? {});
   const outputs = Object.keys(request?.outputs ?? {});
   const target = PRIMARY_FILE[kind] ?? "cli.mjs";
@@ -153,6 +154,7 @@ console.log("  comando " + cmd.nome + " respondeu " + avisos.length + " aviso(s)
   }
 
   // cli (default): roda com flags e exige as chaves de saída no JSON.
+  if (sandboxUrl) return renderSandboxedCliProbe(request, sandboxUrl);
   const flags = sampleFlags(inputs);
   const checkKeys = outputs.length > 0
     ? `// As chaves podem estar no topo ou dentro de "outputs" (convenicao do gerador de template).
@@ -190,6 +192,64 @@ try {
 
 if (r.status !== 0 || json === null) {
   console.error("  saida nao e JSON com exit 0 (exit " + r.status + ")");
+  if (r.stderr) console.error("  " + String(r.stderr).trim().split("\\n")[0]);
+  process.exit(1);
+}
+
+${checkKeys}
+`;
+}
+
+/**
+ * Sonda de CLI que roda o artefato DENTRO do sandbox (runSandboxed).
+ *
+ * O artefato e codigo escrito por modelo: nunca executa solto. O verificador
+ * (esta sonda) roda fora; quem invoca o artefato e o runSandboxed, com
+ * Permission Model (fs restrito ao workdir) e preload de rede.
+ */
+function renderSandboxedCliProbe(request, sandboxUrl) {
+  const inputs = Object.keys(request?.inputs ?? {});
+  const outputs = Object.keys(request?.outputs ?? {});
+  const flags = sampleFlags(inputs);
+  const checkKeys = outputs.length > 0
+    ? `// As chaves podem estar no topo ou dentro de "outputs" (convencao do gerador).
+const alvo = json && typeof json === "object" && json.outputs && typeof json.outputs === "object" ? json.outputs : json;
+const faltando = ${JSON.stringify(outputs)}.filter((k) => !(k in alvo));
+     if (faltando.length > 0) {
+       console.error("  faltando chave(s): " + faltando.join(", "));
+       process.exit(1);
+     }`
+    : "";
+
+  return `#!/usr/bin/env node
+// Sonda do artefato CLI (gerada pelo Forge) — roda o artefato no sandbox.
+import { runSandboxed } from ${JSON.stringify(sandboxUrl)};
+import { writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const AQUI = dirname(fileURLToPath(import.meta.url));
+
+${fixturePrelude(inputs).join("\n")}
+
+const r = await runSandboxed({
+  script: "cli.mjs",
+  args: [${flags.length ? flags.join(", ") : ""}],
+  workdir: AQUI,
+  allowWrite: false,
+  timeoutMs: 20000,
+});
+
+const saida = String(r.stdout ?? "");
+let json = null;
+try {
+  json = JSON.parse(saida.trim().split("\\n").pop());
+} catch {
+  json = null;
+}
+
+if (!r.ok || r.blocked || json === null) {
+  console.error("  saida nao e JSON com exit 0 (exit " + r.exitCode + ")" + (r.blocked ? " [bloqueado pelo sandbox]" : ""));
   if (r.stderr) console.error("  " + String(r.stderr).trim().split("\\n")[0]);
   process.exit(1);
 }

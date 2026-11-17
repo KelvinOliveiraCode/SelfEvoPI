@@ -407,6 +407,38 @@ não é filtrado. `--include-eval` desliga o filtro (para diagnóstico do detect
 No ledger real, isso reduz o auto a **zero lacuna acionável** (a única era D1, que
 é medição) — o auto-disparo não queima token perseguindo benchmark.
 
+## Contenção do artefato (o artefato nunca executa solto)
+
+O auto-disparo remove o humano do caminho — e o humano era a contenção de último
+resgate. Por isso o artefato gerado (código escrito por modelo) **nunca executa
+solto**: a sonda de interface o roda **dentro do sandbox** do A6
+(`core/sandbox/run-sandboxed.mjs`), com `workdir` = diretório temporário criado
+por `mkdtemp`, nunca a raiz do projeto.
+
+A arquitetura é preservada: o **verificador** (`verify.mjs`/`probe.mjs`) roda
+fora; quem **invoca o artefato** é a sonda, via `runSandboxed` — com Node
+Permission Model (fs restrito ao workdir, rede fechada pelo preload) e teardown de
+árvore no timeout. O `defaultRunVerification` do loop roda o verificador sem
+`shell` (o comando é gerado pelo loop, não entrada de usuário).
+
+Três travas do gate (fail-closed):
+
+1. **Varre todos os arquivos do artefato**, não só o primário. Se um arquivo
+   secundário é perigoso, o artefato inteiro é bloqueado (needs-human).
+2. **Se o gate lança, isso é bloqueio** (needs-human com o motivo), não "segue o
+   jogo". O `catch` silencioso foi removido.
+3. **Limpeza do diretório temporário ao fim** (inclusive em erro): após promote o
+   artefato já foi copiado; após rollback/needs-human já foi removido.
+
+Testes de contenção em `core/forge/sandbox-integration.test.mjs` (sandbox e gate
+reais, sem fakes para o caminho de contenção):
+
+- artefato que lê `~/.pi/settings.json` → bloqueado antes de executar;
+- artefato que escreve fora do temp → bloqueado (Permission Model), não promove;
+- `evaluateFile` lançando → needs-human, e não execução;
+- artefato com dois arquivos, o secundário perigoso → bloqueado;
+- caminho feliz ainda promove.
+
 ## Pendências
 
 - [x] Detector de lacunas (`detect.mjs`) — os três gatilhos.
@@ -417,5 +449,6 @@ No ledger real, isso reduz o auto a **zero lacuna acionável** (a única era D1,
 - [x] Gerador com modelo (`generate-llm.mjs`) + testes de interface sintetizados.
 - [x] Auto-disparo (`auto.mjs` + `cli.mjs auto`): dry-run por padrão, --auto com travas.
 - [x] Filtro de tarefa de eval: falha de benchmark não vira lacuna de ferramenta.
+- [x] Contenção do artefato: roda no sandbox (A6), gate fail-closed, temp limpo.
 - [ ] Etapa 5 (sandbox Windows) — fase posterior, com Job Objects + `cc-safety-net`.
 - [ ] Indexação semântica do registro (Voyager-style) na promoção.
