@@ -14,9 +14,10 @@
  *  - "promoted"    : passou o gate e foi promovido.
  */
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path, { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { createArtifactRequest, chooseKind } from "./contract.mjs";
 import { createGap, detectGaps } from "./detect.mjs";
@@ -29,6 +30,31 @@ import { generateMcpConfig } from "./generate-mcp-config.mjs";
 import { generateMcpServer } from "./generate-mcp-server.mjs";
 import { generateExtension } from "./generate-extension.mjs";
 import { runGate, decidePromotion } from "./gatekeeper.mjs";
+
+// URL do sandbox (A6): o artefato gerado nunca executa solto — a sonda o roda
+// via runSandboxed, com Permission Model e preload de rede.
+const ROOT = path.resolve(import.meta.dirname, "..", "..");
+const SANDBOX_URL = pathToFileURL(path.join(ROOT, "core", "sandbox", "run-sandboxed.mjs")).href;
+
+/** Lista recursivamente os arquivos de um diretório (para o gate varrer todos). */
+async function listFilesRecursive(dir) {
+  const out = [];
+  async function walk(d) {
+    let entries;
+    try {
+      entries = await readdir(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = join(d, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (e.isFile()) out.push(full);
+    }
+  }
+  await walk(dir);
+  return out;
+}
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -64,10 +90,20 @@ export async function defaultGenerate(request, outDir) {
   throw new Error(`forge-loop: sem gerador para kind "${request.kind}"`);
 }
 
-/** Roda a verificação do artefato FORA do sandbox (spawnSync). */
-async function defaultRunVerification(command) {
+/**
+ * Roda o VERIFICADOR (verify.mjs/probe.mjs) FORA do sandbox. Quem invoca o
+ * artefato é a sonda, via runSandboxed — o artefato nunca executa solto.
+ * Sem shell: o comando é gerado pelo loop, não entrada de usuário, mas shell
+ * é superfície de injeção e não há motivo para usá-la.
+ */
+async function defaultRunVerification(command, opts = {}) {
   const { spawnSync } = await import("node:child_process");
-  const r = spawnSync(command, { shell: true, encoding: "utf8" });
+  const cwd = opts.cwd ?? undefined;
+  const m = String(command).match(/^(\S+)\s+([\s\S]+)$/);
+  const cmd = m ? m[1] : String(command);
+  const args = m ? [m[2]] : [];
+  const executable = cmd === "node" || cmd === "nodejs" ? process.execPath : cmd;
+  const r = spawnSync(executable, args, { cwd, encoding: "utf8", windowsHide: true });
   return {
     ok: r.status === 0,
     status: r.status,
@@ -236,6 +272,9 @@ export function createEvolutionLoop(deps = {}) {
       return report;
     };
 
+    let madeDir = false;
+    let artifactDir = null;
+
     try {
       // 1. Detecta lacuna (se não veio pronta).
       let gap = input.gap;
@@ -350,9 +389,8 @@ export function createEvolutionLoop(deps = {}) {
       report.request = request;
       report.kind = request.kind ?? report.kind;
 
-      // 4. Gera em isolamento.
-      let artifactDir = input.outDir;
-      let madeDir = false;
+      // 4. Gera em isolamento (mkdtemp: nunca a raiz do projeto).
+      artifactDir = input.outDir;
       if (!artifactDir) {
         artifactDir = await mkdtemp(join(workRoot, `forge-${report.taskId ?? "gap"}-`));
         madeDir = true;
@@ -366,28 +404,36 @@ export function createEvolutionLoop(deps = {}) {
       // verify poder exercitar o artefato do jeito certo (flags, JSON-RPC, módulo).
       if (Array.isArray(request.tests) && request.tests.some((t) => t?.command === "node probe.mjs")) {
         const { renderProbe } = await import("./probe.mjs");
-        await writeFile(join(artifactDir, "probe.mjs"), renderProbe(request), "utf8");
+        await writeFile(join(artifactDir, "probe.mjs"), renderProbe(request, { sandboxUrl: SANDBOX_URL }), "utf8");
       }
       emit({ event: "generated", kind, files: report.files });
 
-      // 5. Gate estático: rede/credencial/fora do workspace => needs-human.
-      //    Varre o arquivo-fonte primário do artefato (um por kind).
-      const PRIMARY = {
-        "mcp-config": ".mcp.json",
-        skill: "SKILL.md",
-        cli: "cli.mjs",
-        extension: "index.mjs",
-        "mcp-server": "server.mjs",
-      };
+      // 5. Gate estático: varre TODOS os arquivos do artifactDir, fail-closed.
+      //    Se um arquivo secundário é perigoso, o artefato inteiro é bloqueado;
+      //    se o verificador lança, isso é bloqueio (needs-human), não execução.
       let staticDecision = null;
-      const primaryName = PRIMARY[request.kind] ?? null;
-      const fileToScan = primaryName ? join(artifactDir, primaryName) : null;
-      if (typeof staticGate === "function" && fileToScan) {
-        try {
-          const dec = await staticGate(fileToScan, artifactDir);
-          if (dec && dec.decision) staticDecision = dec;
-        } catch {
-          // gate estático ausente não reprova por engano
+      if (typeof staticGate === "function") {
+        // Varre os arquivos do ARTEFATO, não o verificador: verify.mjs/probe.mjs
+        // são gerados pelo Forge (confiáveis) e legitimamente usam child_process.
+        const VERIFIER = new Set(["verify.mjs", "probe.mjs", "README.md"]);
+        const files = (await listFilesRecursive(artifactDir))
+          .filter((f) => !VERIFIER.has(path.basename(f)));
+        for (const f of files) {
+          let dec;
+          try {
+            dec = await staticGate(f, artifactDir);
+          } catch (err) {
+            const reason = `gate falhou (fail-closed): ${err?.message ?? err}`;
+            report.reasons = [reason];
+            emit({ event: "needs-human", reason });
+            if (madeDir) await rm(artifactDir, { recursive: true, force: true }).catch(() => {});
+            report.artifactDir = null;
+            return finish("needs-human", { reasons: [reason] });
+          }
+          if (dec && dec.decision === "block") {
+            staticDecision = dec;
+            break;
+          }
         }
       }
       const human = needsHumanFrom({ request, gap, staticDecision });
@@ -403,7 +449,7 @@ export function createEvolutionLoop(deps = {}) {
       // 6. Verificação FORA do sandbox (o verify.mjs é a evidência).
       let verify = { ok: false, status: null, stdout: "", stderr: "sem verifyCommand" };
       if (report.verifyCommand && typeof runVerification === "function") {
-        verify = await runVerification(report.verifyCommand);
+        verify = await runVerification(report.verifyCommand, { cwd: artifactDir });
       }
       report.verify = verify;
       emit({ event: "verify", ok: verify.ok, status: verify.status });
@@ -452,6 +498,12 @@ export function createEvolutionLoop(deps = {}) {
       report.reasons = [String(err?.message ?? err)];
       emit({ event: "error", message: report.reasons[0] });
       return finish("error", { reasons: report.reasons });
+    } finally {
+      // Limpa o diretório temporário ao fim, inclusive em erro. Após promote o
+      // artefato já foi copiado; após rollback/needs-human já foi removido.
+      if (madeDir && artifactDir) {
+        await rm(artifactDir, { recursive: true, force: true }).catch(() => {});
+      }
     }
   }
 
