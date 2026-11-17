@@ -10,10 +10,10 @@
 
 <br>
 
-![Tests](https://img.shields.io/badge/tests-371-brightgreen)
-![Evals](https://img.shields.io/badge/evals-87%2F87-brightgreen)
-![Cold start](https://img.shields.io/badge/cold_start-433ms-blue)
-![Prompt](https://img.shields.io/badge/prompt_overhead-%2B500%20of%201500-blue)
+![Tests](https://img.shields.io/badge/tests-448%20passing-brightgreen)
+![Evals](https://img.shields.io/badge/evals-86%2F87%20(98.85%25)-brightgreen)
+![Cold start](https://img.shields.io/badge/cold_start-443ms%20warm-blue)
+![Prompt](https://img.shields.io/badge/prompt_overhead-%2B508%20of%201500-blue)
 ![License](https://img.shields.io/badge/license-TBD-lightgrey)
 
 </div>
@@ -24,7 +24,7 @@
 
 SelfEvoPI is a harness that sits **on top of** the [PI Coding Agent](https://github.com/earendil-works/pi) — never a fork of it. It adds the three things a base agent does not have: a multi-provider router, a deterministic evaluation suite with a regression gate, and an **evolutionary core** that detects a capability gap, writes the artifact that closes it, tests it in a Windows sandbox, and promotes it only if nothing else regressed.
 
-The whole thing is **~19k lines of Node ESM** across 31 modules, with **371 unit tests** and **29 deterministic evaluation tasks**. Cold start is **433 ms**. The prompt it adds to the base agent is **500 tokens** at the ceiling, against a hard budget of 1,500.
+The whole thing is **~21.5k lines of Node ESM** across 128 modules, with **448 passing unit tests** and **29 evaluation tasks**. Cold start is **443 ms** on a warm cache (1.0–1.8 s on the first run, cold). The prompt it adds to the base agent is **508 tokens** at the ceiling, against a hard budget of 1,500.
 
 ## Why it exists
 
@@ -34,7 +34,7 @@ That has a design consequence. If the harness is the product, then:
 
 - **context is a budget, not a resource** — every token of system prompt is paid on every single turn, forever;
 - **latency is a feature** — a harness that takes 500 ms to start is used differently from one that takes 5 s;
-- **quality must be measured, not asserted** — "it works" is not a result, `87/87 with zero regressions` is.
+- **quality must be measured, not asserted** - "it works" is not a result, `86/87, with the one miss named` is.
 
 SelfEvoPI takes those three literally.
 
@@ -44,21 +44,21 @@ Everything below was measured on this repository, on Windows 11, Node 24.13. Rep
 
 | Metric | Value | Budget | How |
 |:---|:---|:---|:---|
-| Cold start | **433 ms** (min 399, max 492) | < 500 ms | `scripts/measure-overhead.mjs` |
-| Prompt added by SelfEvoPI | **+500 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs` |
-| Base agent prompt | 8.685 tok | — | same |
-| Evaluation suite | **29 tasks, 87/87 (100%)** | no regression | `node evals/gate.mjs` |
-| Unit tests | **371 passing** | — | `npm test` |
+| Cold start | **443 ms** warm (min 383, max 611) · **1.012–1.806 s** cold cache | < 500 ms warm | `scripts/measure-overhead.mjs` |
+| Prompt added by SelfEvoPI | **+508 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs` |
+| Base agent prompt | 8.683 tok | — | same |
+| Evaluation suite | **29 tasks, 86/87 baseline (98.85%)** — B11 is stochastic (2/3 baseline, 3/3 last run) | no regression | `node evals/gate.mjs` |
+| Unit tests | **448 passing** (1 skipped: no pi-harness server) | — | `npm test` |
 | Suite cost per task | **US$ 0.00** (free tier) | — | JSONL ledger |
 | Suite latency | ~5.9 s/task average | — | ledger |
-| Codebase | 117 files, ~19.0k lines | — | — |
-| Test code | 34 files, ~5.3k lines | — | — |
+| Codebase | 128 files, ~21.5k lines | — | — |
+| Test code | 40 files, ~6.4k lines | — | — |
 
 ### What the prompt budget actually buys
 
 The base agent already spends ~8.7k tokens before SelfEvoPI does anything. A naive extension set blows the budget on its own — a single orchestration extension measured **+1,653 tokens per turn**, which alone exceeds the entire 1,500-token allowance, with no measured gain in accuracy.
 
-So SelfEvoPI ships its own contribution at **+500 tokens** and loads everything else on demand. That is a third of the budget, with two thirds held in reserve.
+So SelfEvoPI ships its own contribution at **+508 tokens** and loads everything else on demand. That is a third of the budget, with two thirds held in reserve.
 
 ## Architecture
 
@@ -169,7 +169,7 @@ Eight isolated worktrees (`.worktrees/A1`–`A8`), each with a disjoint file sco
 
 | Gate | What it checks | Enforcement |
 |:---|:---|:---|
-| `npm test` | 371 unit tests | CI on every push |
+| `npm test` | 448 unit tests | CI on every push |
 | `npm run verify` | tests + evals A/C + source URL integrity | CI |
 | `node evals/gate.mjs` | 3 runs per task vs baseline | local, before merge |
 | `scripts/verify-urls.mjs` | 33 cited sources still reachable | CI |
@@ -277,7 +277,7 @@ Two launchers:
 
 ```powershell
 npm run verify                          # tests + evals A/C + URLs
-npm test                                # 371 unit tests
+npm test                                # 448 unit tests
 npm run gate                            # full gate (real model calls, slow)
 
 node core/forge/cli.mjs detect          # what gaps exist right now
@@ -371,4 +371,4 @@ docs/               decisions, state, research
 
 ## License
 
-TBD.
+MIT — see [`LICENSE`](LICENSE).

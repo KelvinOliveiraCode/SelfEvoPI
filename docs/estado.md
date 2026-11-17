@@ -38,9 +38,9 @@ lacunas, gera artefatos e só promove o que não causa regressão.
 | Prompt do PI puro | **8.680 tok** | — | idem |
 | Incremento do SelfEvoPI | **+506 tok** (memória no teto) | < 1.500 tok | `node scripts/measure-selfevopi-overhead.mjs --runs 3` |
 | `pi-subagents` (sob demanda) | +1.654 tok | — | idem |
-| Evals | **29 tarefas, 87/87 (100%)** | sem regressão | `node evals/gate.mjs` |
+| Evals | **29 tarefas, 86/87 (98,85%)** na baseline — B11 é estocástico (2/3 baseline, 3/3 última execução) | sem regressão | `node evals/gate.mjs` |
 | Tokens da suíte | **~210.600** (5 tarefas com modelo) | — | idem |
-| Testes unitários | **371** | — | `npm test` |
+| Testes unitários | **449** (448 passam, 1 skip: integração sem servidor) | - | `npm test` |
 | Custo | US$ 0,00 (free tier) | — | ledger |
 | Verificação de um comando | **exit 0** | — | `npm run verify` |
 | Agendamento diário | **SelfEvoPI-Daily** (07:00, Windows Task Scheduler) | — | `node scripts/schedule.mjs --status` |
