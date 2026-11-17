@@ -4,7 +4,8 @@
  *
  * Um servidor local (127.0.0.1) que serve um painel HTML e uma API de estado.
  * Nasce com `node scripts/desktop.mjs` (ou pelo atalho da Área de Trabalho) e
- * abre no navegador.
+ * abre no navegador — ou, com `--app`, numa janela sem barra de endereço
+ * (Edge/Chrome em modo `--app`), 1280×820, como um programa.
  *
  * Por que um servidor local e não um HTML estático: o painel precisa mostrar o
  * estado **de agora** — evals, lacunas, execuções do grafo, últimos artefatos.
@@ -16,16 +17,31 @@
  *  - não lê nada fora da raiz do projeto
  *
  * Uso:
- *   node scripts/desktop.mjs [--port 7777] [--no-open]
+ *   node scripts/desktop.mjs [--port 7777] [--no-open] [--app] [--dry-run]
+ *
+ *   --no-open   não abre janela nenhuma (CI/headless)
+ *   --app       abre como app (Edge primeiro, Chrome depois), 1280×820, sem barra
+ *   --dry-run   com --app, só imprime o comando que abriria (não abre)
+ *
+ * Ciclo de vida: a janela fecha, o servidor continua de pé (Ctrl+C encerra).
+ * A API JSON (`/api/state`, `/api/action`) é contrato e não muda.
  */
 
 import { createServer } from "node:http";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
+const APP_W = 1280;
+const APP_H = 820;
+
+/** Escapa HTML para valores interpolados no servidor. */
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
 
 function argValue(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
@@ -34,6 +50,33 @@ function argValue(name, fallback) {
 
 const PORT = Number(argValue("port", "7777"));
 const NO_OPEN = process.argv.includes("--no-open");
+const APP_MODE = process.argv.includes("--app");
+const DRY_RUN = process.argv.includes("--dry-run");
+
+/* ------------------------------------------------------------------ */
+/* Marca (símbolo)                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Símbolo da marca em duas variantes:
+ *  - `LOGO_HEADER`: traço em `currentColor` (o CSS põe branco no fundo preto).
+ *  - `LOGO_FAVICON`: branco sobre placa preta, visível em aba clara e escura.
+ * Fonte: `assets/logo.svg`. Não recolorimos fora da paleta — só usamos branco.
+ */
+let LOGO_HEADER = null;
+let LOGO_FAVICON = null;
+try {
+  const raw = await readFile(path.join(ROOT, "assets", "logo.svg"), "utf8");
+  // remove as cores fixas do SVG: o traço passa a herdar `color` do CSS
+  LOGO_HEADER = raw.replace(/\scolor="#[0-9a-fA-F]{3,6}"/g, "");
+  // favicon: força branco e põe uma placa preta atrás (função de aba clara/escura)
+  LOGO_FAVICON = raw
+    .replace(/color="#[0-9a-fA-F]{3,6}"/g, 'color="#ffffff"')
+    .replace(/(<svg[^>]*>)/, '$1<rect x="0" y="0" width="256" height="256" rx="48" fill="#000000"/>');
+} catch {
+  LOGO_HEADER = null;
+  LOGO_FAVICON = null;
+}
 
 /* ------------------------------------------------------------------ */
 /* Leitura de estado                                                   */
@@ -44,6 +87,15 @@ async function readJson(file, fallback = null) {
     return JSON.parse(await readFile(path.join(ROOT, file), "utf8"));
   } catch {
     return fallback;
+  }
+}
+
+/** Lê um texto do projeto, ou null se não existir. */
+async function readText(rel) {
+  try {
+    return await readFile(path.join(ROOT, rel), "utf8");
+  } catch {
+    return null;
   }
 }
 
@@ -139,6 +191,93 @@ async function collectState() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Métricas do cabeçalho (snapshot de baseline + last-known-good)      */
+/* ------------------------------------------------------------------ */
+
+/** Primeiro número de um texto ("433 ms (meta < 500)" -> 433). */
+function firstNumber(text) {
+  const m = String(text ?? "").match(/\d[\d.]*/);
+  return m ? Number(m[0].replace(/\.$/, "")) : null;
+}
+
+/** Acha o `detail` de um check do last-known-good pelo nome. */
+function lkgDetail(lkg, name) {
+  const check = (lkg?.checks ?? []).find((c) => c && c.name === name);
+  return check?.detail ?? null;
+}
+
+/**
+ * Monta a faixa de métricas. Regra: número sem data é afirmação, número com
+ * data é evidência — então todo número medido carrega a data da medição.
+ *
+ * Fontes, em ordem de preferência:
+ *  - execuções / baseline / tarefas: `evals/baseline.json` (ao vivo, "agora")
+ *  - cold start: `docs/medidas-2026-11-17.md` -> `docs/estado.md` -> LKG (com data)
+ *  - testes:     `docs/estado.md` -> LKG (com data)
+ */
+async function collectMetrics() {
+  const [baseline, lkg, medidas, estado] = await Promise.all([
+    readJson("evals/baseline.json"),
+    readJson(".pi/harness/last-known-good.json"),
+    readText("docs/medidas-2026-11-17.md"),
+    readText("docs/estado.md"),
+  ]);
+  const totals = baseline?.totals ?? {};
+
+  const coldFromMedidas = parseColdStartMedidas(medidas);
+  const coldFromEstado = parseColdStartEstado(estado);
+  let cold = { value: null, asOf: null, source: null };
+  if (coldFromMedidas != null) {
+    cold = { value: coldFromMedidas, asOf: "2026-11-17", source: "docs/medidas-2026-11-17.md" };
+  } else if (coldFromEstado != null) {
+    cold = { value: coldFromEstado, asOf: "2026-11-17", source: "docs/estado.md" };
+  } else {
+    const n = firstNumber(lkgDetail(lkg, "cold-start"));
+    if (n != null) cold = { value: n, asOf: lkg?.verifiedAt ?? null, source: "last-known-good.json" };
+  }
+
+  const testsFromEstado = parseTestsEstado(estado);
+  let tests = { value: null, asOf: null, source: null };
+  if (testsFromEstado != null) {
+    tests = { value: testsFromEstado, asOf: "2026-11-17", source: "docs/estado.md" };
+  } else {
+    const n = firstNumber(lkgDetail(lkg, "unit-tests"));
+    if (n != null) tests = { value: n, asOf: lkg?.verifiedAt ?? null, source: "last-known-good.json" };
+  }
+
+  return {
+    executions: totals.taskRuns ?? 0,
+    passes: totals.passes ?? 0,
+    baselineRuns: totals.taskRuns ?? 0,
+    tasks: Object.keys(baseline?.tasks ?? {}).length,
+    tests,
+    cold,
+    lkgSha: lkg?.sha ?? null,
+  };
+}
+
+/** Cold start de referência em medidas-2026-11-17.md ("... é o novo valor de referência"). */
+function parseColdStartMedidas(text) {
+  if (!text) return null;
+  const m = text.match(/(\d+)\s*ms\D{0,40}novo valor de referência/i);
+  return m ? Number(m[1]) : null;
+}
+
+/** Linha "Cold start | **443 ms** ..." de docs/estado.md. */
+function parseColdStartEstado(text) {
+  if (!text) return null;
+  const m = text.match(/Cold start\s*\|[^0-9]*(\d+)\s*ms/i);
+  return m ? Number(m[1]) : null;
+}
+
+/** Linha "Testes unitários | **449** ..." de docs/estado.md. */
+function parseTestsEstado(text) {
+  if (!text) return null;
+  const m = text.match(/Testes unit[aá]rios\s*\|[^0-9]*(\d+)/i);
+  return m ? Number(m[1]) : null;
+}
+
+/* ------------------------------------------------------------------ */
 /* Ações (allowlist)                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -186,55 +325,106 @@ async function runAction(id) {
 /* Painel                                                              */
 /* ------------------------------------------------------------------ */
 
-function page() {
+/** Data ISO -> dd/mm/aaaa. */
+function fmtDate(asOf) {
+  if (!asOf) return null;
+  const m = String(asOf).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(asOf);
+}
+
+/** Um cartão de métrica: número em 400, rótulo muted, data opcional. */
+function metricTile({ value, label, date = null, id = null, title = null }) {
+  const v = value == null || value === "" ? "—" : esc(value);
+  const d = date ? `<span class="md">${esc(date)}</span>` : "";
+  return `    <div class="metric"${id ? ` id="${id}"` : ""}${title ? ` title="${esc(title)}"` : ""}>
+      <span class="mv">${v}</span>
+      <span class="ml">${esc(label)}</span>${d}
+    </div>`;
+}
+
+function metricsStrip(m) {
+  return `  <div class="metrics">
+${metricTile({ value: m.executions, label: "execuções", id: "m-exec", title: "execuções de eval na baseline (agora)" })}
+${metricTile({ value: `${m.passes}/${m.baselineRuns}`, label: "baseline", id: "m-base", title: "passaram / total (agora)" })}
+${metricTile({ value: m.tests.value, label: "testes", date: fmtDate(m.tests.asOf), title: m.tests.source ? `fonte: ${m.tests.source}` : null })}
+${metricTile({ value: m.cold.value == null ? null : `${m.cold.value} ms`, label: "cold start", date: fmtDate(m.cold.asOf), title: m.cold.source ? `fonte: ${m.cold.source}` : null })}
+${metricTile({ value: m.tasks, label: "tarefas de eval", title: "tarefas de eval na baseline (agora)" })}
+  </div>`;
+}
+
+function page(m) {
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SelfEvoPI — desktop</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
   :root {
-    --bg:#0f1115; --bg2:#161a21; --bg3:#1d222b; --fg:#e6e8eb; --fg2:#9aa3ad;
-    --bd:#262c36; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --accent:#60a5fa;
+    --bg:#000000; --bg-2:#0d0d0d; --bg-3:#1a1a1a;
+    --fg:#ffffff; --muted:#787878;
+    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.18);
+    --ok:#3FB950; --warn:#D29922; --fail:#F85149;
+    --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --r:8px; --ease:cubic-bezier(.22,1,.36,1); --t:200ms;
   }
   *{box-sizing:border-box}
-  body{margin:0;padding:16px;background:var(--bg);color:var(--fg);
-    font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-  .wrap{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
-  h1{font-size:18px;margin:0}
-  .sub{color:var(--fg2);font-size:12px}
-  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
-  .tile{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:10px 12px}
-  .tile .n{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
-  .tile .l{font-size:11px;color:var(--fg2);margin-top:2px}
-  .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
-  section{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px 14px}
-  section h2{font-size:13px;margin:0 0 10px;color:var(--fg2);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:400 15.5px/1.5 var(--font);-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:16px}
+
+  /* cabeçalho 56 px */
+  header{height:56px;display:flex;align-items:center;gap:12px;
+    border-bottom:1px solid var(--line)}
+  header .logo{width:32px;height:32px;color:#fff;flex:0 0 auto}
+  header .logo svg{width:100%;height:100%;display:block}
+  header h1{font-size:17px;font-weight:500;letter-spacing:-0.01em;margin:0}
+  header .host{margin-left:auto;display:inline-flex;align-items:center;gap:8px;
+    color:var(--muted);font-size:13px}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto}
+  .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.fail{background:var(--fail)}
+
+  /* faixa de métricas */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .metric{background:var(--bg-2);padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+  .metric .mv{font-size:24px;font-weight:400;letter-spacing:-0.01em;font-variant-numeric:tabular-nums}
+  .metric .ml{font-size:13px;color:var(--muted)}
+  .metric .md{font-size:11px;color:var(--muted);opacity:.75}
+
+  section{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+  section h2{font-size:12px;font-weight:500;margin:0 0 12px;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.06em}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd)}
-  th{font-size:11px;color:var(--fg2);font-weight:500}
+  th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+  th{font-size:12px;color:var(--muted);font-weight:400}
   tr:last-child td{border-bottom:none}
-  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  td.num{font-variant-numeric:tabular-nums}
+  .cellstate{display:inline-flex;align-items:center;gap:7px}
+
   .btns{display:flex;flex-wrap:wrap;gap:8px}
-  button{background:var(--bg3);color:var(--fg);border:1px solid var(--bd);
-    border-radius:6px;padding:7px 12px;font:inherit;cursor:pointer}
-  button:hover{border-color:var(--accent)}
+  button{background:var(--bg-2);color:var(--fg);border:1px solid var(--line);
+    border-radius:var(--r);padding:9px 15px;font:400 13px/1 var(--font);cursor:pointer;
+    transition:background-color var(--t) var(--ease), border-color var(--t) var(--ease)}
+  button:hover{background:var(--bg-3);border-color:var(--line-strong)}
   button:disabled{opacity:.5;cursor:wait}
-  pre{background:#0b0d11;border:1px solid var(--bd);border-radius:6px;padding:10px;
-    overflow:auto;max-height:340px;font:12px/1.45 ui-monospace,Consolas,monospace;margin:0;white-space:pre-wrap}
-  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
-  .d-ok{background:var(--ok)} .d-bad{background:var(--bad)} .d-warn{background:var(--warn)}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:12px;
+    overflow:auto;max-height:340px;font:400 12px/1.5 var(--font);margin:0;white-space:pre-wrap}
+  footer{color:var(--muted);font-size:12px;text-align:center}
+  .muted{color:var(--muted)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>SelfEvoPI <span class="sub">— painel local</span></h1>
-    <div class="sub">atualizado <span id="at">—</span> · atualiza a cada 5 s</div>
+    <span class="logo">${LOGO_HEADER ?? ""}</span>
+    <h1>SelfEvoPI</h1>
+    <span class="host"><span class="dot ok"></span>127.0.0.1:${PORT}</span>
   </header>
 
-  <div class="tiles" id="tiles"></div>
+  ${metricsStrip(m)}
 
   <section>
     <h2>Ações</h2>
@@ -244,7 +434,7 @@ function page() {
       <button data-act="evals">Evals A + C</button>
       <button data-act="verify">Verificação completa</button>
     </div>
-    <pre id="out" style="margin-top:10px;display:none"></pre>
+    <pre id="out" style="display:none;margin-top:12px"></pre>
   </section>
 
   <section>
@@ -269,61 +459,54 @@ function page() {
     <table><thead><tr><th>Run</th><th>Estado</th><th>Progresso</th><th>Nós</th></tr></thead>
     <tbody id="runs"></tbody></table>
   </section>
+
+  <footer>atualiza a cada 5 s · Ctrl+C no terminal encerra o desktop</footer>
 </div>
 
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-
-function tile(n, l, cls) {
-  return '<div class="tile"><div class="n ' + (cls||"") + '">' + esc(n) + '</div><div class="l">' + esc(l) + '</div></div>';
+function dot(cls, text) {
+  return "<span class='cellstate'><span class='dot " + cls + "'></span>" + esc(text) + "</span>";
 }
 
 async function refresh() {
   try {
     const s = await (await fetch("/api/state")).json();
-    $("#at").textContent = new Date(s.at).toLocaleString("pt-BR");
 
     const b = s.baseline || {};
-    const l = s.lkg || {};
-    const rate = b.rate == null ? "—" : Math.round(b.rate * 100) + "%";
-    const rateCls = b.rate == null ? "" : b.rate >= 0.99 ? "ok" : b.rate >= 0.9 ? "warn" : "bad";
-
-    $("#tiles").innerHTML = [
-      tile(b.tasks ?? 0, "tarefas de eval"),
-      tile((b.passes ?? 0) + "/" + (b.runs ?? 0), "execuções", rateCls),
-      tile(rate, "taxa", rateCls),
-      tile((b.tokens ?? 0).toLocaleString("pt-BR"), "tokens da suíte"),
-      tile(l.sha ?? "—", "last-known-good"),
-      tile(s.artifacts.length, "artefatos"),
-    ].join("");
+    $("#m-exec").textContent = b.runs ?? 0;
+    $("#m-base").textContent = (b.passes ?? 0) + "/" + (b.runs ?? 0);
 
     const g = b.groups || {};
     $("#grupos").innerHTML = Object.keys(g).sort().map((k) => {
       const x = g[k];
       const r = x.runs ? Math.round((x.passes / x.runs) * 100) : 0;
-      return "<tr><td>" + esc(k) + "</td><td>" + x.runs + "</td><td>" + x.passes +
-        "</td><td class='" + (r === 100 ? "ok" : r >= 90 ? "warn" : "bad") + "'>" + r + "%</td></tr>";
-    }).join("") || "<tr><td colspan='4' class='sub'>sem dados de baseline</td></tr>";
+      const cls = r === 100 ? "ok" : r >= 90 ? "warn" : "fail";
+      return "<tr><td>" + esc(k) + "</td><td class='num'>" + x.runs + "</td><td class='num'>" + x.passes +
+        "</td><td>" + dot(cls, r + "%") + "</td></tr>";
+    }).join("") || "<tr><td colspan='4' class='muted'>sem dados de baseline</td></tr>";
 
     const led = s.ledger || {};
     $("#recent").innerHTML = (led.recent || []).map((r) =>
-      "<tr><td class='mono'>" + esc((r.at || "").replace("T", " ").slice(0, 19)) + "</td><td>" +
-      esc(r.task) + "</td><td>" + esc(r.group) + "</td><td class='" + (r.ok ? "ok" : "bad") + "'>" +
-      (r.ok ? "passou" : "falhou") + "</td><td>" + (r.ms || 0) + "</td><td>" + (r.tokens || 0) + "</td></tr>"
-    ).join("") || "<tr><td colspan='6' class='sub'>nenhuma execução registrada</td></tr>";
+      "<tr><td>" + esc((r.at || "").replace("T", " ").slice(0, 19)) + "</td><td>" +
+      esc(r.task) + "</td><td>" + esc(r.group) + "</td><td>" +
+      (r.ok ? dot("ok", "passou") : dot("fail", "falhou")) +
+      "</td><td class='num'>" + (r.ms || 0) + "</td><td class='num'>" + (r.tokens || 0) + "</td></tr>"
+    ).join("") || "<tr><td colspan='6' class='muted'>nenhuma execução registrada</td></tr>";
 
     $("#arts").innerHTML = (s.artifacts || []).map((a) =>
-      "<tr><td class='mono'>" + esc(a) + "</td></tr>"
-    ).join("") || "<tr><td class='sub'>nenhum artefato promovido ainda</td></tr>";
+      "<tr><td>" + esc(a) + "</td></tr>"
+    ).join("") || "<tr><td class='muted'>nenhum artefato promovido ainda</td></tr>";
 
     $("#runs").innerHTML = (s.runs || []).map((r) => {
       const p = r.progress == null ? "—" : Math.round(r.progress * 100) + "%";
-      return "<tr><td class='mono'>" + esc(r.runId) + "</td><td>" + esc(r.status) +
-        "</td><td>" + p + "</td><td>" + (r.done ?? 0) + "/" + (r.nodes ?? 0) + "</td></tr>";
-    }).join("") || "<tr><td colspan='4' class='sub'>nenhuma execução de grafo</td></tr>";
+      return "<tr><td>" + esc(r.runId) + "</td><td>" + esc(r.status) +
+        "</td><td class='num'>" + p + "</td><td class='num'>" + (r.done ?? 0) + "/" + (r.nodes ?? 0) + "</td></tr>";
+    }).join("") || "<tr><td colspan='4' class='muted'>nenhuma execução de grafo</td></tr>";
   } catch (e) {
-    $("#at").textContent = "erro: " + e.message;
+    const foot = document.querySelector("footer");
+    if (foot) foot.textContent = "erro: " + e.message;
   }
 }
 
@@ -340,8 +523,8 @@ document.querySelectorAll("button[data-act]").forEach((b) => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: b.dataset.act }),
       })).json();
-      out.textContent = (r.stdout || "") + (r.stderr ? "\n[stderr]\n" + r.stderr : "") +
-        (r.ok ? "\n\n✓ concluído" : "\n\n✗ falhou (exit " + r.code + ")");
+      out.textContent = (r.stdout || "") + (r.stderr ? "\\n[stderr]\\n" + r.stderr : "") +
+        (r.ok ? "\\n\\n[ok] concluído" : "\\n\\n[erro] falhou (exit " + r.code + ")");
     } catch (e) {
       out.textContent = "erro: " + e.message;
     } finally {
@@ -358,6 +541,48 @@ setInterval(refresh, 5000);
 </html>`;
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Navegador (modo --app)                                              */
+/* ------------------------------------------------------------------ */
+
+const BROWSERS = [
+  {
+    name: "Edge",
+    paths: [
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      path.join(process.env.LOCALAPPDATA ?? "", "Microsoft\\Edge\\Application\\msedge.exe"),
+    ],
+  },
+  {
+    name: "Chrome",
+    paths: [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      path.join(process.env.LOCALAPPDATA ?? "", "Google\\Chrome\\Application\\chrome.exe"),
+    ],
+  },
+];
+
+/** Primeiro navegador instalado (Edge antes de Chrome), ou null. */
+function findBrowser() {
+  for (const b of BROWSERS) {
+    for (const p of b.paths) {
+      if (p && existsSync(p)) return { name: b.name, path: p };
+    }
+  }
+  return null;
+}
+
+/** Comando do modo app (sem abrir): [exe, ...args]. */
+function appCommand(browser, url) {
+  // perfil dedicado dentro de .pi/harness/tmp (gitignore): evita reaproveitar a
+  // sessão do navegador do usuário e não deixa caminho pessoal no comando.
+  const profile = path.join(ROOT, ".pi", "harness", "tmp", "app-profile");
+  return [browser.path, [`--app=${url}`, `--window-size=${APP_W},${APP_H}`, `--user-data-dir=${profile}`]];
+}
+
 /* ------------------------------------------------------------------ */
 /* Servidor                                                            */
 /* ------------------------------------------------------------------ */
@@ -366,8 +591,22 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
 
   if (url.pathname === "/" || url.pathname === "/index.html") {
+    const metrics = await collectMetrics();
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-    res.end(page());
+    res.end(page(metrics));
+    return;
+  }
+
+  // favicon: não há conversor de SVG→ICO nesta máquina; serve o próprio SVG
+  // (branco sobre placa preta, legível em aba clara e escura).
+  if (url.pathname === "/favicon.ico" || url.pathname === "/favicon.svg") {
+    if (!LOGO_FAVICON) {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("logo não encontrado");
+      return;
+    }
+    res.writeHead(200, { "content-type": "image/svg+xml", "cache-control": "public, max-age=3600" });
+    res.end(LOGO_FAVICON);
     return;
   }
 
@@ -404,12 +643,46 @@ server.listen(PORT, "127.0.0.1", () => {
   process.stdout.write(`SelfEvoPI desktop: ${addr}\n`);
   process.stdout.write(`(escute só em 127.0.0.1 · Ctrl+C para encerrar)\n`);
 
-  if (!NO_OPEN) {
-    const cmd = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
-    const args = process.platform === "win32" ? ["/c", "start", "", addr] : [addr];
-    spawn(cmd, args, { detached: true, stdio: "ignore" }).unref();
+  if (!LOGO_FAVICON) {
+    process.stdout.write(`AVISO: assets/logo.svg ausente; sem ícone de marca.\n`);
+  } else {
+    process.stdout.write(`favicon: nenhum conversor SVG->ICO disponível; servindo o SVG em /favicon.ico e /favicon.svg\n`);
   }
+
+  if (NO_OPEN) {
+    process.stdout.write(`--no-open: não vou abrir janela (headless).\n`);
+    return;
+  }
+
+  if (APP_MODE) {
+    const browser = findBrowser();
+    if (!browser) {
+      process.stdout.write(`AVISO: nem Edge nem Chrome foram encontrados; abrindo no navegador padrão (modo app indisponível).\n`);
+      launchDefault(addr);
+      return;
+    }
+    const [exe, args] = appCommand(browser, addr);
+    if (DRY_RUN) {
+      process.stdout.write(`[dry-run] ${browser.name}: "${exe}" ${args.join(" ")}\n`);
+      return;
+    }
+    process.stdout.write(`abrindo como app (${browser.name}) ${APP_W}x${APP_H} sem barra de endereço\n`);
+    spawn(exe, args, { detached: true, stdio: "ignore" }).unref();
+    return;
+  }
+
+  launchDefault(addr);
 });
+
+function launchDefault(addr) {
+  if (DRY_RUN) {
+    process.stdout.write(`[dry-run] abriria ${addr} no navegador padrão\n`);
+    return;
+  }
+  const cmd = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", addr] : [addr];
+  spawn(cmd, args, { detached: true, stdio: "ignore" }).unref();
+}
 
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
