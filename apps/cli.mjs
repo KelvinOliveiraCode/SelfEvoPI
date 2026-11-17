@@ -476,13 +476,10 @@ export function engineUnavailableNote() {
   ].join("\n");
 }
 
-/**
- * Traduz um erro cru do modelo/provedor em voz do produto, com a ação.
- * Nunca mostra o corpo cru (401, stack, etc.). `raw` é só para classificar.
- */
-export function engineErrorMessage(raw) {
+/** Classifica um erro cru como de autenticação/modelo (para a mensagem certa). */
+export function isAuthError(raw) {
   const s = String(raw || "").toLowerCase();
-  const auth =
+  return (
     s.includes("401") ||
     s.includes("403") ||
     s.includes("invalid bearer token") ||
@@ -492,9 +489,17 @@ export function engineErrorMessage(raw) {
     s.includes("invalid model") ||
     s.includes("no credential") ||
     s.includes("apikey") ||
-    s.includes("api key");
+    s.includes("api key")
+  );
+}
+
+/**
+ * Traduz um erro cru do modelo/provedor em voz do produto, com a ação.
+ * Nunca mostra o corpo cru (401, stack, etc.). `raw` é só para classificar.
+ */
+export function engineErrorMessage(raw) {
   const lines = [];
-  if (auth) {
+  if (isAuthError(raw)) {
     lines.push(paint("  não consegui falar com o modelo desta conversa.", "warn"));
     lines.push(paint("  o modelo padrão não tem credencial ativa nesta máquina.", "muted"));
   } else {
@@ -505,6 +510,15 @@ export function engineErrorMessage(raw) {
   lines.push(paint("  /model          ver os modelos disponíveis", "fg"));
   lines.push(paint("  /model <nome>   trocar o modelo desta conversa", "fg"));
   return lines.join("\n");
+}
+
+/** Aviso de fallback: diz qual modelo passou a responder, em voz do produto. */
+export function fallbackNotice(model) {
+  return [
+    paint(`  o modelo padrão não respondeu; usei ${model} nesta conversa.`, "warn"),
+    paint("  /model          ver os disponíveis", "muted"),
+    paint("  /model <nome>   trocar", "muted"),
+  ].join("\n");
 }
 
 /* ------------------------------------------------------------------ */
@@ -719,14 +733,20 @@ export async function runSlash(name, arg, out, ctx = {}) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Conversa uma mensagem: inscreve handlers, envia o prompt, faz streaming do
- * texto com redesenho ao vivo e mostra as linhas de ferramenta. `write` escreve
- * no terminal; `setBusy` liga/desliga o estado de execução.
+ * Conversa uma mensagem (uma tentativa): inscreve handlers, envia o prompt, faz
+ * streaming do texto com redesenho ao vivo e mostra as linhas de ferramenta.
+ * `write` escreve no terminal; `setBusy` liga/desliga o estado de execução.
+ *
+ * NÃO imprime erro: devolve `{ ok, error, text }` e quem chama decide (mostrar
+ * o erro ou tentar outro modelo). `text` é o markdown final em caso de sucesso.
  */
-export async function converse(pi, text, write, setBusy = () => {}) {
+export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
+  const settleTimeoutMs = opts.settleTimeoutMs ?? 120_000;
   let buf = "";
   let drawn = 0;
   let hadError = false;
+  let rawError = "";
+  let aborted = false;
   const redraw = () => {
     if (drawn > 0) write(`\x1b[${drawn}A`); // sobe para o topo do bloco
     const rendered = buf ? renderMarkdown(buf).split("\n") : [];
@@ -763,40 +783,115 @@ export async function converse(pi, text, write, setBusy = () => {}) {
   });
   const offError = pi.on("error", (message) => {
     hadError = true;
+    rawError = String(message || "");
     flush();
-    write(engineErrorMessage(message) + "\n");
   });
-  const offSettled = pi.on("settled", () => {});
+  const offSettled = pi.on("settled", (info) => {
+    if (info && info.aborted === true) aborted = true;
+  });
 
   setBusy(true);
-  const settled = waitForSettle(pi); // arma o listener de settled ANTES do prompt
+  const settled = waitForSettle(pi, settleTimeoutMs); // arma o listener de settled ANTES do prompt
   try {
     await pi.prompt(text);
-  } catch {
+  } catch (err) {
     flush();
-    write(`  ${paint("não consegui iniciar a conversa agora. Tente novamente.", "fail")}\n`);
     offText();
     offTool();
     offError();
     offSettled();
     setBusy(false);
-    return false;
+    return { ok: false, error: String(err?.message || "prompt"), text: "", aborted: false };
   }
   // espera o settled (o redesenho roda nos eventos)
   await settled;
+  const answerText = buf; // markdown completo, antes de o flush limpar
+  const wasError = hadError;
+  const errText = rawError;
+  const wasAborted = aborted;
   flush();
   offText();
   offTool();
   offError();
   offSettled();
   setBusy(false);
-  if (hadError) {
+  if (wasError) {
     write("\n");
-    return false;
+    return { ok: false, error: errText, text: "", aborted: false };
   }
-  if (buf.trim() === "") write("\n");
+  if (wasAborted) {
+    write("\n");
+    return { ok: true, error: null, text: "", aborted: true };
+  }
+  if (answerText.trim() === "") write("\n");
   write("\n");
-  return true;
+  return { ok: true, error: null, text: answerText, aborted: false };
+}
+
+/**
+ * Conversa uma mensagem com fallback transparente: tenta o modelo atual; se
+ * falhar e `allowFallback` for true, percorre os modelos configurados (por id,
+ * pulando o atual, até `maxCandidates`) até um responder, avisa qual usou e
+ * mostra a resposta. Se nada responder, mostra o erro em voz de produto.
+ * `SELFEOPI_MODEL` (allowFallback=false) desliga o fallback: a escolha do
+ * usuário vence e o erro aparece.
+ */
+export async function converseOrFallback(pi, text, write, opts = {}) {
+  const {
+    allowFallback = false,
+    candidates = [],
+    setBusy = () => {},
+    maxCandidates = 5,
+    budgetMs = 30_000, // teto TOTAL da varredura (evita "travamento" perceptível)
+    perCandidateMs = 25_000, // teto por candidato (cobre um modelo real, ~13-20 s)
+  } = opts;
+  const usable = (x) => Boolean(x && x.ok && x.text && String(x.text).trim() !== "");
+
+  const res = await converse(pi, text, write, setBusy);
+  if (res.aborted) return res; // usuário cancelou: silencioso, sem fallback
+  if (usable(res)) return res;
+  if (!allowFallback || !Array.isArray(candidates) || candidates.length === 0) {
+    write(engineErrorMessage(res.error) + "\n");
+    return res;
+  }
+
+  // modelo atual (para não repetir o que acabou de falhar)
+  const state = await pi.getState().catch(() => ({}));
+  const curKey = state.model ? `${state.model.provider}/${state.model.id}` : null;
+
+  // dedupe por id de modelo, pula o atual, limita tentativas
+  const seen = new Set();
+  const tried = [];
+  for (const m of candidates) {
+    if (!m || !m.id) continue;
+    if (`${m.provider}/${m.id}` === curKey) continue;
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    tried.push(m);
+    if (tried.length >= maxCandidates) break;
+  }
+
+  const sweepStart = Date.now();
+  let lastErr = res.error;
+  for (const m of tried) {
+    const remaining = budgetMs - (Date.now() - sweepStart);
+    if (remaining <= 0) break; // estourou o orçamento total: mostra o erro
+    await pi.setModel(m.provider, m.id).catch(() => {});
+    const r = await converse(pi, text, () => {}, setBusy, {
+      settleTimeoutMs: Math.min(perCandidateMs, remaining),
+    });
+    if (r.aborted) return r; // cancelou durante o fallback
+    if (usable(r)) {
+      const model = `${m.provider}/${m.id}`;
+      write(fallbackNotice(model) + "\n");
+      write(renderMarkdown(r.text) + "\n");
+      write("\n");
+      return { ok: true, error: null, text: r.text, model };
+    }
+    if (r.error) lastErr = r.error; // guarda o último erro (p/ a mensagem final)
+  }
+  write(engineErrorMessage(lastErr) + "\n");
+  return { ok: false, error: lastErr };
 }
 
 /** Espera o próximo `settled` (ou timeout de segurança). */
@@ -997,7 +1092,11 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
       return;
     }
     running = true;
-    await converse(pi, text, (s) => write(s), (b) => (running = b));
+    await converseOrFallback(pi, text, (s) => write(s), {
+      allowFallback: !process.env.SELFEOPI_MODEL,
+      candidates: listConfiguredModels(),
+      setBusy: (b) => (running = b),
+    });
     if (quitting) return;
     await finishRun();
   };
@@ -1253,7 +1352,10 @@ async function main() {
         process.stdout.write(engineUnavailableNote() + "\n");
         return;
       }
-      await converse(pi, parsed.text, (s) => process.stdout.write(s));
+      await converseOrFallback(pi, parsed.text, (s) => process.stdout.write(s), {
+        allowFallback: !process.env.SELFEOPI_MODEL,
+        candidates: listConfiguredModels(),
+      });
     };
     process.stdin.on("data", (chunk) => {
       buf += chunk;
