@@ -14,6 +14,32 @@ Superfícies planas. **Sem acento cromático** — a ênfase é o próprio branc
 
 Se uma cor não significa algo, ela não entra.
 
+## 1.1 Duas superfícies, duas gramáticas
+
+O SelfEvoPI tem **duas** superfícies, e elas não são a mesma coisa:
+
+| Superfície | O que é | O que herda da marca |
+|:--|:--|:--|
+| **Desktop** | app em janela (HTML/CSS) | **tudo**: paleta, tipografia, escala, raio, transição, sombra |
+| **CLI** | TUI de terminal (ANSI) | **a marca**: símbolo, paleta via truecolor, hierarquia, contenção, estado como ponto |
+
+Um terminal é monospace, tem um peso só, não tem raio de borda, não tem transição e
+não aceita fonte. **Isso não é um déficit a corrigir — é o meio.** Aplicar token CSS
+a um TUI seria fingir uma fidelidade que o meio não tem.
+
+O que a CLI herda de verdade:
+
+- **Paleta**: `#000` / `#fff` / `#787878` via ANSI truecolor (24-bit) quando o terminal
+  aceita; caso contrário, as cores padrão do terminal — **nunca** force preto/branco
+  sobre o tema do usuário, isso é grosseria com o terminal alheio.
+- **O símbolo** `◍` e o wordmark em texto, peso forte (bold) no lugar do peso 500.
+- **A régua** de 64 `─` e o espaçamento em linhas/colunas (célula do terminal = 1 ch).
+- **Estado como ponto**, nunca como texto colorido.
+- **Contenção**: nada de caixa grossa, nada de spinner decorativo, nada de cor de enfeite.
+
+O que a CLI **não** herda, e não deve fingir que herda: fonte, raio, sombra, transição,
+escala tipográfica em px. Quem precisar disso usa o desktop.
+
 ## 2. Paleta
 
 | Token | Hex | Uso |
