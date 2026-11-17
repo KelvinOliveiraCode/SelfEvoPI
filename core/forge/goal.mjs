@@ -53,20 +53,101 @@ const FAILURE_MARKERS = [
 /**
  * Marcador de conclusão no turno: o agente sinaliza que terminou.
  * Usado em conjunto com a cobertura (ver DONE_COVERAGE_MIN).
+ *
+ * Comparação por **palavra inteira** (token), não por substring: evita que "subindo"
+ * (em andamento) case com "subi", ou "removido"/"não removido" case com "removi".
+ * A conjugação já protege contra impossibilidade ("implementar" ≠ "implementei").
  */
 const DONE_MARKERS = [
+  // conclusão / prontidão
   "pronto",
   "concluido",
+  "conclui",
   "feito",
   "terminei",
   "finalizado",
+  "finalizei",
   "completei",
   "entregue",
+  "entreguei",
+  // verbos de conclusão no passado (pt)
+  "implementei",
+  "resolvi",
+  "corrigi",
+  "extrai",
+  "extraiti",
+  "extraido",
+  "criei",
+  "adicionei",
+  "removi",
+  "alterei",
+  "atualizei",
+  "gerei",
+  "subi",
+  "instalei",
+  // conclusão / passado (en)
   "done",
   "completed",
   "finished",
-  "that's done",
+  "implemented",
+  "fixed",
+  "resolved",
+  "added",
+  "removed",
+  "created",
+  "updated",
+  "extracted",
 ];
+
+/** Set dos marcadores para checagem por palavra inteira. */
+const DONE_MARKER_SET = new Set(DONE_MARKERS);
+
+/**
+ * Marcador de "em andamento": o turno sinaliza que ainda está trabalhando, não concluiu.
+ * Quando presente, bloqueia o `done` por cobertura alta (evita que "continuo implementando
+ * X" feche só porque repete X). Comparação por palavra inteira.
+ */
+const IN_PROGRESS_MARKERS = [
+  "continuo",
+  "continuando",
+  "andamento",
+  "ainda",
+  "trabalhando",
+  "progresso",
+  "iniciando",
+  "come\cando",
+  "still",
+  "working",
+  "progress",
+  "started",
+  "starting",
+];
+
+/** Set dos marcadores de em-andamento. */
+const IN_PROGRESS_SET = new Set(IN_PROGRESS_MARKERS);
+
+/** Devolve o marcador de "em andamento" presente (palavra inteira), ou null. */
+function findInProgressMarker(normTurn) {
+  const words = normTurn.split(/[^a-z0-9]+/).filter(Boolean);
+  const seen = new Set(words);
+  for (const w of seen) {
+    if (IN_PROGRESS_SET.has(w)) return w;
+  }
+  return null;
+}
+
+/**
+ * Devolve o marcador de conclusão presente no turno (palavra inteira), ou null.
+ * A normalização já removeu acentos; "concluí" vira "conclui", "extraí" vira "extrai".
+ */
+function findDoneMarker(normTurn) {
+  const words = normTurn.split(/[^a-z0-9]+/).filter(Boolean);
+  const seen = new Set(words);
+  for (const w of seen) {
+    if (DONE_MARKER_SET.has(w)) return w;
+  }
+  return null;
+}
 
 /**
  * Limiar de cobertura quando há marcador de conclusão no turno (0..1).
@@ -238,14 +319,24 @@ export function evaluateGoal(state, { lastTurn = "" } = {}, deps = {}) {
 
   // 3. Cobertura da condição no turno (heurística de satisfação).
   const cov = coverage(condition, turn);
-  const hasDoneMarker = DONE_MARKERS.some((m) => normTurn.includes(m));
+  const doneMarker = findDoneMarker(normTurn);
+
+  // (0) turno sinaliza "em andamento" → não fecha, mesmo com cobertura alta
+  const inProgress = findInProgressMarker(normTurn);
+  if (inProgress) {
+    return {
+      done: false,
+      impossible: false,
+      reason: `turno em andamento ("${inProgress}"), não concluído`,
+    };
+  }
 
   // (a) marcador de conclusão + cobertura mínima → done
-  if (hasDoneMarker && cov >= DONE_COVERAGE_MIN) {
+  if (doneMarker && cov >= DONE_COVERAGE_MIN) {
     return {
       done: true,
       impossible: false,
-      reason: `conclusão sinalizada ("${DONE_MARKERS.find((m) => normTurn.includes(m))}") com cobertura ${(cov * 100).toFixed(0)}% >= ${(DONE_COVERAGE_MIN * 100).toFixed(0)}%`,
+      reason: `conclusão sinalizada ("${doneMarker}") com cobertura ${(cov * 100).toFixed(0)}% >= ${(DONE_COVERAGE_MIN * 100).toFixed(0)}%`,
     };
   }
 
@@ -259,11 +350,11 @@ export function evaluateGoal(state, { lastTurn = "" } = {}, deps = {}) {
   }
 
   // (c) marcador de conclusão mas cobertura insuficiente → não fecha
-  if (hasDoneMarker) {
+  if (doneMarker) {
     return {
       done: false,
       impossible: false,
-      reason: `marcador de conclusão presente, mas cobertura ${(cov * 100).toFixed(0)}% < ${(DONE_COVERAGE_MIN * 100).toFixed(0)}%`,
+      reason: `marcador de conclusão presente ("${doneMarker}"), mas cobertura ${(cov * 100).toFixed(0)}% < ${(DONE_COVERAGE_MIN * 100).toFixed(0)}%`,
     };
   }
 
