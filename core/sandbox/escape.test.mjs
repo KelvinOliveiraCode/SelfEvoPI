@@ -38,7 +38,9 @@ async function workspace(files = {}) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "selfevopi-escape-"));
   WORKDIRS.push(dir);
   for (const [name, body] of Object.entries(files)) {
-    await writeFile(path.join(dir, name), body, "utf8");
+    const full = path.join(dir, name)
+    await mkdir(path.dirname(full), { recursive: true })
+    await writeFile(full, body, "utf8")
   }
   return dir;
 }
@@ -58,8 +60,8 @@ async function exists(p) {
  *  - comGate: execução real (gate + runtime) — o caminho de produção
  *  - semGate: execução com precheck desligado — isola a camada 2
  */
-async function probe({ id, arquivo, codigo }) {
-  const workdir = await workspace({ [arquivo]: codigo });
+async function probe({ id, arquivo, codigo, extraFiles = {} }) {
+  const workdir = await workspace({ [arquivo]: codigo, ...extraFiles });
   const source = path.join(workdir, arquivo);
 
   const gate = evaluate(codigo, { file: source, workspace: workdir });
@@ -243,6 +245,24 @@ const CASOS_DE_CREDENCIAL = [
     gateDeveBarrar: true,
   },
   {
+    id: "pi-auth",
+    rotulo: "~/.pi/agent",
+    caminho: () => path.join(os.homedir(), ".pi", "agent", "auth.json"),
+    gateDeveBarrar: true,
+  },
+  {
+    id: "pi-models",
+    rotulo: "~/.pi/agent",
+    caminho: () => path.join(os.homedir(), ".pi", "agent", "models.json"),
+    gateDeveBarrar: true,
+  },
+  {
+    id: "pi-models-store",
+    rotulo: "~/.pi/agent",
+    caminho: () => path.join(os.homedir(), ".pi", "agent", "models-store.json"),
+    gateDeveBarrar: true,
+  },
+  {
     id: "config-opencode",
     rotulo: "config PI",
     caminho: () => path.join(os.homedir(), ".config", "opencode", "auth.json"),
@@ -310,6 +330,76 @@ test("ambiente: segredo do harness não chega ao processo filho", async () => {
   }
 
   console.log(`  ambiente ........ ${"gate bloqueia; runtime isola".padEnd(30)} | exit=0 | PATH sim, token null`);
+});
+
+/* ------------------------------------------------------------------ */
+/* 6. Config do cwd: .pi/settings.json                                 */
+/* ------------------------------------------------------------------ */
+
+test("config do cwd: .pi/settings.json é barrado antes de executar", async () => {
+  // a raiz do projeto tem .pi/settings.json; o artefato roda com cwd = raiz
+  const alvo = path.join(".pi", "settings.json");
+
+  const p = await probe({
+    id: "pi-settings",
+    arquivo: "le-settings.mjs",
+    codigo: [
+      'import fs from "node:fs";',
+      `const s = fs.readFileSync(${JSON.stringify(alvo)}, "utf8");`,
+      'console.log("CONSEGUI", s.length);',
+      "",
+    ].join("\n"),
+    extraFiles: { ".pi/settings.json": '{"approvedPackages":[]}' },
+  });
+
+  assert.equal(p.gate.decision, "block", `o gate deveria barrar: ${JSON.stringify(p.gate.blockingRules)}`);
+  assert.ok(p.gate.blockingRules.includes("pi-state-access"), `regras=${p.gate.blockingRules}`);
+  assert.equal(p.comGate.blocked, true, "nunca deveria ter executado");
+  assert.equal(p.comGate.stdout, "");
+
+  // honestidade: com o gate desligado o runtime DEIXA (está dentro do workdir).
+  // A barreira aqui é a camada 1 — documentado como limite, não como cobertura.
+  assert.match(p.semGate.stdout, /CONSEGUI/, "registrado: a camada 2 não cobre arquivo dentro do workdir");
+
+  console.log(`  config do cwd ... ${"gate bloqueia (runtime não cobre)".padEnd(30)} | exit=1 | pi-state-access`);
+});
+
+/* ------------------------------------------------------------------ */
+/* 7. Disco externo: escrita na pasta pai                              */
+/* ------------------------------------------------------------------ */
+
+test("disco externo: escrever na pasta pai do workdir falha", async () => {
+  const workdir = await workspace({});
+  const pai = path.dirname(workdir);
+  const alvo = path.join(pai, `escape-pai-${process.pid}.txt`);
+  await rm(alvo, { force: true });
+
+  const origem = path.join(workdir, "sobe.mjs");
+  await writeFile(
+    origem,
+    [
+      'import fs from "node:fs";',
+      `const alvo = ${JSON.stringify(alvo)};`,
+      'fs.writeFileSync(alvo, "escape");',
+      'console.log("ESCREVI", alvo);',
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+
+  const gate = evaluate(await readFile(origem, "utf8"), { file: origem, workspace: workdir });
+  const comGate = await runSandboxed({ script: origem, workdir, timeoutMs: TIMEOUT });
+  const semGate = await runSandboxed({ script: origem, workdir, timeoutMs: TIMEOUT, precheck: false });
+
+  assert.equal(comGate.ok, false, `produção passou: ${comGate.stdout}${comGate.stderr}`);
+  assert.equal(semGate.ok, false, `runtime passou: ${semGate.stdout}${semGate.stderr}`);
+  assert.doesNotMatch(semGate.stdout, /ESCREVI/);
+  assert.match(semGate.stderr, /ERR_ACCESS_DENIED/, semGate.stderr);
+  assert.match(semGate.stderr, /FileSystemWrite/, semGate.stderr);
+  assert.equal(await exists(alvo), false, `arquivo criado fora do workdir: ${alvo}`);
+
+  console.log(`  disco (pai) ... ${"runtime (gate deixou passar)".padEnd(30)} | exit=1 | FileSystemWrite`);
+  void gate;
 });
 
 /* ------------------------------------------------------------------ */

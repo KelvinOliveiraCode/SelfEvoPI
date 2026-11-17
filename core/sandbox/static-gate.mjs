@@ -246,6 +246,21 @@ const RAW_RULES = [
       /\baws_access_key_id\b/i.test(raw),
   },
   {
+    id: "pi-state-access",
+    severity: BLOCK,
+    title: "Estado e credenciais do PI (.pi/settings.json, .pi/agent, .pi/auth)",
+    why: "settings.json e .pi/agent concentram a configuração do harness e as chaves de provedor; um artefato gerado não tem por que lê-los.",
+    test: (raw) => {
+      // o caminho chega com barra dupla escapada (C:\\Users\\...) ou montado com
+      // path.join(home, ".pi", "agent", "x"): os dois formatos precisam casar
+      const t = raw.replace(/\\\\/g, "\\");
+      return (
+        /\.pi["',;\s\\/]+settings(?:\.local)?\.json\b/i.test(t) ||
+        /\.pi["',;\s\\/]+(?:agent|auth|credentials)["',;\s\\/]+/i.test(t)
+      );
+    },
+  },
+  {
     id: "userprofile-config",
     severity: BLOCK,
     title: "Configuração do usuário fora do workspace",
