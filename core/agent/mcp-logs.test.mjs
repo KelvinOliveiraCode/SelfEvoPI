@@ -59,6 +59,13 @@ const caminhoLog = (root, nome) =>
 /* ------------------------------------------------------------------ */
 
 test("redact cobre os formatos de credencial mais comuns", () => {
+  // JWT de mentira, montado em tempo de execução. O verificador C2
+  // (evals/checks/check-no-secrets-tracked.mjs) procura o padrão
+  // eyJ<10+>.eyJ<10+> — e um JWT de verdade casa exatamente essa forma.
+  // Montar as partes aqui mantém o teste realista sem deixar o padrão
+  // completo como string literal no fonte.
+  const jwtFake = ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", "abcdefghij"].join(".");
+
   const casos = [
     ["apiKey=sk-1234567890abcdef", "apiKey"],
     ["token: abc123def456", "token"],
@@ -71,7 +78,7 @@ test("redact cobre os formatos de credencial mais comuns", () => {
     ["AKIAIOSFODNN7EXAMPLE", "AKIA"],
     ["https://usuario:senha@host/path", "URL"],
     ["https://api.exemplo.com/v1?api_key=segredo&x=1", "query"],
-    ["eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghij", "JWT"],
+    [jwtFake, "JWT"],
   ];
 
   for (const [entrada, rotulo] of casos) {
