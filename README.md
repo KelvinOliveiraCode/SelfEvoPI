@@ -10,7 +10,7 @@
 
 <br>
 
-![Tests](https://img.shields.io/badge/tests-581%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-664%20passing-brightgreen)
 ![Evals](https://img.shields.io/badge/evals-86%2F87%20(98.85%25)-brightgreen)
 ![Cold start](https://img.shields.io/badge/cold_start-443ms%20warm-blue)
 ![Prompt](https://img.shields.io/badge/prompt_overhead-%2B499%20of%201500-blue)
@@ -28,7 +28,7 @@ It starts from the [PI Coding Agent](https://github.com/earendil-works/pi) as it
 
 The result is not "a harness for pi". It is an agent with its own CLI, its own desktop app, its own brand, and its own name — and the engine underneath is an implementation detail you never have to see.
 
-The whole thing is **~27k lines of Node ESM** across 146 modules, with **581 passing unit tests** and **29 evaluation tasks**. Cold start is **443 ms** on a warm cache (1.0–1.8 s on the first run, cold). The prompt it adds to the engine is **499 tokens** at the ceiling, against a hard budget of 1,500.
+The whole thing is **~22k lines of production Node ESM** across **160 modules** (53 of them test files, ~27k lines with tests), with **664 passing unit tests** (1 skipped) and **29 evaluation tasks**. Cold start is **99 ms** measured on `node apps/cli.mjs --version` (7 runs, warm cache). The prompt it adds to the engine is **499 tokens** at the ceiling, against a hard budget of 1,500.
 
 ## Why it exists
 
@@ -48,15 +48,16 @@ Everything below was measured on this repository, on Windows 11, Node 24.13. Rep
 
 | Metric | Value | Budget | How |
 |:---|:---|:---|:---|
-| Cold start | **443 ms** warm (min 383, max 611) · **1.012–1.806 s** cold cache | < 500 ms warm | `scripts/measure-overhead.mjs` |
+| Cold start, SelfEvoPI CLI | **88 ms** avg (min 75, max 119) · 10 runs | < 500 ms | `node apps/cli.mjs --version` |
+| Cold start, the engine underneath | **473 ms** median · 1.012–1.806 s cold cache | — | `scripts/measure-overhead.mjs` |
 | Prompt added by SelfEvoPI | **+499 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs` |
 | Base agent prompt | 8.683 tok | — | same |
 | Evaluation suite | **29 tasks, 86/87 baseline (98.85%)** — B11 is stochastic (2/3 baseline, 3/3 last run) | no regression | `node evals/gate.mjs` |
-| Unit tests | **581 passing** (1 skipped: no pi-harness server) | — | `npm test` |
+| Unit tests | **664 passing** (1 skipped: no pi-harness server) | - | `npm test` |
 | Suite cost per task | **US$ 0.00** (free tier) | — | JSONL ledger |
 | Suite latency | ~5.9 s/task average | — | ledger |
-| Codebase | 146 files, ~27.2k lines | — | — |
-| Test code | 49 files, ~8.3k lines | — | — |
+| Codebase | **160 modules** · ~22.0k lines of production code | — | — |
+| Test code | **53 files** · ~9.8k lines | — | — |
 
 ### What the prompt budget actually buys
 
@@ -173,7 +174,7 @@ Eight isolated worktrees (`.worktrees/A1`–`A8`), each with a disjoint file sco
 
 | Gate | What it checks | Enforcement |
 |:---|:---|:---|
-| `npm test` | 581 unit tests | CI on every push |
+| `npm test` | 664 unit tests | CI on every push |
 | `npm run verify` | tests + evals A/C + source URL integrity | CI |
 | `node evals/gate.mjs` | 3 runs per task vs baseline | local, before merge |
 | `scripts/verify-urls.mjs` | 33 cited sources still reachable | CI |
@@ -312,19 +313,25 @@ A conversation, not a menu. The engine underneath is invisible — the interface
 
 **Modos** — mudam o que o agente pode fazer, e aparecem na barra de estado:
 
-| Modo | Lê | Escreve | Executa |
-|:--|:--:|:--:|:--:|
-| `/plan` | ✅ | ❌ | só leitura |
-| `/build` | ✅ | ✅ no workspace | ✅ no workspace |
-| `/ask` | ✅ | ❌ | ❌ |
+| Modo | Lê | Escreve | Executa | Pausa para perguntar |
+|:--|:--:|:--:|:--:|:--|
+| `/plan` | ✅ | ❌ | só leitura | antes de escrever |
+| `/build` | ✅ | ✅ no workspace | ✅ no workspace | fora do workspace |
+| `/manual` | ✅ | ✅ no workspace | ✅ no workspace | antes de **cada** escrita |
+| `/ask` | ✅ | ❌ | ❌ | — |
+| `/goal <condição>` | ✅ | ✅ | herda do modo base | fora do workspace |
+
+`/manual` é como `/build` — escreve e executa no workspace — mas confirma **cada** escrita com você antes de aplicá-la. É o modo de quem quer revisar o diff antes de ele virar arquivo.
 
 `/goal <condição>` define uma condição de conclusão. Um avaliador separado checa ao fim de cada turno e a meta se limpa sozinha quando o objetivo é atingido — nunca fica acesa.
+
+**O que não é modo.** `full access` e `auto` não são modos. `full access` é o **tipo de permissão** (o que o agente pode tocar); `auto` é o **aprovador** (quem decide quando ele pode). São eixos diferentes, e é por isso que a barra de estado mostra os dois em linhas separadas — modo em cima, permissão e modelo na linha de baixo.
 
 ### From the shell
 
 ```powershell
 npm run verify                          # tests + evals A/B/C + URLs
-npm test                                # 581 unit tests
+npm test                                # 664 unit tests
 npm run gate                            # full gate (real model calls, slow)
 
 node apps/cli.mjs                       # the CLI (same as the desktop shortcut)
@@ -385,7 +392,12 @@ It binds to loopback only, reads nothing outside the repository, and executes no
 | [`docs/fase3/painel.md`](docs/fase3/painel.md) | graph runtime and panel |
 | [`docs/fase4-ponte.md`](docs/fase4-ponte.md) | the state bridge for a desktop host |
 | [`docs/design/marca.md`](docs/design/marca.md) | brand system: palette, type scale, CLI and desktop anatomy |
+| [`docs/design/superficies.md`](docs/design/superficies.md) | the two surfaces drawn out: how the CLI and the desktop present a conversation |
+| [`docs/research/mercado.md`](docs/research/cli-landscape/mercado.md) | the coding-agent market: who ships what, and where the gaps are |
+| [`docs/research/matriz.md`](docs/research/cli-landscape/matriz.md) | capability matrix across the CLIs we compared, with the gap analysis |
+| [`docs/research/ux-tui.md`](docs/research/cli-landscape/ux-tui.md) | terminal-UI craft: what a good TUI does that a web page cannot |
 | [`docs/research/inspiracoes.md`](docs/research/inspiracoes.md) | audit of 23 primary sources, 41 decisions |
+| [`docs/research/round2.md`](docs/research/cli-landscape/round2.md) | second pass: what was still missing against Claude Code, OpenCode and Hermes |
 | [`SECURITY.md`](SECURITY.md) | how to report a vulnerability, and the security model in one page |
 
 ## Brand
