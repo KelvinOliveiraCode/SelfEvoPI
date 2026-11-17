@@ -13,7 +13,7 @@
 ![Tests](https://img.shields.io/badge/tests-448%20passing-brightgreen)
 ![Evals](https://img.shields.io/badge/evals-86%2F87%20(98.85%25)-brightgreen)
 ![Cold start](https://img.shields.io/badge/cold_start-443ms%20warm-blue)
-![Prompt](https://img.shields.io/badge/prompt_overhead-%2B508%20of%201500-blue)
+![Prompt](https://img.shields.io/badge/prompt_overhead-%2B499%20of%201500-blue)
 ![License](https://img.shields.io/badge/license-TBD-lightgrey)
 
 </div>
@@ -22,9 +22,13 @@
 
 ## What it is
 
-SelfEvoPI is a harness that sits **on top of** the [PI Coding Agent](https://github.com/earendil-works/pi) — never a fork of it. It adds the three things a base agent does not have: a multi-provider router, a deterministic evaluation suite with a regression gate, and an **evolutionary core** that detects a capability gap, writes the artifact that closes it, tests it in a Windows sandbox, and promotes it only if nothing else regressed.
+SelfEvoPI is an autonomous coding agent that **notices what it is missing and builds it**.
 
-The whole thing is **~21.5k lines of Node ESM** across 128 modules, with **448 passing unit tests** and **29 evaluation tasks**. Cold start is **443 ms** on a warm cache (1.0–1.8 s on the first run, cold). The prompt it adds to the base agent is **508 tokens** at the ceiling, against a hard budget of 1,500.
+It starts from the [PI Coding Agent](https://github.com/earendil-works/pi) as its engine — not a fork, not an extension, but its own product built on that base, the way Kimi Code is its own agent on the same foundation. Around that engine it adds what a base agent does not have: a multi-provider router, a deterministic evaluation suite with a regression gate, and an **evolutionary core** that detects a capability gap, writes the artifact that closes it, tests it in a Windows sandbox, and promotes it only if nothing else regressed.
+
+The result is not "a harness for pi". It is an agent with its own CLI, its own desktop app, its own brand, and its own name — and the engine underneath is an implementation detail you never have to see.
+
+The whole thing is **~21.5k lines of Node ESM** across 128 modules, with **448 passing unit tests** and **29 evaluation tasks**. Cold start is **443 ms** on a warm cache (1.0–1.8 s on the first run, cold). The prompt it adds to the engine is **499 tokens** at the ceiling, against a hard budget of 1,500.
 
 ## Why it exists
 
@@ -33,10 +37,10 @@ A coding agent's competence is mostly a property of its harness, not of the mode
 That has a design consequence. If the harness is the product, then:
 
 - **context is a budget, not a resource** — every token of system prompt is paid on every single turn, forever;
-- **latency is a feature** — a harness that takes 500 ms to start is used differently from one that takes 5 s;
+- **latency is a feature** — an agent that takes 500 ms to start is used differently from one that takes 5 s;
 - **quality must be measured, not asserted** - "it works" is not a result, `86/87, with the one miss named` is.
 
-SelfEvoPI takes those three literally.
+SelfEvoPI takes those three literally — and then goes one step further, because a harness that only measures itself is a dashboard. One that **closes the gap it found** is an agent.
 
 ## Measured results
 
