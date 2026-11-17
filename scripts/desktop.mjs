@@ -34,6 +34,8 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 
+import { createPiClient } from "../core/agent/pi-rpc.mjs";
+
 const ROOT = path.resolve(import.meta.dirname, "..");
 const APP_W = 1280;
 const APP_H = 820;
@@ -52,6 +54,10 @@ const PORT = Number(argValue("port", "7777"));
 const NO_OPEN = process.argv.includes("--no-open");
 const APP_MODE = process.argv.includes("--app");
 const DRY_RUN = process.argv.includes("--dry-run");
+/** Rede de segurança: um turno não fica preso para sempre. */
+const TURN_TIMEOUT_MS = 10 * 60_000;
+/** Modelo opcional (provider/modelo); sem ele, vale o padrão do motor. */
+const MODEL = argValue("model", null);
 
 /* ------------------------------------------------------------------ */
 /* Marca (símbolo)                                                     */
@@ -352,7 +358,8 @@ ${metricTile({ value: m.tasks, label: "tarefas de eval", title: "tarefas de eval
   </div>`;
 }
 
-function page(m) {
+/** Painel antigo (métricas, execuções, artefatos, grafo). Continua acessível em /panel. */
+function panelPage(m) {
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -584,16 +591,419 @@ function appCommand(browser, url) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Tela principal: conversa                                            */
+/* ------------------------------------------------------------------ */
+
+function chatPage(m) {
+  const tests = m.tests.value == null ? "—" : String(m.tests.value);
+  const cold = m.cold.value == null ? "—" : `${m.cold.value} ms`;
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SelfEvoPI — conversa</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+  :root {
+    --bg:#000000; --bg-2:#0d0d0d; --bg-3:#1a1a1a;
+    --fg:#ffffff; --muted:#787878;
+    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.18);
+    --ok:#3FB950; --warn:#D29922; --fail:#F85149;
+    --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --r:8px; --ease:cubic-bezier(.22,1,.36,1); --t:200ms;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:400 15.5px/1.6 var(--font);-webkit-font-smoothing:antialiased}
+  .app{height:100%;display:flex;flex-direction:column;max-width:900px;margin:0 auto;padding:0 16px}
+
+  header{height:56px;flex:0 0 auto;display:flex;align-items:center;gap:12px;
+    border-bottom:1px solid var(--line)}
+  header .logo{width:30px;height:30px;color:#fff;flex:0 0 auto}
+  header .logo svg{width:100%;height:100%;display:block}
+  header h1{font-size:16px;font-weight:500;letter-spacing:-0.01em;margin:0}
+  header .host{margin-left:auto;display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px}
+  header .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block}
+  header a{color:var(--muted);text-decoration:none;font-size:12.5px;padding:6px 8px;border-radius:6px;
+    transition:background-color var(--t) var(--ease),color var(--t) var(--ease)}
+  header a:hover{background:var(--bg-3);color:var(--fg)}
+
+  main{flex:1 1 auto;overflow-y:auto;padding:20px 0 8px;display:flex;flex-direction:column;gap:18px}
+
+  .msg{display:flex;flex-direction:column;gap:4px}
+  .msg .who{font-size:11.5px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;font-weight:500}
+  .msg .body{white-space:normal}
+  .msg.you .body{color:var(--fg)}
+  .msg.agent .body{color:var(--fg)}
+  .msg .body strong{font-weight:500}
+  .msg .body code{background:var(--bg-3);padding:1px 5px;border-radius:4px;font-size:.92em}
+
+  .tool{margin-top:6px;color:var(--muted);font-size:13px;display:flex;align-items:baseline;gap:7px}
+  .tool .sym{color:var(--muted)}
+  .tool .tn{font-weight:500;color:var(--fg)}
+  .tool .ta{opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60ch}
+
+  .composer{flex:0 0 auto;padding:10px 0 6px;border-top:1px solid var(--line);background:var(--bg)}
+  .actions{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+  .actions button{background:var(--bg-2);color:var(--muted);border:1px solid var(--line);
+    border-radius:6px;padding:5px 10px;font:400 12px/1 var(--font);cursor:pointer;
+    transition:background-color var(--t) var(--ease),color var(--t) var(--ease),border-color var(--t) var(--ease)}
+  .actions button:hover{background:var(--bg-3);color:var(--fg);border-color:var(--line-strong)}
+
+  .inputwrap{display:flex;align-items:flex-end;gap:8px;background:var(--bg-2);
+    border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;
+    transition:border-color var(--t) var(--ease)}
+  .inputwrap:focus-within{border-color:var(--line-strong)}
+  .inputwrap .prompt{color:var(--muted);font-size:15px;flex:0 0 auto}
+  textarea{flex:1 1 auto;background:transparent;border:none;outline:none;resize:none;
+    color:var(--fg);font:400 15.5px/1.6 var(--font);max-height:180px;padding:0}
+  textarea::placeholder{color:var(--muted)}
+
+  footer{flex:0 0 auto;padding:8px 0 12px;color:var(--muted);font-size:12px;display:flex;
+    justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .dot-sep{opacity:.5;padding:0 4px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <span class="logo">${LOGO_HEADER ?? ""}</span>
+    <h1>SelfEvoPI</h1>
+    <span class="host"><span class="dot"></span>127.0.0.1:${PORT}</span>
+    <a href="/panel">painel</a>
+  </header>
+
+  <main id="log"></main>
+
+  <div class="composer">
+    <div class="actions">
+      <button data-send="/evals">/evals</button>
+      <button data-send="/detect">/detect</button>
+      <button data-send="/gate">/gate</button>
+    </div>
+    <div class="inputwrap">
+      <span class="prompt">&gt;</span>
+      <textarea id="input" rows="1" placeholder="escreva uma mensagem..."></textarea>
+    </div>
+  </div>
+
+  <footer>
+    <span>${m.passes}/${m.baselineRuns} baseline<span class="dot-sep">·</span>${tests} testes<span class="dot-sep">·</span>${cold}</span>
+    <span>enter envia<span class="dot-sep">·</span>shift+enter quebra</span>
+  </footer>
+</div>
+
+<script>
+const log = document.getElementById("log");
+const input = document.getElementById("input");
+const msgs = [];
+let streaming = false;
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+function md(s) {
+  let h = esc(s);
+  h = h.replace(/\`([^\`]+)\`/g, "<code>$1</code>");
+  h = h.replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>");
+  return h;
+}
+
+function render() {
+  log.innerHTML = "";
+  for (const m of msgs) {
+    const wrap = document.createElement("div");
+    wrap.className = "msg " + (m.role === "you" ? "you" : "agent");
+
+    const who = document.createElement("div");
+    who.className = "who";
+    who.textContent = m.role === "you" ? "Você" : "SelfEvoPI";
+
+    const body = document.createElement("div");
+    body.className = "body";
+    if (m.role === "you") {
+      body.textContent = m.text;
+    } else {
+      body.innerHTML = md(m.text);
+      for (const t of m.tools) {
+        const line = document.createElement("div");
+        line.className = "tool";
+        line.innerHTML = "<span class='sym'>⏺</span><span class='tn'>" + esc(t.name) +
+          "</span>" + (t.arg ? "<span class='ta'>" + esc(t.arg) + "</span>" : "");
+        body.appendChild(line);
+      }
+    }
+
+    wrap.appendChild(who);
+    wrap.appendChild(body);
+    log.appendChild(wrap);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function currentAgent() {
+  for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === "agent") return msgs[i];
+  return null;
+}
+
+function resize() {
+  input.style.height = "auto";
+  input.style.height = Math.min(180, input.scrollHeight) + "px";
+}
+
+async function send(text) {
+  const msg = String(text || "").trim();
+  if (!msg || streaming) return;
+  msgs.push({ role: "you", text: msg });
+  const agent = { role: "agent", text: "", tools: [] };
+  msgs.push(agent);
+  streaming = true;
+  input.value = "";
+  resize();
+  render();
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: msg }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      if (agent.text === "" && agent.tools.length === 0) msgs.pop();
+      msgs.push({ role: "agent", text: j.error || "não consegui iniciar o turno.", tools: [] });
+      streaming = false;
+      render();
+    }
+  } catch (e) {
+    if (agent.text === "" && agent.tools.length === 0) msgs.pop();
+    msgs.push({ role: "agent", text: "não consegui falar com o servidor.", tools: [] });
+    streaming = false;
+    render();
+  }
+}
+
+const es = new EventSource("/api/chat/stream");
+es.addEventListener("text", (e) => {
+  let d = {};
+  try { d = JSON.parse(e.data); } catch { return; }
+  const a = currentAgent();
+  if (a && typeof d.delta === "string") { a.text += d.delta; render(); }
+});
+es.addEventListener("tool", (e) => {
+  let d = {};
+  try { d = JSON.parse(e.data); } catch { return; }
+  const a = currentAgent();
+  if (a) { a.tools.push({ name: d.name || "tool", arg: d.arg || "" }); render(); }
+});
+es.addEventListener("error", (e) => {
+  let d = {};
+  try { d = JSON.parse(e.data); } catch { return; }
+  const a = currentAgent();
+  if (a) {
+    if (a.text === "" && a.tools.length === 0) a.text = d.message || "não consegui concluir.";
+    else a.text += "\\n\\n" + (d.message || "não consegui concluir.");
+    render();
+  }
+});
+es.addEventListener("settled", () => {
+  streaming = false;
+  input.focus();
+});
+
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    send(input.value);
+  }
+});
+input.addEventListener("input", resize);
+
+document.querySelectorAll("button[data-send]").forEach((b) => {
+  b.addEventListener("click", () => send(b.dataset.send));
+});
+
+render();
+input.focus();
+</script>
+</body>
+</html>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Conversa (canal SSE + cliente compartilhado)                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Um único cliente de conversa por processo — é a mesma camada que a CLI usa
+ * (`core/agent/pi-rpc.mjs`). O front-end nunca fala do motor: quem traduz
+ * evento é o cliente; aqui só viramos evento em SSE.
+ */
+let piClient = null;
+let piPromise = null;
+let turnRunning = false;
+const sseClients = new Set();
+
+async function ensurePi() {
+  if (piClient) return piClient;
+  if (!piPromise) {
+    piPromise = createPiClient({ cwd: ROOT, ...(MODEL ? { model: MODEL } : {}) }).then(
+      (c) => {
+        piClient = c;
+        return c;
+      },
+      (err) => {
+        piPromise = null;
+        throw err;
+      }
+    );
+  }
+  return piPromise;
+}
+
+function sseSend(res, event, data) {
+  try {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  } catch {
+    sseClients.delete(res);
+  }
+}
+
+function broadcast(event, data) {
+  for (const res of sseClients) sseSend(res, event, data);
+}
+
+/** Voz do produto: nunca ecoa o erro cru do provedor. */
+function productError(err) {
+  const code = err && err.code;
+  const raw = String((err && err.message) || err || "");
+  if (code === "ENGINE_NOT_FOUND" || /motor não encontrado/i.test(raw)) {
+    return "Não consegui iniciar a conversa: o componente de conversa não está instalado nesta máquina.";
+  }
+  if (code === "ENGINE_NO_RPC" || /RpcClient/i.test(raw)) {
+    return "Não consegui iniciar a conversa: o componente de conversa está incompleto.";
+  }
+  if (/401|auth|token|credencial|bearer/i.test(raw)) {
+    return "Falha de autenticação com o provedor. Confira as credenciais e tente de novo.";
+  }
+  if (/429|rate|limite/i.test(raw)) {
+    return "O provedor está limitando as chamadas agora. Tente novamente em instantes.";
+  }
+  return "Não consegui concluir este turno. Tente novamente.";
+}
+
+/**
+ * Executa um turno: dispara eventos SSE e serializa (um por vez).
+ * `prompt()` apenas confirma o aceite ("started") — o turno termina no evento
+ * `settled`. Por isso o encerramento NÃO espera o retorno do prompt.
+ */
+function runTurn(message) {
+  if (turnRunning) return Promise.resolve(false);
+  turnRunning = true;
+
+  return (async () => {
+    let client;
+    try {
+      client = await ensurePi();
+    } catch (err) {
+      broadcast("error", { message: productError(err) });
+      broadcast("settled", { aborted: false });
+      turnRunning = false;
+      return true;
+    }
+
+    return await new Promise((resolve) => {
+      let done = false;
+      let timer = null;
+
+      const cleanup = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        for (const off of offs) {
+          try {
+            off();
+          } catch {
+            /* idem */
+          }
+        }
+      };
+
+      const finishTurn = (aborted) => {
+        if (done) return;
+        done = true;
+        cleanup();
+        broadcast("settled", { aborted: !!aborted });
+        turnRunning = false;
+        resolve(true);
+      };
+
+      const offs = [
+        client.on("text", (delta) => broadcast("text", { delta })),
+        client.on("tool", (call) =>
+          broadcast("tool", {
+            name: call?.name ?? "tool",
+            phase: call?.phase ?? "start",
+            arg: toolArg(call?.args),
+            isError: call?.isError === true,
+          })
+        ),
+        client.on("error", (msg) => broadcast("error", { message: productError({ message: msg }) })),
+        client.on("settled", (info) => finishTurn(info && info.aborted)),
+      ];
+
+      // rede de segurança: um turno não fica preso para sempre
+      timer = setTimeout(() => {
+        if (done) return;
+        broadcast("error", { message: "O turno demorou demais e foi encerrado." });
+        finishTurn(true);
+        client.abort?.().catch?.(() => {});
+      }, TURN_TIMEOUT_MS);
+
+      // dispara; o fim é o evento `settled`, não o retorno do prompt
+      Promise.resolve(client.prompt(message)).catch((err) => {
+        if (done) return;
+        broadcast("error", { message: productError(err) });
+        finishTurn(false);
+      });
+    });
+  })();
+}
+
+/** Extrai um argumento curto e legível para a linha de ferramenta. */
+function toolArg(args) {
+  if (typeof args === "string") return args.slice(0, 100);
+  if (args && typeof args === "object") {
+    for (const v of Object.values(args)) {
+      if (typeof v === "string" && v.trim()) return v.slice(0, 100);
+    }
+  }
+  return "";
+}
+
+/* ------------------------------------------------------------------ */
 /* Servidor                                                            */
 /* ------------------------------------------------------------------ */
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
 
-  if (url.pathname === "/" || url.pathname === "/index.html") {
+  // tela principal: a conversa
+  if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/chat") {
     const metrics = await collectMetrics();
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-    res.end(page(metrics));
+    res.end(chatPage(metrics));
+    return;
+  }
+
+  // painel antigo (métricas, execuções, artefatos, grafo) — continua acessível
+  if (url.pathname === "/panel") {
+    const metrics = await collectMetrics();
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    res.end(panelPage(metrics));
     return;
   }
 
@@ -614,6 +1024,47 @@ const server = createServer(async (req, res) => {
     const state = await collectState();
     res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
     res.end(JSON.stringify(state));
+    return;
+  }
+
+  // conversa: aceita um turno
+  if (url.pathname === "/api/chat" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", async () => {
+      let message = "";
+      try {
+        message = String(JSON.parse(body || "{}").message ?? "");
+      } catch {
+        message = "";
+      }
+      if (!message.trim()) {
+        res.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: false, error: "mensagem vazia" }));
+        return;
+      }
+      if (turnRunning) {
+        res.writeHead(409, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: false, error: "um turno já está em execução" }));
+        return;
+      }
+      res.writeHead(202, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ ok: true }));
+      await runTurn(message);
+    });
+    return;
+  }
+
+  // conversa: stream de eventos (SSE)
+  if (url.pathname === "/api/chat/stream") {
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+    });
+    res.write(": conectado\n\n");
+    sseClients.add(res);
+    req.on("close", () => sseClients.delete(res));
     return;
   }
 
@@ -648,6 +1099,7 @@ server.listen(PORT, "127.0.0.1", () => {
   } else {
     process.stdout.write(`favicon: nenhum conversor SVG->ICO disponível; servindo o SVG em /favicon.ico e /favicon.svg\n`);
   }
+  if (MODEL) process.stdout.write(`modelo: ${MODEL}\n`);
 
   if (NO_OPEN) {
     process.stdout.write(`--no-open: não vou abrir janela (headless).\n`);
@@ -686,7 +1138,18 @@ function launchDefault(addr) {
 
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
-    process.stdout.write("\nencerrando o painel.\n");
+    process.stdout.write("\nencerrando o desktop.\n");
+    for (const res of sseClients) {
+      try {
+        res.end();
+      } catch {
+        /* idem */
+      }
+    }
+    sseClients.clear();
+    if (piClient) {
+      piClient.close().catch(() => {});
+    }
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 1500);
   });
