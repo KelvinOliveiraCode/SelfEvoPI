@@ -2,12 +2,13 @@
 #
 # O que roda aqui é só o que **não precisa de chave de API**:
 #   - os testes unitários (rede, disco e sandbox, tudo local)
-#   - os evals dos grupos A e C (verificadores determinísticos, zero token)
+#   - os evals dos grupos A, B e C (B1-B8 são estruturais, zero token;
+#     B9/B10/B11 passaram para o grupo D)
 #   - o gate de URLs citadas na pesquisa
 #
 # Ficam de fora, por precisarem de credencial que não vai para o repositório:
-#   - o grupo B (B9/B10/B11 chamam modelo real: 32.298 tokens medidos)
-#   - o grupo D e o `evals/gate.mjs` completo
+#   - o grupo D (D1-D4 + B9/B10/B11 chamam modelo real: ~32.298 tokens medidos)
+#   - o `evals/gate.mjs` completo
 #
 # Rodar o gate inteiro continua sendo comando local: `npm run gate`.
 
@@ -22,7 +23,7 @@ on:
 
 jobs:
   verify:
-    name: testes + evals estruturais
+    name: testes + evals estruturais (A/B/C)
     runs-on: windows-latest
     timeout-minutes: 20
 
@@ -39,11 +40,11 @@ jobs:
       - name: dependências
         run: npm ci --no-audit --no-fund
 
-      # `npm run verify` e exatamente o que o CI faz: testes, evals A/C e URLs.
+      # `npm run verify` e exatamente o que o CI faz: testes, evals A/B/C e URLs.
       # Rodar o mesmo comando local e na esteira evita "passa na minha maquina".
-      - name: verificação completa (testes + evals A/C + URLs)
+      - name: verificação completa (testes + evals A/B/C + URLs)
         run: npm run verify
 
-      # O grupo B NÃO entra: B9, B10 e B11 chamam modelo real (32.298 tokens
-      # medidos) e as chaves vivem fora do repositório. O grupo D e o gate
-      # completo também ficam de fora, pelo mesmo motivo.
+      # O grupo D NÃO entra: D1-D4 + B9/B10/B11 chamam modelo real (~32.298 tokens
+      # medidos) e as chaves vivem fora do repositório. O gate completo também
+      # fica de fora, pelo mesmo motivo.

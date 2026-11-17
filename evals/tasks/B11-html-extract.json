@@ -1,6 +1,6 @@
 {
   "id": "B11-html-extract",
-  "group": "B",
+  "group": "D",
   "title": "criar cli.mjs que extrai dados de HTML local (sem rede)",
   "description": "Lacuna de ferramenta real: em vez de screenshot, o modelo cria um cli.mjs que faz parsing de um HTML local e devolve JSON. O verificador roda o artefato em fixtures (tabela, lista, tags aninhadas) e compara os valores extraídos.",
   "prompt": "Crie um arquivo cli.mjs no diretório atual que extrai dados de um arquivo HTML local (sem rede) e imprime JSON. Uso: `node cli.mjs <arquivo.html>`. Regras: (1) Se houver uma <table>, devolva um array de objetos, um por <tr> do <tbody>, com as chaves vindas dos <th>. (2) Se não houver <table> e houver <ul> ou <ol>, devolva um array de strings, um por <li>. (3) Extraia sempre apenas o texto de cada célula/item, ignorando qualquer tag interna (ex.: <td><b>oi</b></td> vira 'oi'). Imprima apenas o JSON. Não crie outros arquivos.",

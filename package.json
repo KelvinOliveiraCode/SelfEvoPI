@@ -15,7 +15,7 @@
     "eval:one": "node evals/run.mjs --task",
     "gate": "node evals/gate.mjs",
     "gate:update": "node evals/gate.mjs --update",
-    "verify": "npm test && node evals/run.mjs --group A && node evals/run.mjs --group C && node scripts/verify-urls.mjs",
+    "verify": "npm test && node evals/run.mjs --group A && node evals/run.mjs --group B && node evals/run.mjs --group C && node scripts/verify-urls.mjs",
     "verify:urls": "node scripts/verify-urls.mjs",
     "providers:import": "node scripts/import-providers.mjs --apply",
     "providers:dry": "node scripts/import-providers.mjs",
