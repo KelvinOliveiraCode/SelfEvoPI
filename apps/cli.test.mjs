@@ -33,6 +33,8 @@ import {
   reduceLine,
   converse,
   converseOrFallback,
+  checkGoal,
+  getGoalState,
   engineUnavailableNote,
   engineErrorMessage,
   fallbackNotice,
@@ -551,8 +553,8 @@ test("COMMANDS inclui os comandos novos (paleta e /help leem daqui)", () => {
   for (const n of ["/compact", "/sessions", "/cost", "/status", "/context", "/mcp", "/init", "/plan", "/build", "/ask"]) {
     assert.ok(names.includes(n), `falta ${n}`);
   }
-  // /goal NÃO existe ainda (A7 no conserto) — não criar placeholder
-  assert.ok(!names.includes("/goal"), "/goal não deveria existir ainda");
+  // /goal agora existe (core/forge/goal.mjs entregue)
+  assert.ok(names.includes("/goal"), "/goal deveria existir");
 });
 
 test("renderStatusLine mostra o modo quando fornecido", () => {
@@ -581,8 +583,47 @@ test("comandos novos com motor ausente não lançam e saem 0", async () => {
   }
 });
 
-test("runSlash /goal recusado (não existe) sem lançar", async () => {
+test("runSlash /goal sem argumento (agora existe) mostra o estado e sai 0", async () => {
   let out = "";
   const code = await runSlash("/goal", "", (x) => (out += x + "\n"), { pi: null });
-  assert.equal(code, 2);
+  assert.equal(code, 0);
+  assert.match(stripAnsi(out), /goal|nenhuma|ativa/i);
+});
+
+
+/* ---------------------------------------------------------------- */
+/* /goal (condição de conclusão — core/forge/goal.mjs)              */
+/* ---------------------------------------------------------------- */
+
+test("COMMANDS inclui /goal (sem placeholder)", () => {
+  assert.ok(COMMANDS.map((c) => c.name).includes("/goal"));
+});
+
+test("runSlash /goal define, mostra e limpa", async () => {
+  let out = "";
+  let c = await runSlash("/goal", "extrair dados de um html", (x) => (out += x + "\n"), { pi: null });
+  assert.equal(c, 0);
+  assert.equal(getGoalState().goal.condition, "extrair dados de um html");
+  out = "";
+  c = await runSlash("/goal", "", (x) => (out += x + "\n"), { pi: null });
+  assert.equal(c, 0);
+  assert.match(stripAnsi(out), /goal ativa: extrair dados de um html/);
+  out = "";
+  c = await runSlash("/goal", "clear", (x) => (out += x + "\n"), { pi: null });
+  assert.equal(c, 0);
+  assert.equal(getGoalState().goal, null);
+});
+
+test("checkGoal fecha sozinha quando o turno satisfaz", async () => {
+  await runSlash("/goal", "extrair dados", () => {}, { pi: null });
+  assert.ok(getGoalState().goal);
+  await checkGoal("pronto, extraí os dados do html", () => {});
+  assert.equal(getGoalState().goal, null); // auto-clear
+});
+
+test("checkGoal mantém a goal quando o turno está em andamento", async () => {
+  await runSlash("/goal", "extrair dados", () => {}, { pi: null });
+  await checkGoal("ainda estou trabalhando nisso", () => {});
+  assert.ok(getGoalState().goal); // continua ativa
+  await runSlash("/goal", "clear", () => {}, { pi: null }); // limpa
 });

@@ -32,6 +32,11 @@ import { pathToFileURL } from "node:url";
 
 import { findEngine, listConfiguredModels } from "../core/agent/pi-rpc.mjs";
 
+// Acoplamento conhecido: usamos pi._rpc (acesso interno do RpcClient) para
+// getSessionStats/getMessages/switchSession, que o wrapper PiClient
+// (core/agent/pi-rpc.mjs) não expõe. É deliberado e contido; mover os três
+// métodos para o wrapper é mudança futura em área compartilhada (core/agent/).
+
 const ROOT = path.resolve(import.meta.dirname, "..");
 const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
 const BASELINE = path.join(ROOT, "evals", "baseline.json");
@@ -429,6 +434,7 @@ export const COMMANDS = [
   { name: "/plan", args: "", description: "modo plan: lê e propõe, não escreve", run: (ctx) => runMode("plan", ctx) },
   { name: "/build", args: "", description: "modo build: escreve e executa no workspace", run: (ctx) => runMode("build", ctx) },
   { name: "/ask", args: "", description: "modo ask: só responde, nunca toca em disco", run: (ctx) => runMode("ask", ctx) },
+  { name: "/goal", args: "[condição|clear]", description: "define/limpa a condição de conclusão", run: runGoal },
   { name: "/help", args: "", description: "mostra esta lista", run: runHelp },
 ];
 
@@ -889,6 +895,8 @@ async function runClear({ out, pi, onClear }) {
 /* ------------------------------------------------------------------ */
 
 let currentMode = "build"; // modo de permissão da conversa (plan/build/ask)
+let goalState = {}; // estado da goal (core/forge/goal.mjs) — persistido pelo chamador
+let goalTag = null; // indicador cacheado (rodapé), atualizado quando a goal muda
 const HOME = process.env.USERPROFILE || process.env.HOME || ".";
 const SESSIONS_DIR = path.join(HOME, ".pi", "agent", "sessions");
 let pendingInit = null; // rascunho de AGENTS.md aguardando confirmação
@@ -1139,6 +1147,73 @@ async function runMode(name, { out }) {
   }
   out(lines.join("\n"));
   return 0;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Goal (condição de conclusão — core/forge/goal.mjs)                 */
+/* ------------------------------------------------------------------ */
+
+export function getGoalState() {
+  return goalState;
+}
+
+async function refreshGoalTag() {
+  try {
+    const { goalIndicator } = await import("../core/forge/goal.mjs");
+    goalTag = goalIndicator(goalState);
+  } catch {
+    goalTag = null;
+  }
+}
+
+async function runGoal({ arg, out }) {
+  const { setGoal, clearGoal } = await import("../core/forge/goal.mjs");
+  const cond = String(arg || "").trim();
+  if (cond === "") {
+    if (goalState && goalState.goal && goalState.goal.condition) {
+      out(paint(`  goal ativa: ${goalState.goal.condition}`, "fg"));
+      out(paint("  (◎ /goal active — avalio ao fim de cada turno; /goal clear remove)", "muted"));
+    } else {
+      out(paint("  não há goal ativa. Defina com /goal <condição>.", "muted"));
+    }
+    return 0;
+  }
+  if (cond.toLowerCase() === "clear") {
+    goalState = clearGoal(goalState);
+    await refreshGoalTag();
+    out(paint("  goal removida.", "muted"));
+    return 0;
+  }
+  try {
+    goalState = setGoal(goalState, cond);
+  } catch (err) {
+    out(paint(`  ${String(err?.message || err).slice(0, 160)}`, "fail"));
+    return 2;
+  }
+  await refreshGoalTag();
+  out(paint(`  goal definida: ${goalState.goal.condition}`, "ok"));
+  out(paint("  (◎ /goal active — avalio ao fim de cada turno)", "muted"));
+  return 0;
+}
+
+/** Avalia a goal ao fim de um turno; fecha sozinha (done/impossible). */
+export async function checkGoal(lastTurn, out) {
+  if (!goalState || !goalState.goal) return;
+  try {
+    const { evaluateGoal, clearGoal } = await import("../core/forge/goal.mjs");
+    const v = evaluateGoal(goalState, { lastTurn: String(lastTurn || "") });
+    if (v && (v.done || v.impossible)) {
+      const msg = v.done
+        ? `  ◎ goal concluída: ${v.reason}`
+        : `  ◎ goal impossível: ${v.reason}`;
+      out(paint(msg, v.done ? "ok" : "warn"));
+      goalState = clearGoal(goalState);
+      await refreshGoalTag();
+    }
+  } catch {
+    /* avaliação é best-effort; nunca derruba o turno */
+  }
 }
 
 export async function runSlash(name, arg, out, ctx = {}) {
@@ -1553,9 +1628,10 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     const filtered = open ? filterCommands(line.buf.slice(1)) : [];
     const sel = filtered.length ? Math.max(0, Math.min(line.sel, filtered.length - 1)) : 0;
     const paletteLines = open ? renderPalette(filtered, sel, paletteWidth()) : [];
-    const footer = open
-      ? `  ${paint(currentMode, "fg")} · ${paint("↑↓ navegar  enter escolher  esc fechar", "dim")}`
-      : `  ${paint(currentMode, "fg")} · ${paint("enter enviar · / comandos · q sair", "dim")}`;
+    const parts = [paint(currentMode, "fg")];
+    if (goalTag) parts.push(paint(goalTag, "warn"));
+    parts.push(paint(open ? "↑↓ navegar  enter escolher  esc fechar" : "enter enviar · / comandos · q sair", "dim"));
+    const footer = "  " + parts.join(" · ");
     write("\r\x1b[J");
     write("  " + paint("›", "fg") + " " + line.buf);
     for (const pl of paletteLines) write("\n" + pl);
@@ -1615,12 +1691,13 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
       return;
     }
     running = true;
-    await converseOrFallback(pi, text, (s) => write(s), {
+    const res = await converseOrFallback(pi, text, (s) => write(s), {
       allowFallback: !process.env.SELFEOPI_MODEL,
       candidates: listConfiguredModels(),
       setBusy: (b) => (running = b),
     });
     if (quitting) return;
+    await checkGoal(res?.text, (s) => write(s + "\n"));
     await finishRun();
   };
 
@@ -1841,6 +1918,7 @@ async function main() {
       `    versão:   ${VERSION}`,
       "    modelo:   —",
       `    modo:     ${paint(currentMode, "bold")}`,
+      `    goal:     ${goalState && goalState.goal && goalState.goal.condition ? paint("◎ /goal active — " + goalState.goal.condition, "warn") : paint("(nenhuma)", "muted")}`,
     ].join("\n");
     else {
       process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, help, banner, palette, palette-filtered, status)\n`);
@@ -1899,10 +1977,11 @@ async function main() {
         process.stdout.write(engineUnavailableNote() + "\n");
         return;
       }
-      await converseOrFallback(pi, parsed.text, (s) => process.stdout.write(s), {
+      const res = await converseOrFallback(pi, parsed.text, (s) => process.stdout.write(s), {
         allowFallback: !process.env.SELFEOPI_MODEL,
         candidates: listConfiguredModels(),
       });
+      await checkGoal(res?.text, (s) => process.stdout.write(s + "\n"));
     };
     process.stdin.on("data", (chunk) => {
       buf += chunk;
