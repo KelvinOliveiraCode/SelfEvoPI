@@ -176,7 +176,16 @@ guard({ mode: "plan", action: "write", path, workspace });
 | `plan` | sim | **não** | só leitura | quando tentam escrever | `readonly` |
 | `build` | sim | sim, no workspace | sim, no workspace | fora do workspace | `workspace` |
 | `ask` | sim | **não** | **não** | nunca | `none` |
+| `manual` | sim | sim, **mas confirma** | sim, no workspace | **toda escrita**, mesmo dentro | `workspace` |
 | `goal` | sim | herda da base | herda | herda | herda (`build` por padrão) |
+
+### O meio-termo: `manual`
+
+`build` escreve livre dentro do workspace e `plan` não escreve de jeito nenhum. Faltava o meio-termo, e é o que o usuário pede quando diz "ask": **`manual` tem as permissões do `build` e devolve `ask` em toda escrita**, inclusive a que está dentro do workspace. A diferença não está nas permissões — está no `guard`, que é onde a pergunta acontece antes de executar.
+
+É o "Pergunta sempre" do Claude Code (`default`/Manual), e o rótulo na TUI é `Confirma cada escrita`: ele diz o que dispara a pausa (escrever), não "a cada passo", porque a execução em `manual` continua livre como no `build`.
+
+**Fica para depois: `/review`.** A `matriz.md` §3 lista `/review` (ler um diff e devolver achados, sem editar) como modo que vale a pena. Não entrou: é modo novo com semântica nova, e a TUI do A2 ainda está fechando. O registro já aceita uma entrada nova sem refactor — falta decidir se ele lê diff do Git ou de um patch proposto.
 
 ### Três desfechos, não dois
 
@@ -244,7 +253,7 @@ A regra que fecha o desenho: **o loop nunca promove o que ele mesmo reprovou**. 
 
 ```powershell
 node --test core/governance/*.test.mjs    # 26 passam
-node --test core/sandbox/*.test.mjs       # 59 passam\nnode --test core/governance/modes.test.mjs # 20 passam (modos)
+node --test core/sandbox/*.test.mjs       # 59 passam\nnode --test core/governance/modes.test.mjs # 35 passam (modos)
 ```
 
 O teste de rollback cria repositórios Git reais em diretórios temporários e prova os dois caminhos:
@@ -270,3 +279,5 @@ O teste de rollback cria repositórios Git reais em diretórios temporários e p
 | `plan` + escrita é `block`, não `ask` | o modo proíbe; `ask` é para o que o modo permite mas não ali |
 | classificador de leitura é conservador | na dúvida vira `ask`, nunca `allow` |
 | `goal` herda a base em vez de ter permissão própria | é o que a pesquisa mostrou; sem isso seria decoração |
+| `manual` pergunta na escrita, não no passo | o rótulo tem de dizer o que dispara a pausa; execução segue livre |
+| rótulo vem da capacidade, não do nome | `goal` e `manual` herdam sem `if` especial; a linha descreve o que vai acontecer |

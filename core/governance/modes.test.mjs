@@ -271,7 +271,7 @@ test("as diferenças que importam existem de fato", () => {
 });
 
 test("modeList e o registro não expõem yolo", () => {
-  assert.equal(modeList(), "plan, build, ask, goal");
+  assert.equal(modeList(), "plan, build, manual, ask, goal");
   assert.equal(Object.hasOwn(MODES, "yolo"), false);
   assert.equal(Object.hasOwn(MODES, "bypass"), false);
 });
@@ -390,4 +390,96 @@ test("permissionLabel e describeAllPermissions são consistentes", () => {
     MODE_NAMES
   );
   for (const d of todos) assert.equal(d.label, permissionLabel(d.mode));
+});
+
+/* ------------------------------------------------------------------ */
+/* manual — o meio-termo entre plan e build                            */
+/* ------------------------------------------------------------------ */
+
+test("manual tem as permissões do build, mas confirma cada escrita", () => {
+  const manual = resolveMode("manual");
+  const build = resolveMode("build");
+
+  assert.equal(manual.canRead, true);
+  assert.equal(manual.canWrite, true);
+  assert.equal(manual.canExec, true);
+  assert.equal(manual.execScope, "workspace");
+
+  // as permissões são as mesmas do build; a diferença está no que dispara a pergunta
+  assert.deepEqual(
+    { canRead: manual.canRead, canWrite: manual.canWrite, canExec: manual.canExec, execScope: manual.execScope },
+    { canRead: build.canRead, canWrite: build.canWrite, canExec: build.canExec, execScope: build.execScope }
+  );
+  assert.notEqual(manual.ask, build.ask, "manual pergunta na escrita; build só fora do workspace");
+});
+
+test("em manual uma escrita DENTRO do workspace gera ask (não allow)", () => {
+  let executou = false;
+  const r = avaliar({
+    mode: "manual",
+    action: "write",
+    path: DENTRO,
+    workspace: WS,
+    runner: () => {
+      executou = true;
+    },
+  });
+
+  assert.equal(r.guard.decision, "ask");
+  assert.equal(r.guard.mode, "manual");
+  assert.equal(r.executou, false, "ask não executa: espera o humano");
+  assert.match(r.guard.reason, /confirma cada escrita/);
+  assert.deepEqual(r.guard.questions, ["Confirmar esta escrita dentro do workspace?"]);
+});
+
+test("a MESMA escrita em build continua allow (a diferença existe)", () => {
+  let executou = false;
+  const r = avaliar({
+    mode: "build",
+    action: "write",
+    path: DENTRO,
+    workspace: WS,
+    runner: () => {
+      executou = true;
+    },
+  });
+
+  assert.equal(r.guard.decision, "allow");
+  assert.equal(r.executou, true);
+});
+
+test("manual e build concordam fora do workspace, e discordam dentro", () => {
+  const dentroManual = guardWrite({ mode: "manual", path: DENTRO, workspace: WS });
+  const dentroBuild = guardWrite({ mode: "build", path: DENTRO, workspace: WS });
+  assert.equal(dentroManual.decision, "ask");
+  assert.equal(dentroBuild.decision, "allow");
+
+  const foraManual = guardWrite({ mode: "manual", path: FORA, workspace: WS });
+  const foraBuild = guardWrite({ mode: "build", path: FORA, workspace: WS });
+  assert.equal(foraManual.decision, "ask");
+  assert.equal(foraBuild.decision, "ask");
+  assert.ok(foraManual.questions.some((q) => /fora do workspace/.test(q)));
+});
+
+test("em manual a leitura continua allow e a execução também", () => {
+  assert.equal(guard({ mode: "manual", action: "read" }).decision, "allow");
+  assert.equal(guard({ mode: "manual", action: "exec", command: "ls" }).decision, "allow");
+  assert.equal(guard({ mode: "manual", action: "exec", command: "npm install" }).decision, "allow");
+});
+
+test("manual aparece na linha de status com rótulo próprio e curto", () => {
+  const d = describePermissions({ mode: "manual" });
+  assert.equal(d.label, "Confirma cada escrita");
+  assert.ok(d.label.length <= 24, `${d.label.length} chars`);
+  assert.match(d.summary, /confirma cada escrita/);
+  assert.deepEqual(d.asks.map((a) => a.trigger), ["write", "approval"]);
+  assert.notEqual(d.label, describePermissions({ mode: "build" }).label, "rótulos não podem colidir");
+});
+
+test("manual não enfraquece plan nem ask", () => {
+  assert.equal(resolveMode("plan").canWrite, false);
+  assert.equal(resolveMode("ask").canWrite, false);
+  assert.equal(resolveMode("manual").canWrite, true);
+  assert.equal(guard({ mode: "plan", action: "write", path: DENTRO, workspace: WS }).decision, "block");
+  assert.equal(guard({ mode: "ask", action: "write", path: DENTRO, workspace: WS }).decision, "block");
 });

@@ -82,6 +82,16 @@ const REGISTRO = Object.freeze({
     base: null,
     nota: "escreve e executa no workspace; fora dele, pausa",
   }),
+  manual: Object.freeze({
+    name: "manual",
+    canRead: true,
+    canWrite: true,
+    canExec: true,
+    execScope: "workspace",
+    ask: "write",
+    base: null,
+    nota: "como build, mas confirma cada escrita dentro do workspace",
+  }),
   ask: Object.freeze({
     name: "ask",
     canRead: true,
@@ -278,6 +288,28 @@ export function guard({ mode, action, path = null, workspace = null, command = n
       };
     }
 
+    // manual: confirma toda escrita, inclusive a que está dentro do workspace
+    if (modo.ask === "write") {
+      const onde =
+        path === null || path === undefined ? "unknown" : classifyPath(path, workspace ?? process.cwd());
+      if (onde !== "outside") {
+        return juntar(
+          {
+            decision: "ask",
+            mode: modo.name,
+            action: tipo,
+            reason:
+              onde === "inside"
+                ? "modo manual confirma cada escrita dentro do workspace"
+                : "modo manual confirma cada escrita",
+            questions: ["Confirmar esta escrita dentro do workspace?"],
+          },
+          revisao
+        );
+      }
+      // fora do workspace cai no tratamento genérico abaixo, com a pergunta de fora
+    }
+
     if (path === null || path === undefined) {
       return juntar(decidir(modo, tipo, "modo " + modo.name + " escreve no workspace"), revisao);
     }
@@ -441,8 +473,9 @@ export function modeList() {
  */
 function classeDe(m) {
   if (!m.canWrite && m.canExec && m.execScope === "readonly") return "readonly";
-  if (m.canWrite && m.canExec) return "workspace";
   if (!m.canWrite && !m.canExec) return "none";
+  if (m.canWrite && m.ask === "write") return "confirm";
+  if (m.canWrite && m.canExec) return "workspace";
   return "restrito";
 }
 
@@ -450,6 +483,7 @@ function classeDe(m) {
 const ROTULOS = Object.freeze({
   readonly: "Leitura apenas",
   workspace: "Aceita edições",
+  confirm: "Confirma cada escrita",
   none: "Consulta apenas",
   restrito: "Acesso restrito",
 });
@@ -457,6 +491,7 @@ const ROTULOS = Object.freeze({
 const RESUMOS = Object.freeze({
   readonly: "lê e consulta, propõe um plano e não escreve até você aprovar",
   workspace: "lê, escreve e executa dentro do workspace; fora dele, pede",
+  confirm: "faz o que o build faz, mas confirma cada escrita antes de aplicá-la",
   none: "lê e responde sobre o código; não escreve nem executa",
   restrito: "acesso reduzido ao mínimo",
 });
@@ -481,6 +516,16 @@ const PERGUNTAS = Object.freeze({
     Object.freeze({
       trigger: "outside-workspace",
       question: "Qual caminho fora do workspace precisa ser escrito, e por quê?",
+    }),
+    Object.freeze({
+      trigger: "approval",
+      question: "O artefato mexe em rede, credencial ou caminho externo. Aprovar?",
+    }),
+  ]),
+  confirm: Object.freeze([
+    Object.freeze({
+      trigger: "write",
+      question: "Confirmar esta escrita dentro do workspace?",
     }),
     Object.freeze({
       trigger: "approval",
