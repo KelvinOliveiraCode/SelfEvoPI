@@ -41,7 +41,7 @@ evita o clássico "passa na minha máquina". O comando cobre quatro coisas:
 
 | Etapa | O que prova |
 |:---|:---|
-| `npm test` | 371 testes unitários — roteador, forge, memória, grafo, governança, sandbox |
+| `npm test` | 449 testes unitários (448 passam, 1 skip) — roteador, forge, memória, grafo, governança, sandbox |
 | `node evals/run.mjs --group A` | roteador: reviewer, backoff, circuit breaker, retry |
 | `node evals/run.mjs --group C` | regressão: segredos fora do repo, testes unitários, documentação |
 | `node scripts/verify-urls.mjs` | integridade das fontes citadas na pesquisa |
