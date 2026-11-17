@@ -24,5 +24,8 @@
     "forge": "node core/forge/cli.mjs",
     "overhead": "node scripts/measure-selfevopi-overhead.mjs",
     "daily": "node scripts/daily.mjs"
+  },
+  "dependencies": {
+    "jsdom": "^29.1.1"
   }
 }
