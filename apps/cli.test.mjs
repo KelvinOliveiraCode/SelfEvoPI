@@ -28,8 +28,11 @@ import {
   parseInput,
   reduceLine,
   converse,
+  converseOrFallback,
   engineUnavailableNote,
   engineErrorMessage,
+  fallbackNotice,
+  isAuthError,
   runSlash,
   stripAnsi,
   visibleWidth,
@@ -270,7 +273,7 @@ test("engineErrorMessage: erro genérico (rede) adapta sem corpo cru", () => {
   assert.match(msg, /\/model/);
 });
 
-test("converse: erro do modelo mostra a mensagem, não texto vazio", async () => {
+test("converse: erro do modelo vira status { ok:false, error } (não escreve o corpo)", async () => {
   const pi = fakePi({
     script: (emit) => {
       emit("error", "401 Invalid bearer token");
@@ -278,11 +281,73 @@ test("converse: erro do modelo mostra a mensagem, não texto vazio", async () =>
     },
   });
   const chunks = [];
-  await converse(pi, "oi", (s) => chunks.push(s));
+  const res = await converse(pi, "oi", (s) => chunks.push(s));
   const out = stripAnsi(chunks.join(""));
+  assert.equal(res.ok, false);
+  assert.match(String(res.error), /401/); // status carrega o cru; a tela não
+  assert.ok(!/401/i.test(out), "converse não deve escrever o corpo cru na tela");
+  assert.ok(!/bearer/i.test(out));
+});
+
+test("converseOrFallback: sem fallback (SELFEOPI_MODEL) mostra o erro", async () => {
+  const pi = fakePi({
+    script: (emit) => {
+      emit("error", "401 Invalid bearer token");
+      emit("settled", { aborted: false });
+    },
+  });
+  const chunks = [];
+  const res = await converseOrFallback(pi, "oi", (s) => chunks.push(s), {
+    allowFallback: false,
+    candidates: [{ provider: "kilo1", id: "x" }],
+  });
+  const out = stripAnsi(chunks.join(""));
+  assert.equal(res.ok, false);
   assert.match(out, /não consegui falar com o modelo desta conversa/);
-  assert.ok(!/401/i.test(out), "vazou 401 no terminal");
-  assert.ok(!/bearer/i.test(out), "vazou 'bearer token' no terminal");
+  assert.ok(!/401/i.test(out));
+});
+
+test("converseOrFallback: com fallback, pula modelo vazio e usa o que responde", async () => {
+  // default dá erro; 1º candidato responde vazio (ok, sem texto); 2º responde
+  let attempt = 0;
+  const pi = fakePi({
+    script: (emit) => {
+      attempt += 1;
+      if (attempt === 1) {
+        emit("error", "401 Invalid bearer token");
+        emit("settled", { aborted: false });
+      } else if (attempt === 2) {
+        emit("settled", { aborted: false }); // ok, mas sem texto → não serve
+      } else {
+        emit("text", "ola do modelo de reserva");
+        emit("settled", { aborted: false });
+      }
+    },
+  });
+  pi.setModel = async () => ({});
+  pi.getState = async () => ({ model: { provider: "anthropic", id: "default" } });
+  const chunks = [];
+  const res = await converseOrFallback(pi, "oi", (s) => chunks.push(s), {
+    allowFallback: true,
+    candidates: [
+      { provider: "anthropic", id: "default" }, // pulado: é o atual
+      { provider: "kilo1", id: "vazio:free" }, // responde vazio → segue
+      { provider: "kilo1", id: "modelo-bom:free" }, // responde
+    ],
+  });
+  const out = stripAnsi(chunks.join(""));
+  assert.equal(res.ok, true);
+  assert.match(out, /usei kilo1\/modelo-bom:free/);
+  assert.ok(out.includes("ola do modelo de reserva"));
+  assert.ok(!/401/i.test(out), "não pode vazar 401");
+});
+
+test("isAuthError e fallbackNotice: classificação e voz do produto", () => {
+  assert.equal(isAuthError("401 Invalid bearer token"), true);
+  assert.equal(isAuthError("connect ETIMEDOUT"), false);
+  const notice = stripAnsi(fallbackNotice("kilo1/baidu/ernie-5.5-flash-preview:free"));
+  assert.match(notice, /o modelo padrão não respondeu; usei/);
+  assert.match(notice, /\/model/);
 });
 
 test("runSlash /model lista os configurados sem lançar (código 0)", async () => {
