@@ -1,39 +1,39 @@
 {
   "version": 1,
-  "sha": "a450feb",
+  "sha": "808bb34",
   "branch": "main",
-  "verifiedAt": "2026-11-16",
+  "verifiedAt": "2026-11-17",
   "phase": "2",
   "checks": [
     {
       "name": "unit-tests",
       "command": "npm test",
       "result": "pass",
-      "detail": "371 testes em 7 suites"
+      "detail": "449 testes (448 passam, 0 falham, 1 skip: integração sem servidor)"
     },
     {
       "name": "evals-estruturais",
       "command": "npm run verify",
       "result": "pass",
-      "detail": "grupos A (8/8) e C (6/6), zero token"
+      "detail": "grupos A 8/8, B 8/8 e C 6/6, zero token; URLs 33/33"
     },
     {
       "name": "evals-completo",
       "command": "node evals/gate.mjs",
       "result": "pass",
-      "detail": "87/87 (29 tarefas)"
+      "detail": "86/87 (29 tarefas, 3 execuções); B11-html-extract é estocástico (2/3)"
     },
     {
       "name": "cold-start",
-      "command": "node scripts/measure-overhead.mjs",
+      "command": "node scripts/measure-overhead.mjs --runs 5",
       "result": "pass",
-      "detail": "433 ms (meta < 500)"
+      "detail": "mediana 443 ms (mín 406, máx 495) com cache quente"
     },
     {
       "name": "prompt-budget",
-      "command": "node scripts/measure-selfevopi-overhead.mjs",
+      "command": "node scripts/measure-selfevopi-overhead.mjs --runs 3",
       "result": "pass",
-      "detail": "+501 tok (meta < 1.500)"
+      "detail": "+499 tok no pior caso (memória no teto), meta < 1.500"
     },
     {
       "name": "urls",
@@ -44,5 +44,5 @@
   ],
   "notes": "Fases P/0/1/2/3/4/5 entregues. CI ativo, meta-auditoria fechada, caminhos absolutos removidos.",
   "label": "estado final polido",
-  "tag": "v0.5-desktop"
+  "tag": "ckpt/v0.5.0"
 }
