@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { openStore } from "./store.mjs";
 import { searchCapabilities, tokenize } from "./search.mjs";
+import { embed } from "./embed.mjs";
 
 function tempStore() {
   const root = mkdtempSync(join(tmpdir(), "selfevopi-search-"));
@@ -112,4 +113,93 @@ test("limita o numero de resultados", () => {
 test("store invalido e recusado com mensagem clara", () => {
   assert.throws(() => searchCapabilities(null, "x"), /store válido/);
   assert.throws(() => searchCapabilities({}, "x"), /store válido/);
+});
+
+/* --------------------- busca semântica (sinônimos) ---------------------- */
+
+test("busca semântica acha por sinônimo/paráfrase (não lexical)", () => {
+  const { root, store } = tempStore();
+  try {
+    // a entrada fala "índice de massa corporal" (sem "imc" no texto nem no caminho);
+    // a consulta diz "imc" — só a semântica liga os dois.
+    store.append("skills", {
+      text: "calcular o índice de massa corporal de uma pessoa — artefato em `skills/saude/cli.mjs`",
+      tags: ["artefato", "cli"],
+    });
+    const r = searchCapabilities(store, "imc");
+    assert.ok(r.count >= 1, JSON.stringify(r));
+    assert.match(r.results[0].text, /massa corporal/);
+    assert.equal(r.results[0].via, "semantica");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("busca semântica recupera 'settings' como 'arquivo de configuracao'", () => {
+  const { root, store } = tempStore();
+  try {
+    store.append("skills", {
+      text: "ler um arquivo de configuracao do projeto — artefato em `skills/config/cli.mjs`",
+      tags: ["artefato"],
+    });
+    const r = searchCapabilities(store, "settings");
+    assert.ok(r.count >= 1, JSON.stringify(r));
+    assert.match(r.results[0].text, /configuracao/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("literal continua sendo caminho válido (via lexical quando o termo é exato)", () => {
+  const { root, store } = tempStore();
+  try {
+    store.append("skills", { text: "somar dois numeros", tags: ["artefato"] });
+    const r = searchCapabilities(store, "somar");
+    assert.ok(r.count >= 1);
+    // o termo é literal: o caminho léxico pontua (mesmo que a semântica também).
+    const top = r.results[0];
+    assert.ok(top.lexScore >= 1, "termo literal deve casar na via léxica");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("desligar semântica mantém só o caminho léxico", () => {
+  const { root, store } = tempStore();
+  try {
+    // sem "imc" no texto nem no caminho: a via léxica não acha.
+    store.append("skills", {
+      text: "calcular o índice de massa corporal — artefato em `skills/saude/cli.mjs`",
+      tags: ["artefato"],
+    });
+    const r = searchCapabilities(store, "imc", { semantic: false });
+    assert.equal(r.count, 0, "sem semântica, 'imc' não casa com 'massa corporal'");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resultado traz campos de diagnóstico (score, via, semanticScore)", () => {
+  const { root, store } = tempStore();
+  try {
+    store.append("skills", { text: "somar dois numeros", tags: ["artefato"] });
+    const r = searchCapabilities(store, "somar");
+    const top = r.results[0];
+    assert.equal(typeof top.score, "number");
+    assert.equal(typeof top.semanticScore, "number");
+    assert.ok(top.via === "lexical" || top.via === "semantica");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("busca semântica não acha o que não existe (não-haskell ruído)", () => {
+  const { root, store } = tempStore();
+  try {
+    store.append("skills", { text: "somar dois numeros", tags: ["artefato"] });
+    const r = searchCapabilities(store, "criptografia quantica");
+    assert.equal(r.count, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

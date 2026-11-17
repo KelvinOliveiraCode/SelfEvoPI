@@ -242,10 +242,53 @@ O núcleo é puro e testável sem o PI: `buildMemoryBlock`, `createMemoryControl
 do PI no top-level — por isso `node --test core/memory/extension.test.mjs` roda sem o PI
 instalado.
 
-## 8. Critério de aceite
+## 8. Recuperação semântica de skills (busca por significado)
 
-- `node --test core/memory/store.test.mjs` sai 0.
+A busca de capacidades começou **lexical** (por termo): rápida e precisa quando o termo
+é literal, mas cega para sinônimos e paráfrases — "calcular IMC" não achava "índice de
+massa corporal", e o harness "esquecia" capacidade que tinha.
+
+Agora `core/memory/search.mjs` combina dois caminhos, ambos locais e determinísticos:
+
+1. **léxico** — casa no texto e nas tags (tag pesa 3×, texto 1×). Preciso quando o termo
+   é literal, e mais barato. É o **fallback** e o caminho de **coincidência exata**.
+2. **semântico** — `core/memory/embed.mjs`: embedding por *feature hashing* de n-gramas
+   de caractere (3–5) em 256 dimensões, normalização L2, mais um glossário de sinônimos
+   que colapsa "índice de massa corporal" → `imc` antes de vetorizar. A similaridade é o
+   **máximo** entre cosseno, contenção de n-gramas e contenção de tokens (robusta a
+   consulta curta vs. documento longo).
+
+O escore final é `max(léxico, semântico × 2)`. Assim, quando o termo é literal a via
+léxica vence; quando é paráfrase, a semântica recupera. **Nada de rede, nada de modelo
+baixado** — o `embed.mjs` não tem um único `import`.
+
+**Medido (8 consultas com sinônimos, entradas sem o termo literal):**
+
+| # | consulta | lexical (antes) | semântica (depois) |
+|:--|:---|:---|:---|
+| 1 | `imc` | #0 ✅ | #0 ✅ |
+| 2 | `iniciar servidor` | #1 ✅ | #1 ✅ |
+| 3 | `settings` | nada | #2 ✅ |
+| 4 | `schema json` | #3 ✅ | #3 ✅ |
+| 5 | `analisador sintatico` | nada | #4 ✅ |
+| 6 | `cifrar mensagem` | #5 ✅ | #5 ✅ |
+| 7 | `arquivo pdf` | #6 ✅ | #6 ✅ |
+| 8 | `banco de dados` | #7 ✅ | #7 ✅ |
+
+**Lexical 6/8 → semântica 8/8.** A semântica não entra no prompt (é offline), então o
+overhead de contexto não muda — continua em 507 de 1500 tokens no pior caso.
+
+### Como o agente usa
+
+- Dentro da sessão: `/mem find <termo>` (na extensão do PI) já usa `searchCapabilities`,
+  então herda a busca semântica sem mudança.
+- Na linha de comando: `node core/forge/cli.mjs skills <termo>`.
+
+## 9. Critério de aceite
+
+- `node --test core/memory/*.test.mjs` sai 0.
 - Persistência comprovada: criar, fechar, reabrir e ler os mesmos dados.
 - Entrada em formato estável e auditável (JSONL append-only).
 - `node --test core/memory/extension.test.mjs core/memory/store.test.mjs core/memory/refine.test.mjs` sai 0.
 - Extensão carregável por `pi` (flag `--mem-tokens` visível em `pi --help`).
+- `core/memory/embed.mjs` é determinístico, norma 1, e sem rede/dependências.
