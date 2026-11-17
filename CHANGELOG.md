@@ -61,17 +61,17 @@ gate quando não há nada a aplicar.
 
 ### Contexto da versão
 
-Métricas **medidas em 2026-11-16** e publicadas em `docs/estado.md`. São
+Métricas **medidas em 2026-11-17** e publicadas em `docs/estado.md`. São
 fotografia daquela data, não garantia de desempenho:
 
 | Métrica | Valor medido |
 |:---|:---|
-| Cold start | 433 ms (mín. 399, máx. 492) |
-| Prompt do PI puro | 8.684 tokens |
-| Incremento do SelfEvoPI | +501 tokens (memória no teto) |
+| Cold start | 443 ms (mín. 383, máx. 611) com cache quente · 1,0–1,8 s na primeira execução |
+| Prompt do PI puro | 8.680 tokens |
+| Incremento do SelfEvoPI | +506 tokens (memória no teto) |
 | `pi-subagents`, sob demanda | +1.654 tokens |
-| Evals | 29 tarefas, 87/87 (100%) |
-| Testes unitários | 371 |
+| Evals | 29 tarefas, 86/87 (98,85%) na baseline — B11 é estocástico |
+| Testes unitários | 449 (448 passam, 1 skip) |
 
 O orçamento de prompt é requisito, não aspiração: o limite é 1.500 tokens de
 acréscimo, e as medições acima são o que mantém o projeto dentro dele. A extensão
@@ -110,7 +110,7 @@ seus 1.654 tokens estouravam o orçamento.
 ### Verificação
 
 ```powershell
-npm test              # 371 testes unitários
+npm test              # 449 testes unitários (448 passam, 1 skip)
 npm run verify        # testes + evals A/C + integridade das URLs
 node evals/gate.mjs   # gate completo (grupo D inclui chamada de modelo)
 ```
