@@ -127,7 +127,8 @@ export function renderStatusLine(data = {}) {
   const t = base.totals || {};
   const cells = t.taskRuns != null && t.passes != null ? `${t.passes}/${t.taskRuns} baseline` : "baseline ?";
   const branch = data.branch || "repo";
-  return fit(`  ${dot} ${branch} · ${st.label} · ${cells}`);
+  const mode = data.mode ? ` · ${paint(data.mode, "fg")}` : "";
+  return fit(`  ${dot} ${branch} · ${st.label} · ${cells}${mode}`);
 }
 
 /** Banner: ◍ SelfEvoPI ... v0.5.0. Voz do produto; nunca cita o motor. */
@@ -418,6 +419,16 @@ export const COMMANDS = [
   { name: "/skills", args: "", description: "o que o loop já gerou e registrou", run: runSkills },
   { name: "/model", args: "[nome]", description: "mostra ou troca o modelo da conversa", run: runModel },
   { name: "/clear", args: "", description: "limpa a conversa e começa de novo", run: runClear },
+  { name: "/compact", args: "", description: "compacta o histórico da conversa", run: runCompact },
+  { name: "/sessions", args: "[id]", description: "lista sessões ou carrega uma", run: runSessions },
+  { name: "/cost", args: "", description: "tokens e custo da sessão", run: runCost },
+  { name: "/status", args: "", description: "estado da sessão, modelo e modo", run: runStatus },
+  { name: "/context", args: "", description: "quanto da janela de contexto está em uso", run: runContext },
+  { name: "/mcp", args: "", description: "servidores MCP declarados", run: runMcp },
+  { name: "/init", args: "", description: "gera um rascunho de AGENTS.md (pede confirmação)", run: runInit },
+  { name: "/plan", args: "", description: "modo plan: lê e propõe, não escreve", run: (ctx) => runMode("plan", ctx) },
+  { name: "/build", args: "", description: "modo build: escreve e executa no workspace", run: (ctx) => runMode("build", ctx) },
+  { name: "/ask", args: "", description: "modo ask: só responde, nunca toca em disco", run: (ctx) => runMode("ask", ctx) },
   { name: "/help", args: "", description: "mostra esta lista", run: runHelp },
 ];
 
@@ -872,13 +883,276 @@ async function runClear({ out, pi, onClear }) {
   return 0;
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Estado do agente (status, custo, contexto) e modos                 */
+/* ------------------------------------------------------------------ */
+
+let currentMode = "build"; // modo de permissão da conversa (plan/build/ask)
+const HOME = process.env.USERPROFILE || process.env.HOME || ".";
+const SESSIONS_DIR = path.join(HOME, ".pi", "agent", "sessions");
+let pendingInit = null; // rascunho de AGENTS.md aguardando confirmação
+
+function samePath(a, b) {
+  const n = (p) => String(p).replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase();
+  return n(a) === n(b);
+}
+
+/** Descobre a pasta de sessões do projeto atual (por header.cwd), ou a base. */
+async function sessionDir() {
+  const base = SESSIONS_DIR;
+  let entries = [];
+  try {
+    const { readdir } = await import("node:fs/promises");
+    entries = await readdir(base, { withFileTypes: true });
+  } catch {
+    return base;
+  }
+  let parseSession = () => ({ header: null });
+  try {
+    ({ parseSession } = await import("../core/agent/sessions.mjs"));
+  } catch {
+    /* sem o módulo: usa a base */
+    return base;
+  }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const sub = path.join(base, e.name);
+    let files = [];
+    try {
+      const { readdir: rd } = await import("node:fs/promises");
+      files = (await rd(sub)).filter((f) => f.endsWith(".jsonl"));
+    } catch {
+      continue;
+    }
+    if (files.length === 0) continue;
+    try {
+      const first = readFileSync(path.join(sub, files[0]), "utf8");
+      const { header } = parseSession(first);
+      if (header && typeof header.cwd === "string" && samePath(header.cwd, ROOT)) return sub;
+    } catch {
+      /* segue */
+    }
+  }
+  return base;
+}
+
+/** Monta o estado do agente para inspect.mjs (status/custo/contexto). */
+async function buildAgentState(pi) {
+  const state = {
+    version: VERSION,
+    mode: currentMode,
+    sessionId: null,
+    model: null,
+    provider: null,
+    turns: 0,
+    ledger: [],
+    usedTokens: 0,
+    budgetTokens: 200000,
+    breakdown: {},
+  };
+  if (!pi) return state;
+  const st = await pi.getState().catch(() => ({}));
+  if (st && st.model) {
+    state.provider = st.model.provider ?? null;
+    state.model = st.model.id ?? null;
+  }
+  state.sessionId = st?.sessionId ?? null;
+  const stats = await Promise.resolve(pi._rpc && pi._rpc.getSessionStats && pi._rpc.getSessionStats()).catch(() => ({}));
+  if (stats?.contextUsage) {
+    state.usedTokens = Number(stats.contextUsage.tokens) || 0;
+    state.budgetTokens = Number(stats.contextUsage.contextWindow) || 200000;
+  }
+  const msgs = await Promise.resolve(pi._rpc && pi._rpc.getMessages && pi._rpc.getMessages()).catch(() => []);
+  for (const m of Array.isArray(msgs) ? msgs : []) {
+    if (m && m.role === "assistant" && m.usage) {
+      state.ledger.push({
+        usage: { input: m.usage.input ?? 0, output: m.usage.output ?? 0, cacheRead: m.usage.cacheRead ?? 0 },
+        costUsd: m.usage.cost?.total ?? null,
+      });
+    }
+  }
+  if (state.ledger.length === 0 && stats?.tokens) {
+    state.ledger.push({
+      usage: { input: stats.tokens.input ?? 0, output: stats.tokens.output ?? 0, cacheRead: stats.tokens.cacheRead ?? 0 },
+      costUsd: stats.cost ?? null,
+    });
+  }
+  state.turns = state.ledger.length || Number(stats?.totalMessages) || 0;
+  return state;
+}
+
+/* ------------------------------------------------------------------ */
+/* Executores novos (importam e usam os módulos dos outros)           */
+/* ------------------------------------------------------------------ */
+
+async function runStatus({ out, pi }) {
+  const { sessionStatus } = await import("../core/agent/inspect.mjs");
+  const s = sessionStatus(await buildAgentState(pi));
+  const lines = [paint("  sessão", "fg")];
+  lines.push(`    versão:   ${s.version || "—"}`);
+  lines.push(`    modelo:   ${s.provider ? s.provider + "/" : ""}${s.model || "—"}`);
+  lines.push(`    sessão:   ${s.sessionId ? String(s.sessionId).slice(0, 8) : "—"}`);
+  lines.push(`    turnos:   ${s.turns}`);
+  lines.push(`    modo:     ${paint(currentMode, "bold")}`);
+  out(lines.join("\n"));
+  return 0;
+}
+
+async function runCost({ out, pi }) {
+  const { sessionCost, formatTokens, formatCost } = await import("../core/agent/inspect.mjs");
+  const c = sessionCost(await buildAgentState(pi));
+  const lines = [paint("  custo da sessão", "fg")];
+  lines.push(`    entrada:  ${formatTokens(c.tokensIn)} tokens`);
+  lines.push(`    saída:    ${formatTokens(c.tokensOut)} tokens`);
+  lines.push(`    cache:    ${formatTokens(c.tokensCacheRead)} tokens (leitura)`);
+  lines.push(`    custo:    ${formatCost(c.costUsd)}`);
+  if (c.byTurn.length > 0) {
+    lines.push("");
+    lines.push(paint("    por turno", "muted"));
+    for (const t of c.byTurn.slice(-8)) {
+      lines.push(`      ${String(t.turn).padStart(2)}  in ${formatTokens(t.tokensIn)}  out ${formatTokens(t.tokensOut)}  ${formatCost(t.costUsd)}`);
+    }
+  } else {
+    lines.push("");
+    lines.push(paint("    (sem uso registrado nesta conversa)", "muted"));
+  }
+  out(lines.join("\n"));
+  return 0;
+}
+
+async function runContext({ out, pi }) {
+  const { contextUsage, formatTokens } = await import("../core/agent/inspect.mjs");
+  const c = contextUsage(await buildAgentState(pi));
+  const bar = 24;
+  const filled = Math.max(0, Math.min(bar, Math.round((c.percent / 100) * bar)));
+  const lines = [paint("  contexto", "fg")];
+  lines.push(`    em uso:   ${formatTokens(c.usedTokens)} / ${formatTokens(c.budgetTokens)} tokens (${c.percent}%)`);
+  lines.push(`    [${paint("█".repeat(filled), "fg")}${"░".repeat(bar - filled)}]`);
+  out(lines.join("\n"));
+  return 0;
+}
+
+async function runMcp({ out }) {
+  const { listMcpServers } = await import("../core/agent/mcp.mjs");
+  const servers = await listMcpServers({ root: ROOT });
+  if (!servers || servers.length === 0) {
+    out(paint("  nenhum servidor MCP declarado (confira .mcp.json ou as configurações do projeto)", "muted"));
+    return 0;
+  }
+  const lines = [paint(`  ${servers.length} servidor(es) MCP`, "fg")];
+  for (const s of servers) {
+    const dot = s.status === "configured" ? paint("●", "ok") : s.status === "disabled" ? paint("●", "muted") : paint("●", "fail");
+    const cmd = [s.command, ...(s.args || [])].filter(Boolean).join(" ");
+    lines.push(`  ${dot} ${s.name.padEnd(18)} ${paint(s.status, "muted")}`);
+    if (cmd) lines.push(`      ${paint(cmd, "muted")}`);
+  }
+  out(lines.join("\n"));
+  return 0;
+}
+
+async function runInit({ out }) {
+  const { renderAgentDoc } = await import("../core/agent/init.mjs");
+  const md = renderAgentDoc({ project: { name: "SelfEvoPI", version: VERSION } });
+  pendingInit = md; // guarda o rascunho; só grava com confirmação explícita
+  out(md);
+  out("");
+  out(paint("  rascunho — nada foi gravado. Responda sim para gravar AGENTS.md, ou outra coisa para descartar.", "muted"));
+  return 0;
+}
+
+async function runCompact({ out, pi }) {
+  const { compactHistory } = await import("../core/agent/compact.mjs");
+  const state = await buildAgentState(pi);
+  let messages = [];
+  if (pi) messages = await Promise.resolve(pi._rpc && pi._rpc.getMessages && pi._rpc.getMessages()).catch(() => []);
+  if (!Array.isArray(messages) || messages.length === 0) {
+    out(paint("  não há conversa para compactar ainda", "muted"));
+    return 0;
+  }
+  const maxTokens = state.budgetTokens || 200000;
+  const res = compactHistory(messages, { maxTokens, keepLast: 6 });
+  const lines = [paint("  histórico compactado", "fg")];
+  lines.push(`    antes:    ${res.tokensBefore} tokens`);
+  lines.push(`    depois:   ${res.tokensAfter} tokens`);
+  lines.push(`    saíram:   ${res.removed} mensagem(ns) (resumidas ou descartadas)`);
+  out(lines.join("\n"));
+  return 0;
+}
+
+async function runSessions({ out, arg, pi }) {
+  const { listSessions, loadSession } = await import("../core/agent/sessions.mjs");
+  const dir = await sessionDir();
+  if (arg) {
+    const { messages, meta } = await loadSession(dir, arg);
+    if (!meta || !messages || messages.length === 0) {
+      out(paint(`  sessão "${arg}" não encontrada`, "warn"));
+      return 2;
+    }
+    const lines = [paint(`  sessão ${meta.id ? String(meta.id).slice(0, 8) : arg}`, "fg")];
+    lines.push(`    título:  ${meta.title || "—"}`);
+    lines.push(`    turnos:  ${meta.turns}`);
+    lines.push(`    tokens:  ${meta.tokens}`);
+    out(lines.join("\n"));
+    if (pi && pi._rpc && typeof pi._rpc.switchSession === "function") {
+      // procura o arquivo para alternar a sessão ativa
+      let target = null;
+      try {
+        const { readdir } = await import("node:fs/promises");
+        for (const f of (await readdir(dir)).filter((x) => x.endsWith(".jsonl"))) {
+          if (f.includes(arg)) { target = path.join(dir, f); break; }
+        }
+      } catch { /* segue */ }
+      if (target) {
+        const ok = await pi._rpc.switchSession(target).then(() => true).catch(() => false);
+        out(ok ? paint("  conversa agora nesta sessão.", "ok") : paint("  não consegui trocar de sessão.", "warn"));
+        return 0;
+      }
+    }
+    out(paint("  (carregada; a troca da sessão ativa depende do orquestrador)", "muted"));
+    return 0;
+  }
+  const list = await listSessions(dir);
+  if (!list || list.length === 0) {
+    out(paint("  nenhuma sessão encontrada", "muted"));
+    return 0;
+  }
+  const lines = [paint(`  ${list.length} sessão(ões)`, "fg")];
+  for (const se of list.slice(0, 12)) {
+    const id = se.id ? String(se.id).slice(0, 8) : "?";
+    lines.push(`  ${id}  ${String(se.title || "—").slice(0, 26).padEnd(26)}  ${se.turns} turnos  ${String(se.updatedAt || "").slice(0, 10)}`);
+  }
+  out(lines.join("\n"));
+  return 0;
+}
+
+async function runMode(name, { out }) {
+  const { resolveMode, guardWrite } = await import("../core/governance/modes.mjs");
+  const m = resolveMode(name); // lança se desconhecido
+  currentMode = m.name;
+  const lines = [paint(`  modo: ${m.name}`, "bold")];
+  lines.push(`    lê ${m.canRead ? "sim" : "não"} · escreve ${m.canWrite ? "sim" : "não"} · executa ${m.canExec ? "sim" : "não"} (${m.execScope})`);
+  if (m.name === "plan") {
+    const g = guardWrite({ mode: "plan", path: "exemplo.txt", workspace: ROOT });
+    lines.push("");
+    lines.push(paint(`    escrita: ${g.decision} — ${g.reason}`, g.decision === "block" ? "warn" : "muted"));
+  }
+  out(lines.join("\n"));
+  return 0;
+}
+
 export async function runSlash(name, arg, out, ctx = {}) {
   const cmd = COMMANDS.find((c) => c.name === name);
   if (!cmd) {
     out(paint(`  comando desconhecido: ${name}  (tente /help)`, "warn"));
     return 2;
   }
-  return cmd.run({ arg, out, pi: ctx.pi, onClear: ctx.onClear });
+  try {
+    return await cmd.run({ arg, out, pi: ctx.pi, onClear: ctx.onClear });
+  } catch (err) {
+    out(paint(`  ${String(err?.message || err).slice(0, 200)}`, "fail"));
+    return 2;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1280,8 +1554,8 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     const sel = filtered.length ? Math.max(0, Math.min(line.sel, filtered.length - 1)) : 0;
     const paletteLines = open ? renderPalette(filtered, sel, paletteWidth()) : [];
     const footer = open
-      ? paint("  ↑↓ navegar  enter escolher  esc fechar", "dim")
-      : paint("  enter enviar · / comandos · q sair", "dim");
+      ? `  ${paint(currentMode, "fg")} · ${paint("↑↓ navegar  enter escolher  esc fechar", "dim")}`
+      : `  ${paint(currentMode, "fg")} · ${paint("enter enviar · / comandos · q sair", "dim")}`;
     write("\r\x1b[J");
     write("  " + paint("›", "fg") + " " + line.buf);
     for (const pl of paletteLines) write("\n" + pl);
@@ -1303,6 +1577,23 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     write("\n");
     history.push(text);
     histIdx = history.length;
+    if (pendingInit) {
+      const ans = String(text).trim().toLowerCase();
+      if (ans === "sim" || ans === "y" || ans === "yes") {
+        try {
+          const { writeFile } = await import("node:fs/promises");
+          await writeFile(path.join(ROOT, "AGENTS.md"), pendingInit, "utf8");
+          write("  AGENTS.md gravado.\n");
+        } catch {
+          write("  não consegui gravar AGENTS.md.\n");
+        }
+      } else {
+        write("  descartado (nada gravado).\n");
+      }
+      pendingInit = null;
+      prompt();
+      return;
+    }
     const parsed = parseInput(text);
     if (parsed.type === "quit") {
       quitting = true;
@@ -1541,8 +1832,18 @@ async function main() {
     else if (screen === "banner") frame = [renderBanner(), rule(), renderStatusLine(data)].join("\n");
     else if (screen === "palette") frame = renderPaletteFrame("", 72);
     else if (screen === "palette-filtered") frame = renderPaletteFrame("ev", 72);
+    else if (screen === "status") frame = [
+      renderBanner(),
+      rule(),
+      renderStatusLine({ ...data, mode: currentMode }),
+      "",
+      paint("  sessão", "fg"),
+      `    versão:   ${VERSION}`,
+      "    modelo:   —",
+      `    modo:     ${paint(currentMode, "bold")}`,
+    ].join("\n");
     else {
-      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, help, banner, palette, palette-filtered)\n`);
+      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, help, banner, palette, palette-filtered, status)\n`);
       process.exit(2);
     }
     process.stdout.write(frame + "\n");
@@ -1570,6 +1871,19 @@ async function main() {
       return chain;
     };
     const handleOne = async (raw) => {
+      if (pendingInit) {
+        const ans = String(raw).trim().toLowerCase();
+        if (ans === "sim" || ans === "y" || ans === "yes") {
+          const { writeFile } = await import("node:fs/promises");
+          await writeFile(path.join(ROOT, "AGENTS.md"), pendingInit, "utf8")
+            .then(() => process.stdout.write("  AGENTS.md gravado.\n"))
+            .catch(() => process.stdout.write("  não consegui gravar AGENTS.md.\n"));
+        } else {
+          process.stdout.write("  descartado (nada gravado).\n");
+        }
+        pendingInit = null;
+        return;
+      }
       const parsed = parseInput(raw);
       if (parsed.type === "quit") {
         if (pi) await pi.close().catch(() => {});

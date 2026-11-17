@@ -540,3 +540,49 @@ test("reduceLine: setas navegam a paleta quando aberta", () => {
   assert.equal(up.effect, "palette-move");
   assert.ok(up.state.sel > 0); // deu a volta (wrap)
 });
+
+
+/* ---------------------------------------------------------------- */
+/* Comandos ligados (módulos dos outros) e modos                    */
+/* ---------------------------------------------------------------- */
+
+test("COMMANDS inclui os comandos novos (paleta e /help leem daqui)", () => {
+  const names = COMMANDS.map((c) => c.name);
+  for (const n of ["/compact", "/sessions", "/cost", "/status", "/context", "/mcp", "/init", "/plan", "/build", "/ask"]) {
+    assert.ok(names.includes(n), `falta ${n}`);
+  }
+  // /goal NÃO existe ainda (A7 no conserto) — não criar placeholder
+  assert.ok(!names.includes("/goal"), "/goal não deveria existir ainda");
+});
+
+test("renderStatusLine mostra o modo quando fornecido", () => {
+  const line = stripAnsi(renderStatusLine({ branch: "main", mode: "plan" }));
+  assert.match(line, /plan/);
+});
+
+test("runSlash /plan e /build trocam o modo sem lançar", async () => {
+  let out = "";
+  const c1 = await runSlash("/plan", "", (x) => (out += x + "\n"), { pi: null });
+  assert.equal(c1, 0);
+  assert.match(stripAnsi(out), /modo: plan/);
+  assert.match(stripAnsi(out), /escrita: block/); // plan não escreve
+  out = "";
+  const c2 = await runSlash("/build", "", (x) => (out += x + "\n"), { pi: null });
+  assert.equal(c2, 0);
+  assert.match(stripAnsi(out), /modo: build/);
+});
+
+test("comandos novos com motor ausente não lançam e saem 0", async () => {
+  for (const name of ["/status", "/cost", "/context", "/mcp", "/sessions", "/compact"]) {
+    let out = "";
+    const code = await runSlash(name, "", (x) => (out += x + "\n"), { pi: null });
+    assert.equal(code, 0, `${name} saiu ${code}`);
+    assert.ok(out.length >= 0);
+  }
+});
+
+test("runSlash /goal recusado (não existe) sem lançar", async () => {
+  let out = "";
+  const code = await runSlash("/goal", "", (x) => (out += x + "\n"), { pi: null });
+  assert.equal(code, 2);
+});
