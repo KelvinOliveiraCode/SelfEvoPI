@@ -20,6 +20,10 @@ import assert from "node:assert/strict";
 
 import {
   SLASH_COMMANDS,
+  COMMANDS,
+  filterCommands,
+  renderPalette,
+  renderPaletteFrame,
   renderMarkdown,
   renderHelp,
   renderBanner,
@@ -446,4 +450,93 @@ test("--help e banner não citam o motor", () => {
   const banner = stripAnsi(renderBanner());
   assert.ok(!/(?<![A-Za-z])pi(?![A-Za-z])/i.test(banner), "banner vazou o nome do motor");
   assert.match(banner, /SelfEvoPI/);
+});
+
+
+/* ---------------------------------------------------------------- */
+/* Paleta de comandos                                                */
+/* ---------------------------------------------------------------- */
+
+test("filterCommands: vazio lista tudo (ordenado); prefixo e fuzzy", () => {
+  const all = filterCommands("");
+  const names = all.map((c) => c.name);
+  assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)));
+  assert.ok(names.includes("/evals") && names.includes("/model"));
+
+  // prefixo
+  assert.deepEqual(filterCommands("ev").map((c) => c.name), ["/evals"]);
+  // fuzzy (subsequência): dtc → detect
+  assert.ok(filterCommands("dtc").map((c) => c.name).includes("/detect"));
+  // sem correspondência
+  assert.deepEqual(filterCommands("zzzz"), []);
+});
+
+test("paleta e /help usam a MESMA lista (fonte única)", () => {
+  const fromCommands = COMMANDS.map((c) => c.name).sort();
+  const fromFilter = filterCommands("").map((c) => c.name).sort();
+  const fromHelp = stripAnsi(renderHelp());
+  assert.deepEqual(fromCommands, fromFilter);
+  for (const name of fromCommands) {
+    assert.ok(fromHelp.includes(name), `/help não lista ${name}`);
+  }
+});
+
+test("renderPalette: caixa <= 8 linhas e <= 72 colunas", () => {
+  const filtered = filterCommands("");
+  const lines = renderPalette(filtered, 0, 72);
+  const boxRows = lines.filter((l) => l.includes("│"));
+  assert.ok(boxRows.length <= 8, `paleta com ${boxRows.length} linhas (> 8)`);
+  for (const l of lines) assert.ok(visibleWidth(l) <= 72, `linha da paleta com ${visibleWidth(l)} (>72)`);
+  // sem correspondência: uma linha discreta
+  const none = renderPalette([], 0, 72).filter((l) => l.includes("│"));
+  assert.equal(none.length, 1);
+  assert.match(stripAnsi(none[0]), /nenhum comando/);
+});
+
+test("renderPaletteFrame headless <= 72 e comSelection", () => {
+  for (const q of ["", "ev"]) {
+    const frame = renderPaletteFrame(q, 72);
+    for (const l of frame.split("\n")) assert.ok(visibleWidth(l) <= 72, `frame palette(${q}) >72`);
+  }
+});
+
+test("reduceLine: / abre paleta, /ev filtra, esc fecha, enter preenche", () => {
+  // "/" abre (buf="/", dismissed=false → paleta aberta; filterCommands("") = tudo)
+  const opened = reduceLine({ buf: "", cur: 0 }, "/");
+  assert.equal(opened.state.buf, "/");
+  assert.equal(opened.state.dismissed, false);
+
+  // "/ev" continua aberto e filtra
+  const typed = reduceLine({ buf: "/", cur: 1 }, "e");
+  assert.equal(typed.state.buf, "/e");
+  assert.equal(typed.state.dismissed, false);
+
+  // esc fecha sem alterar o buffer
+  const closed = reduceLine({ buf: "/ev", cur: 3 }, "esc");
+  assert.equal(closed.state.buf, "/ev");
+  assert.equal(closed.state.dismissed, true);
+  assert.equal(closed.effect, "palette-closed");
+
+  // enter (paleta aberta) preenche o buffer, não executa
+  const selected = reduceLine({ buf: "/ev", cur: 3, sel: 0, dismissed: false }, "enter");
+  assert.equal(selected.effect, "selected");
+  assert.ok(selected.state.buf.startsWith("/evals"));
+  assert.equal(selected.state.dismissed, true);
+});
+
+test("reduceLine: enter sem paleta submete; setas sem paleta viram histórico", () => {
+  const submit = reduceLine({ buf: "oi", cur: 2 }, "enter");
+  assert.equal(submit.effect, "submit");
+  const up = reduceLine({ buf: "", cur: 0 }, "up");
+  assert.equal(up.effect, "history-up");
+});
+
+test("reduceLine: setas navegam a paleta quando aberta", () => {
+  const st = { buf: "/", cur: 1, sel: 0, dismissed: false };
+  const down = reduceLine(st, "down");
+  assert.equal(down.effect, "palette-move");
+  assert.equal(down.state.sel, 1);
+  const up = reduceLine({ ...st, sel: 0 }, "up");
+  assert.equal(up.effect, "palette-move");
+  assert.ok(up.state.sel > 0); // deu a volta (wrap)
 });
