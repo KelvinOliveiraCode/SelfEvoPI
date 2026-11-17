@@ -242,10 +242,76 @@ O núcleo é puro e testável sem o PI: `buildMemoryBlock`, `createMemoryControl
 do PI no top-level — por isso `node --test core/memory/extension.test.mjs` roda sem o PI
 instalado.
 
-## 8. Critério de aceite
+## 8. Recuperação de capacidades em 3 camadas (lexical + PPMI + glossário)
 
-- `node --test core/memory/store.test.mjs` sai 0.
+A busca de capacidades começou **lexical** (por termo): rápida e precisa quando o termo
+é literal, mas cega para sinônimos — "calcular IMC" não achava "índice de massa corporal",
+e o harness "esquecia" capacidade que tinha.
+
+A primeira tentativa de "semântica" era, na verdade, um **glossário de substituição**
+disfarçado: `cosine("settings","arquivo de configuracao")` devolvia `1.0000` porque ambos
+caíam no mesmo canônico — identidade após substituição, não semelhança. Isso não é
+recuperação semântica; é uma tabela de lookup. Esta seção corrige isso com honestidade:
+**três camadas separadas, cada uma com seu número, e sem fingir que uma é a outra.**
+
+### As três camadas
+
+| camada | módulo | o que faz | o que compra | o que NÃO faz |
+|:---|:---|:---|:---|:---|
+| 1. lexical | `search.mjs` | casa termos no texto e tags (tag 3×) | precisão no literal, barato | não liga sinônimos |
+| 2. PPMI | `ppmi.mjs` | co-ocorrência termo↔termo **aprendida do corpus** do store | sinônimos que aparecem juntos nos registros; melhora com o corpus | sinal fraco se o corpus for pequeno |
+| 3. glossário | `embed.mjs` (`glossarySimilarity`) | expõe sinônimos de um glossário curado à mão | cobre o que foi escrito, determinístico | **não aprende**; só cobre o que está no glossário |
+
+O escore final é `max(lexScore, PPMI_SCALE×ppmi, GLOSSARY_SCALE×glossário)`. Cada
+resultado traz `lexScore`, `ppmiScore`, `glossaryScore`, `rawScore` e `via` — dá para ver
+exatamente qual camada decidiu. **Nada de rede, nada de modelo baixado.**
+
+### Medido — tabela honesta (7 positivos + 2 negativos)
+
+Entradas redigidas **sem** o termo literal da consulta; o PPMI aprende do corpus do
+próprio store; o glossário só vale o que foi escrito.
+
+| # | consulta | tipo | lexical | raw(cam1) | ppmi(cam2) | glossário(cam3) | busca achou? |
+|:--|:---|:---|:---|:---|:---|:---|:---|
+| 1 | `imc` | glossário | nada | 0.00 | 0.00 | 1.00 | ✅ |
+| 2 | `start server` | glossário | nada | 0.22 | 0.00 | 0.50 | ✅ |
+| 3 | `settings` | glossário | nada | 0.00 | 0.00 | 1.00 | ✅ |
+| 4 | `analisador sintatico` | glossário | nada | 0.06 | 0.00 | 0.50 | ✅ |
+| 5 | `cifrar mensagem` | glossário | nada | 0.13 | 0.00 | 1.00 | ✅ |
+| 6 | `excluir item` | PPMI | ok | 0.50 | 0.85 | 0.50 | ✅ |
+| 7 | `gerar novo arquivo` | PPMI | ok | 0.40 | 0.49 | 0.40 | ✅ |
+| 8 | `tocar violao` | **não coberto** | nada | 0.00 | 0.00 | 0.00 | ✅ vazio |
+| 9 | `receita de bolo` | **não coberto** | nada | 0.00 | 0.00 | 0.00 | ✅ vazio |
+
+**Leitura honesta dos números:**
+
+- **cam1 (raw/n-grama)** fica perto de 0 nos sinônimos — é o comportamento **correto**:
+  forma não liga "imc" a "índice de massa corporal". Não existe semântica mágica no
+  n-grama, e é bom que os testes provem isso.
+- **cam2 (PPMI)** sobe para 0.49–0.85 **quando o corpus tem os termos juntos** no mesmo
+  registro (é o caso do `promote`, que grava `capability — artefato em ...`). Aprende
+  dos dados, não de glossário.
+- **cam3 (glossário)** dá 1.00 no que cobre e 0.00 no que não cobre (linhas 8–9). É
+  tabela de substituição, e a tabela mostra isso sem disfarce.
+- **Sinônimos não cobertos (8–9) dão vazio** — a busca não inventa casamento. É a
+  prova de que o sistema não é um lookup onipresente.
+
+A busca é offline e não entra no prompt, então o overhead de contexto não muda —
+continua em 507 de 1500 tokens no pior caso.
+
+### Como o agente usa
+
+- Dentro da sessão: `/mem find <termo>` (na extensão do PI) usa `searchCapabilities`,
+  então herda as três camadas sem mudança.
+- Na linha de comando: `node core/forge/cli.mjs skills <termo>`.
+
+## 9. Critério de aceite
+
+- `node --test core/memory/*.test.mjs` sai 0.
 - Persistência comprovada: criar, fechar, reabrir e ler os mesmos dados.
 - Entrada em formato estável e auditável (JSONL append-only).
 - `node --test core/memory/extension.test.mjs core/memory/store.test.mjs core/memory/refine.test.mjs` sai 0.
 - Extensão carregável por `pi` (flag `--mem-tokens` visível em `pi --help`).
+- `core/memory/embed.mjs` é determinístico, norma 1, e sem rede/dependências.
+- **Honestidade**: as três camadas são nomeadas e medidas separadamente; o glossário
+  não é chamado de "semântica"; há teste para sinônimo não coberto que deve dar vazio.
