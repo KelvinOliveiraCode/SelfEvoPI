@@ -44,6 +44,11 @@ import {
   visibleWidth,
   wrapAnsi,
   repl,
+  spinnerFrame,
+  renderThinking,
+  buildStatusLine,
+  renderPanel,
+  refreshStatus,
 } from "./cli.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -626,4 +631,117 @@ test("checkGoal mantém a goal quando o turno está em andamento", async () => {
   await checkGoal("ainda estou trabalhando nisso", () => {});
   assert.ok(getGoalState().goal); // continua ativa
   await runSlash("/goal", "clear", () => {}, { pi: null }); // limpa
+});
+
+
+/* ---------------------------------------------------------------- */
+/* TUI polida: spinner, raciocínio, painel, estados vazios          */
+/* ---------------------------------------------------------------- */
+
+test("spinnerFrame: determinístico e cicla os frames", () => {
+  const a = spinnerFrame(0);
+  const b = spinnerFrame(80);
+  const c = spinnerFrame(160);
+  assert.notEqual(a, b, "frame muda ao longo do tempo");
+  assert.notEqual(b, c, "frame muda de novo");
+  assert.equal(spinnerFrame(0), a, "t=0 é determinístico");
+  assert.ok("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏".includes(spinnerFrame(80 * 3)));
+});
+
+test("renderThinking: vazio → [] (não quebra)", () => {
+  assert.deepEqual(renderThinking(""), []);
+  assert.deepEqual(renderThinking(null), []);
+  assert.deepEqual(renderThinking("   "), []);
+});
+
+test("renderThinking: mostra rótulo e texto em cinza, ≤72 col", () => {
+  const lines = renderThinking("Estou analisando o arquivo de entrada com atenção.");
+  assert.ok(lines.length >= 2);
+  assert.match(stripAnsi(lines[0]), /raciocínio/);
+  for (const ln of lines) assert.ok(visibleWidth(ln) <= WIDTH, "linha do raciocínio ≤72");
+});
+
+test("buildStatusLine: mostra modo, permissão, modelo e raciocínio", () => {
+  const line = stripAnsi(buildStatusLine({ mode: "plan", permission: "full access", model: "claude-opus-5-5", reasoning: "high" }));
+  assert.match(line, /plan/);
+  assert.match(line, /full access/);
+  assert.match(line, /claude-opus-5-5/);
+  assert.match(line, /high/);
+});
+
+test("buildStatusLine: estados vazios não quebram", () => {
+  const line = stripAnsi(buildStatusLine({ mode: "build", permission: "full access" }));
+  assert.match(line, /build/);
+  assert.ok(line.length > 0);
+});
+
+test("renderPanel: mostra modo/permissão/modelo (pedido do usuário)", () => {
+  const lines = renderPanel(
+    { mode: "build", permission: "full access", model: "claude-opus-5-5", reasoning: "medium", context: "1k / 200k", sessionId: "abc12345", turns: 2 },
+    {},
+  ).map(stripAnsi);
+  const text = lines.join("\n");
+  assert.match(text, /modo:\s+build/);
+  assert.match(text, /permissão:\s+full access/);
+  assert.match(text, /modelo:\s+claude-opus-5-5/);
+  assert.match(text, /raciocínio:\s+medium/);
+  for (const ln of lines) assert.ok(visibleWidth(ln) <= WIDTH, "linha do painel ≤72: " + JSON.stringify(ln));
+});
+
+test("renderPanel: estados vazios (sem modelo/sessão) não quebram", () => {
+  const lines = renderPanel({ mode: "ask", permission: "full access" }, {}).map(stripAnsi);
+  const text = lines.join("\n");
+  assert.match(text, /modo:\s+ask/);
+  assert.match(text, /modelo:\s+—/);
+});
+
+test("refreshStatus com pi=null devolve estado sem lançar", async () => {
+  const st = await refreshStatus(null);
+  assert.equal(st.mode, "build");
+  assert.equal(st.permission, "full access");
+});
+
+test("--render panel e --render busy existem e ≤72 col", () => {
+  for (const screen of ["panel", "busy"]) {
+    const out = stripAnsi(execFileSync(process.execPath, [CLI, "--render", screen], { encoding: "utf8" }));
+    assert.ok(out.length > 0, screen + " tem saída");
+    for (const ln of out.split("\n")) {
+      assert.ok(visibleWidth(ln) <= WIDTH, `${screen} ≤72: ${JSON.stringify(ln)}`);
+    }
+    assert.ok(!/\bpi\b/.test(out.replace(/SelfEvoPI/g, "")), screen + " não cita o motor");
+  }
+});
+
+test("REPL: ctrl+o abre e fecha o painel; ctrl+c não mata", async () => {
+  const input = new EventEmitter();
+  input.setEncoding = () => {};
+  input.isTTY = true;
+  let all = "";
+  const p = repl({ pi: null, write: (s) => (all += s), input, setRaw: () => {}, data: {} });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  await sleep(20);
+  // boot: linha de status tem modo+permissão e a dica ctrl+o
+  const boot = stripAnsi(all);
+  assert.match(boot, /build · full access/);
+  assert.match(boot, /ctrl\+o painel/);
+  // ctrl+o abre
+  all = "";
+  input.emit("data", "\x0f");
+  await sleep(30);
+  assert.match(stripAnsi(all), /permissão:\s+full access/);
+  assert.match(stripAnsi(all), /modelo:/);
+  // ctrl+o fecha
+  all = "";
+  input.emit("data", "\x0f");
+  await sleep(30);
+  assert.doesNotMatch(stripAnsi(all), /permissão:/);
+  // ctrl+c não mata (dois toques: limpa linha, não sai)
+  all = "";
+  input.emit("data", "\x03");
+  await sleep(10);
+  input.emit("data", "\x03");
+  await sleep(20);
+  // sai com ctrl+d
+  input.emit("data", "\x04");
+  await p;
 });

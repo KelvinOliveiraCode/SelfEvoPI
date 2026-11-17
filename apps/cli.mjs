@@ -485,6 +485,7 @@ export function renderHelp() {
   out.push("");
   out.push(`  ${paint("escreva", "fg")} e Enter para falar; a resposta aparece em streaming.`);
   out.push(`  ${paint("Ctrl+C", "fg")} cancela a resposta em curso e devolve a linha.`);
+  out.push(`  ${paint("Ctrl+O", "fg")} abre/fecha o painel de estado (modo, permissão, modelo).`);
   out.push(`  ${paint("q", "fg")} / ${paint("/quit", "fg")} / ${paint("Ctrl+D", "fg")} saem.`);
   return out.map((line) => wrapAnsi(line, WIDTH)).join("\n");
 }
@@ -1138,6 +1139,7 @@ async function runMode(name, { out }) {
   const { resolveMode, guardWrite } = await import("../core/governance/modes.mjs");
   const m = resolveMode(name); // lança se desconhecido
   currentMode = m.name;
+  statusInfo.mode = m.name; // painel reflete o modo sem refresh completo
   const lines = [paint(`  modo: ${m.name}`, "bold")];
   lines.push(`    lê ${m.canRead ? "sim" : "não"} · escreve ${m.canWrite ? "sim" : "não"} · executa ${m.canExec ? "sim" : "não"} (${m.execScope})`);
   if (m.name === "plan") {
@@ -1242,6 +1244,138 @@ export async function runSlash(name, arg, out, ctx = {}) {
  * NÃO imprime erro: devolve `{ ok, error, text }` e quem chama decide (mostrar
  * o erro ou tentar outro modelo). `text` é o markdown final em caso de sucesso.
  */
+
+/* ------------------------------------------------------------------ */
+/* Spinner (indicador de andamento) e painel de estado                */
+/* ------------------------------------------------------------------ */
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_MS = 80;
+
+/** Frame do spinner como função pura do tempo (determinístico, testável). */
+export function spinnerFrame(t) {
+  const i = Math.floor((Number(t) || 0) / SPINNER_MS) % SPINNER_FRAMES.length;
+  return SPINNER_FRAMES[(i + SPINNER_FRAMES.length) % SPINNER_FRAMES.length];
+}
+
+/**
+ * Renderiza o raciocínio do modelo (thinking) em bloco discreto: rótulo
+ * sutil + texto em cinza, quebrado em WIDTH. Aceita o texto cru acumulado
+ * dos deltas "thinking_delta"; devolve [] quando não há nada.
+ */
+export function renderThinking(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return [];
+  const out = [paint("  ⤷ raciocínio", "muted")];
+  const inner = Math.max(20, WIDTH - 6);
+  for (const para of text.split(/\n{2,}/)) {
+    const flat = para.replace(/\s+/g, " ").trim();
+    if (!flat) continue;
+    for (const ln of wrapAnsi(flat, inner).split("\n")) out.push("    " + paint(ln, "dim"));
+  }
+  return out;
+}
+
+/**
+ * Spinner controlado: aparece com um rótulo, redesenha no lugar (sem piscar) e
+ * some no stop (limpa a linha). O timer é limpo ao parar/sair.
+ */
+function createSpinner(write) {
+  let timer = null;
+  let start = 0;
+  let label = "";
+  let active = false;
+  const render = () => {
+    const frame = spinnerFrame(Date.now() - start);
+    write("\r\x1b[2K  " + paint(frame, "fg") + " " + paint(label, "muted"));
+  };
+  return {
+    start(l) {
+      if (active) {
+        label = l;
+        render();
+        return;
+      }
+      label = l || "";
+      start = Date.now();
+      active = true;
+      render();
+      timer = setInterval(render, SPINNER_MS);
+      if (timer && typeof timer.unref === "function") timer.unref();
+    },
+    stop() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      if (active) write("\r\x1b[2K");
+      active = false;
+    },
+    get active() {
+      return active;
+    },
+  };
+}
+
+// Permissão do SelfEvoPI (postura da CLI). O modo (plan/build/ask) é ortogonal.
+let permissionMode = "full access";
+
+// Painel de estado (cacheado; atualizado por refreshStatus).
+let statusInfo = {
+  mode: currentMode,
+  permission: permissionMode,
+  model: null,
+  reasoning: null,
+  context: null,
+  sessionId: null,
+  turns: 0,
+};
+
+/** Atualiza o painel de estado a partir do motor (best-effort). */
+export async function refreshStatus(pi) {
+  statusInfo.mode = currentMode;
+  statusInfo.permission = permissionMode;
+  if (!pi) return statusInfo;
+  const st = await pi.getState().catch(() => ({}));
+  statusInfo.model = st && st.model ? `${st.model.provider}/${st.model.id}` : null;
+  statusInfo.reasoning = st && st.thinkingLevel ? st.thinkingLevel : null;
+  statusInfo.sessionId = st && st.sessionId ? st.sessionId : null;
+  const stats = await Promise.resolve(
+    pi._rpc && pi._rpc.getSessionStats && pi._rpc.getSessionStats(),
+  ).catch(() => ({}));
+  if (stats && stats.contextUsage) {
+    statusInfo.context = `${stats.contextUsage.tokens} / ${stats.contextUsage.contextWindow}`;
+  }
+  statusInfo.turns = Number(stats?.totalMessages) || 0;
+  return statusInfo;
+}
+
+/** Linha de status compacta (rodapé): modo · permissão · modelo · raciocínio. */
+export function buildStatusLine(info = statusInfo) {
+  const parts = [paint(info.mode, "fg"), paint(info.permission, "muted")];
+  if (info.model) parts.push(paint(info.model, "muted"));
+  if (info.reasoning) parts.push(paint("think:" + info.reasoning, "muted"));
+  return parts.join(" · ");
+}
+
+/** Painel completo (Ctrl+O): estado da conversa em detalhe. */
+export function renderPanel(info = statusInfo, data = {}) {
+  const base = data.baseline || readJson(BASELINE, {});
+  const t = base.totals || {};
+  const lines = [];
+  lines.push(paint("  painel", "fg"));
+  lines.push(`    modo:        ${paint(info.mode, "bold")}`);
+  lines.push(`    permissão:   ${paint(info.permission, "fg")}`);
+  lines.push(`    modelo:      ${paint(info.model || "—", "fg")}`);
+  lines.push(`    raciocínio:  ${info.reasoning || "—"}`);
+  if (info.context) lines.push(`    contexto:    ${info.context}`);
+    if (info.sessionId) lines.push(`    sessão:      ${String(info.sessionId).slice(0, 8)} · ${info.turns} turnos`);
+  if (t.taskRuns != null) lines.push(`    baseline:    ${t.passes}/${t.taskRuns}`);
+  lines.push("");
+  lines.push(paint("  ctrl+o fecha", "dim"));
+  return lines;
+}
+
 export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   const settleTimeoutMs = opts.settleTimeoutMs ?? 120_000;
   let buf = "";
@@ -1270,38 +1404,82 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     buf = "";
   };
 
+  // Spinner: aparece a cada turno, some quando o texto/ferramenta comanda.
+  const spin = createSpinner(write);
+  // Raciocínio (thinking_delta) vem no stream rpc interno; o wrapper PiClient
+  // não o repassa (normalizeEvent só deixa text_delta). Capturamos via _rpc.
+  let thinkBuf = "";
+  let thinkCommitted = false;
+  const commitThink = () => {
+    if (thinkCommitted || thinkBuf.trim() === "") return;
+    if (buf && buf.length > 0) return; // já há resposta; não injeta no meio
+    const lines = renderThinking(thinkBuf);
+    if (lines.length === 0) return;
+    thinkCommitted = true;
+    spin.stop();
+    write(lines.join("\n") + "\n");
+  };
+
   const offText = pi.on("text", (delta) => {
+    commitThink(); // raciocínio vem antes da resposta
+    spin.stop();
     buf += delta;
     redraw();
   });
   const offTool = pi.on("tool", (call) => {
     if (call.phase !== "start") return;
+    commitThink(); // raciocínio vem antes da chamada de ferramenta
+    spin.stop();
     flush();
     const argHint =
       call.args && typeof call.args === "object"
         ? Object.values(call.args).map((v) => String(v)).join(" ").replace(/\s+/g, " ").slice(0, 44)
         : "";
     write(`  ${paint("⏺", "fg")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
+    spin.start("executando " + String(call.name || "ferramenta"));
   });
   const offError = pi.on("error", (message) => {
     hadError = true;
     rawError = String(message || "");
+    spin.stop();
     flush();
   });
   const offSettled = pi.on("settled", (info) => {
+    spin.stop();
     if (info && info.aborted === true) aborted = true;
   });
 
+  // Toca o stream rpc interno para capturar thinking_delta (opcional).
+  let offThink = () => {};
+  try {
+    const rpc = pi && pi._rpc;
+    if (rpc && typeof rpc.onEvent === "function") {
+      offThink = rpc.onEvent((ev) => {
+        if (ev && ev.type === "message_update") {
+          const inner = ev.assistantMessageEvent;
+          if (inner && inner.type === "thinking_delta" && typeof inner.delta === "string") {
+            thinkBuf += inner.delta;
+          }
+        }
+      }) || (() => {});
+    }
+  } catch {
+    /* raciocínio é opcional; nunca derruba o turno */
+  }
+
   setBusy(true);
+  spin.start("pensando…");
   const settled = waitForSettle(pi, settleTimeoutMs); // arma o listener de settled ANTES do prompt
   try {
     await pi.prompt(text);
   } catch (err) {
+    spin.stop();
     flush();
     offText();
     offTool();
     offError();
     offSettled();
+    offThink();
     setBusy(false);
     return { ok: false, error: String(err?.message || "prompt"), text: "", aborted: false };
   }
@@ -1311,11 +1489,14 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   const wasError = hadError;
   const errText = rawError;
   const wasAborted = aborted;
+  spin.stop();
+  commitThink(); // mostra raciocínio de um turno sem texto (ex.: só ferramenta)
   flush();
   offText();
   offTool();
   offError();
   offSettled();
+  offThink();
   setBusy(false);
   if (wasError) {
     write("\n");
@@ -1616,10 +1797,18 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
   let histIdx = -1;
   let running = false;
   let quitting = false;
+  let panelOpen = false; // painel de estado (ctrl+o)
 
   const paletteWidth = () => {
     const cols = (process.stdout && process.stdout.columns) || 80;
     return Math.max(40, Math.min(cols - 4, 116));
+  };
+
+  const shortModel = (m) => {
+    if (!m) return null;
+    const parts = String(m).split("/");
+    const tail = parts[parts.length - 1] || String(m);
+    return tail.length > 24 ? tail.slice(0, 23) + "…" : tail;
   };
 
   // Redesenho incremental: limpa SÓ da linha de entrada para baixo.
@@ -1628,15 +1817,35 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     const filtered = open ? filterCommands(line.buf.slice(1)) : [];
     const sel = filtered.length ? Math.max(0, Math.min(line.sel, filtered.length - 1)) : 0;
     const paletteLines = open ? renderPalette(filtered, sel, paletteWidth()) : [];
-    const parts = [paint(currentMode, "fg")];
-    if (goalTag) parts.push(paint(goalTag, "warn"));
-    parts.push(paint(open ? "↑↓ navegar  enter escolher  esc fechar" : "enter enviar · / comandos · q sair", "dim"));
-    const footer = "  " + parts.join(" · ");
+
+    // Linha de status (sempre visível): modo · permissão · modelo · goal.
+    const statusParts = [paint(currentMode, "fg"), paint(permissionMode, "muted")];
+    const model = shortModel(statusInfo.model);
+    if (model) statusParts.push(paint(model, "muted"));
+    if (statusInfo.reasoning) statusParts.push(paint("think:" + statusInfo.reasoning, "muted"));
+    if (goalTag) statusParts.push(paint(goalTag, "warn"));
+    const statusLine = "  " + statusParts.join(" · ");
+
+    const keysLine = "  " + paint(
+      panelOpen
+        ? "ctrl+o fechar · enter enviar · q sair"
+        : open
+          ? "↑↓ navegar  enter escolher  esc fechar  ctrl+o painel"
+          : "enter enviar · / comandos · ctrl+o painel · q sair",
+      "dim",
+    );
+
+    // Linhas abaixo da entrada (redesenho incremental: limpa daqui para baixo).
+    const belowLines = [];
+    for (const pl of paletteLines) belowLines.push(pl);
+    if (panelOpen) for (const pl of renderPanel(statusInfo, data)) belowLines.push(pl);
+    belowLines.push(statusLine);
+    belowLines.push(keysLine);
+
     write("\r\x1b[J");
     write("  " + paint("›", "fg") + " " + line.buf);
-    for (const pl of paletteLines) write("\n" + pl);
-    write("\n" + footer);
-    const below = paletteLines.length + 1;
+    for (const bl of belowLines) write("\n" + bl);
+    const below = belowLines.length;
     if (below > 0) write(`\x1b[${below}A`);
     const col = 4 + line.cur;
     write("\r");
@@ -1704,6 +1913,11 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
   const onData = (chunk) => {
     for (const key of keymap(chunk)) {
       if (quitting) return;
+      if (key === "ctrl-o" && !running) {
+        panelOpen = !panelOpen;
+        drawInput();
+        continue;
+      }
       if (running) {
         if (key === "ctrl-c") {
           if (pi) pi.abort().catch(() => {});
@@ -1759,6 +1973,7 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
   setRaw(true);
   input.setEncoding("utf8");
   input.on("data", onData);
+  await refreshStatus(pi); // painel já nasce com modo/permissão/modelo
   prompt();
 
   return new Promise((resolve) => {
@@ -1828,6 +2043,10 @@ function makeKeyMap() {
       }
       if (code === 0x04) {
         yield "ctrl-d";
+        continue;
+      }
+      if (code === 0x0f) {
+        yield "ctrl-o";
         continue;
       }
       if (code === 0x0d || code === 0x0a) {
@@ -1920,8 +2139,42 @@ async function main() {
       `    modo:     ${paint(currentMode, "bold")}`,
       `    goal:     ${goalState && goalState.goal && goalState.goal.condition ? paint("◎ /goal active — " + goalState.goal.condition, "warn") : paint("(nenhuma)", "muted")}`,
     ].join("\n");
-    else {
-      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, help, banner, palette, palette-filtered, status)\n`);
+    else if (screen === "panel") {
+      const sample = {
+        mode: currentMode,
+        permission: permissionMode,
+        model: "anthropic/claude-opus-5-5",
+        reasoning: "medium",
+        context: "12.4k / 200k",
+        sessionId: "01a1ead6",
+        turns: 3,
+      };
+      frame = [
+        renderBanner(),
+        rule(),
+        renderStatusLine({ ...data, mode: currentMode }),
+        "",
+        ...renderPanel(sample, data),
+      ].join("\n");
+    } else if (screen === "busy") {
+      // Simula o rodapé com spinner + rótulos de estado (pensando / ferramenta).
+      const f = spinnerFrame(SPINNER_MS * 3);
+      frame = [
+        renderBanner(),
+        rule(),
+        renderStatusLine({ ...data, mode: currentMode }),
+        "",
+        "  " + paint("›", "fg") + " " + SAMPLE_QUESTION,
+        "",
+        "  " + paint(f, "fg") + " " + paint("pensando…", "muted"),
+        "  " + paint("⏺", "fg") + " " + paint("read".padEnd(10), "fg") + " " + paint("src/index.ts", "muted"),
+        "  " + paint(spinnerFrame(SPINNER_MS * 6), "fg") + " " + paint("executando read", "muted"),
+        "",
+        rule(),
+        "  " + buildStatusLine({ mode: currentMode, permission: permissionMode, model: "claude-opus-5-5", reasoning: "medium" }),
+      ].join("\n");
+    } else {
+      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, help, banner, palette, palette-filtered, status, panel, busy)\n`);
       process.exit(2);
     }
     process.stdout.write(frame + "\n");
