@@ -118,7 +118,7 @@ stdio não recebe flags; uma extensão não se executa pela linha de comando.
 
 ## 6. Meta-auditoria dos verificadores
 
-Uma suíte de 29 tarefas com 87/87 só vale se cada verificador **separe** uma resposta
+Uma suíte de 29 tarefas só vale se cada verificador **separe** uma resposta
 boa de uma ruim. A meta-auditoria (2026-11-16) atacou cada tarefa com uma **resposta
 degenerada**: um `cli.mjs` que imprime a saída esperada sem calcular nada.
 
