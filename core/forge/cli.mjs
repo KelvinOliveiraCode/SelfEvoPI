@@ -394,13 +394,22 @@ async function cmdAuto(args) {
       }
     : null;
 
+  // ids de tarefas de eval: uma falha de benchmark não é lacuna de ferramenta.
+  // --include-eval desliga o filtro (para diagnóstico do detector cru).
+  const { loadEvalTaskIds } = await import("./auto.mjs");
+  const evalTaskIds = args.flags["include-eval"] ? new Set() : await loadEvalTaskIds(TASKS_DIR);
+
   const passOpts = {
     ledger: LEDGER,
     threshold,
     maxGaps,
     auto,
     writeLedger,
-    onEvent: args.flags.json ? null : (e) => text(`  · ${e.event}${e.taskId ? ` (${e.taskId})` : ""}`),
+    evalTaskIds,
+    onEvent: args.flags.json ? null : (e) => {
+      if (e.event === "ignored") return; // resumo já mostra
+      text(`  · ${e.event}${e.taskId ? ` (${e.taskId})` : ""}`);
+    },
   };
 
   if (watch) {
@@ -433,7 +442,12 @@ async function cmdAuto(args) {
         }
       }
     } else if (out.dryRun) {
-      text("  nenhuma lacuna detectada — nada a fazer");
+      text(out.ignored && out.ignored.length > 0
+        ? `  nenhuma lacuna acionável (${out.ignored.length} ignorada(s))`
+        : "  nenhuma lacuna detectada — nada a fazer");
+    }
+    if (out.ignored && out.ignored.length > 0) {
+      for (const ig of out.ignored) text(`  · ignorado (${ig.reason}): ${ig.taskId}`);
     }
     if (out.skipped && out.skipped.length > 0) {
       for (const sk of out.skipped) text(`  pulado: ${sk.taskId ?? "?"} — ${sk.reason}`);

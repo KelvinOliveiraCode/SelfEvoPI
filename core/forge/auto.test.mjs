@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, readFile, readdir, stat, mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path, { join } from "node:path";
 
 import {
   runAutoPass,
@@ -11,6 +11,7 @@ import {
   isProtectedPath,
   PROTECTED_AREAS,
   readLedgerRows,
+  loadEvalTaskIds,
 } from "./auto.mjs";
 
 /* ------------------------------------------------------------------ */
@@ -333,4 +334,121 @@ test("--auto com gate verde: promote é chamado", async () => {
   assert.equal(promoteCalled, true, "promote deve ser chamado com gate verde");
 
   await rm(work, { recursive: true, force: true });
+});
+
+/* ------------------------------------------------------------------ */
+/* Filtro de tarefa de eval (mede o modelo, não o harness)             */
+/* ------------------------------------------------------------------ */
+
+test("loadEvalTaskIds lê ids de evals/tasks/*.json", async () => {
+  const dir = await tempDir();
+  await writeFile(join(dir, "D1-cria-soma.json"), JSON.stringify({ id: "D1-cria-soma", group: "D" }));
+  await writeFile(join(dir, "A1-router.json"), JSON.stringify([{ id: "A1-router" }, { id: "A2-backoff" }]));
+  await writeFile(join(dir, "lixo.json"), "não é json");
+  const ids = await loadEvalTaskIds(dir);
+  assert.ok(ids.has("D1-cria-soma"));
+  assert.ok(ids.has("A1-router"));
+  assert.ok(ids.has("A2-backoff"));
+  assert.equal(ids.has("lixo"), false);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loadEvalTaskIds devolve vazio quando o diretório não existe", async () => {
+  const ids = await loadEvalTaskIds(join(tmpdir(), "nao-existe-" + Date.now()));
+  assert.equal(ids.size, 0);
+});
+
+test("tool-failing de tarefa de eval é ignorado (visível, com motivo)", async () => {
+  let ran = false;
+  const out = await runAutoPass({
+    auto: true,
+    evalTaskIds: new Set(["D1-cria-soma"]),
+    detect: fakeDetect([
+      { kind: "tool-failing", taskId: "D1-cria-soma", capability: "ferramenta confiável", goal: "tornar D1 confiável" },
+    ]),
+    runEvolve: async () => { ran = true; return { outcome: "promoted" }; },
+    writeLedger: async () => {},
+  });
+
+  assert.equal(ran, false, "runEvolve NÃO deve ser chamado para tarefa de eval");
+  assert.equal(out.actions, 0);
+  assert.equal(out.considered, 0);
+  assert.equal(out.ignored.length, 1);
+  assert.equal(out.ignored[0].taskId, "D1-cria-soma");
+  assert.match(out.ignored[0].reason, /tarefa de eval/);
+});
+
+test("tool-failing de ferramenta real (não eval) continua acionável", async () => {
+  const out = await runAutoPass({
+    auto: false,
+    evalTaskIds: new Set(["D1-cria-soma"]), // D1 é eval, mas a lacuna é de outra task
+    detect: fakeDetect([
+      { kind: "tool-failing", taskId: "ferramenta-real", capability: "cli confiável", goal: "consertar ferramenta real" },
+    ]),
+  });
+
+  assert.equal(out.actions.length, 1);
+  assert.equal(out.ignored.length, 0);
+  assert.equal(out.actions[0].taskId, "ferramenta-real");
+});
+
+test("tool-missing de tarefa de eval NÃO é filtrado (sinal legítimo)", async () => {
+  // tool-missing com erro "no such tool" pode indicar ferramenta realmente ausente:
+  // o filtro é só para tool-failing, como pedido. Prova que não extrapolamos.
+  const out = await runAutoPass({
+    auto: false,
+    evalTaskIds: new Set(["D1-cria-soma"]),
+    detect: fakeDetect([
+      { kind: "tool-missing", taskId: "D1-cria-soma", capability: "capacidade ausente", goal: "cobrir capacidade" },
+    ]),
+  });
+
+  assert.equal(out.ignored.length, 0, "tool-missing não é filtrado");
+  assert.equal(out.actions.length, 1);
+  assert.equal(out.actions[0].gapKind, "tool-missing");
+});
+
+test("evalTaskIds como array também funciona", async () => {
+  const out = await runAutoPass({
+    auto: false,
+    evalTaskIds: ["D1-cria-soma", "D2-corrige-contador"],
+    detect: fakeDetect([
+      { kind: "tool-failing", taskId: "D2-corrige-contador", capability: "cap", goal: "g" },
+    ]),
+  });
+  assert.equal(out.ignored.length, 1);
+  assert.equal(out.actions.length, 0);
+});
+
+/* ------------------------------------------------------------------ */
+/* Falso positivo de projeto: ledger real                              */
+/* ------------------------------------------------------------------ */
+
+test("ledger real: D1 aparece como ignorada e zero acionável", async () => {
+  // Usa o ledger e o tasksDir reais do projeto (via caminhos relativos ao worktree).
+  const { fileURLToPath } = await import("node:url");
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const root = path.resolve(here, "..", "..");
+  const ledger = path.join(root, ".pi", "harness", "ledger", "evals.jsonl");
+  const tasksDir = path.join(root, "evals", "tasks");
+
+  const out = await runAutoPass({ ledger, tasksDir, auto: false, threshold: 3 });
+
+  // D1-cria-soma falhou >= 3x no ledger e é tarefa de eval: deve estar ignorada.
+  const d1 = out.ignored.find((i) => i.taskId === "D1-cria-soma");
+  assert.ok(d1, "D1-cria-soma deve aparecer como ignorada");
+  assert.match(d1.reason, /tarefa de eval/);
+  // Nenhuma lacuna acionável pode sobrar (a única era D1).
+  assert.equal(out.actions.length, 0, "zero lacuna acionável após filtrar tarefas de eval");
+});
+
+test("--include-eval (evalTaskIds vazio) faz D1 voltar a ser acionável", async () => {
+  const { fileURLToPath } = await import("node:url");
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const root = path.resolve(here, "..", "..");
+  const ledger = path.join(root, ".pi", "harness", "ledger", "evals.jsonl");
+
+  const out = await runAutoPass({ ledger, tasksDir: null, evalTaskIds: new Set(), auto: false, threshold: 3 });
+  // Sem o filtro, a falha de D1 aparece como lacuna acionável (comportamento cru).
+  assert.ok(out.actions.some((a) => a.taskId === "D1-cria-soma"), "sem filtro, D1 é acionável");
 });

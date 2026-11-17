@@ -29,7 +29,8 @@
  *zinho — quem chama (o CLI) injeta os defaults reais.
  */
 
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 
 /* ------------------------------------------------------------------ */
 /* Áreas protegidas                                                    */
@@ -89,6 +90,40 @@ export async function readLedgerRows(filePath) {
   return rows;
 }
 
+/**
+ * Ids das tarefas de eval (evals/tasks/*.json).
+ *
+ * Uma tarefa de eval mede o modelo/harness; ela não é uma ferramenta que
+ * "falta". Uma falha de benchmark (tool-failing) ali significa "o modelo
+ * errou a medição", não "falta capacidade ao harness" — e o auto-disparo
+ * não deve perseguir isso. Este conjunto é a interseção que evita o falso
+ * positivo, sem remover o detector tool-failing (que é correto para tool real).
+ *
+ * @param {string} tasksDir  diretório com os *.json de tarefas
+ * @returns {Promise<Set<string>>}
+ */
+export async function loadEvalTaskIds(tasksDir) {
+  const ids = new Set();
+  let files = [];
+  try {
+    files = await readdir(tasksDir);
+  } catch {
+    return ids;
+  }
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      const doc = JSON.parse(await readFile(join(tasksDir, f), "utf8"));
+      for (const t of Array.isArray(doc) ? doc : [doc]) {
+        if (t && typeof t.id === "string" && t.id.trim() !== "") ids.add(t.id.trim());
+      }
+    } catch {
+      // arquivo de tarefa corrompido não derruba a leitura
+    }
+  }
+  return ids;
+}
+
 /** O que a lacuna pede, em texto, para checar área protegida. */
 function gapText(gap) {
   if (!isPlainObject(gap)) return "";
@@ -123,6 +158,8 @@ export async function runAutoPass(opts = {}) {
     detect = null,
     runEvolve = null,
     writeLedger = null,
+    evalTaskIds = null,
+    tasksDir = null,
     now = () => new Date(),
     onEvent = null,
   } = opts;
@@ -149,11 +186,29 @@ export async function runAutoPass(opts = {}) {
   }
   const gaps = Array.isArray(det?.gaps) ? det.gaps : [];
 
+  // ids de tarefas de eval: default vem do tasksDir, se informado.
+  const evalIds = evalTaskIds instanceof Set
+    ? evalTaskIds
+    : new Set(Array.isArray(evalTaskIds) ? evalTaskIds.map(String) : []);
+  if (!(evalTaskIds instanceof Set) && !Array.isArray(evalTaskIds) && tasksDir) {
+    for (const id of await loadEvalTaskIds(tasksDir)) evalIds.add(id);
+  }
+
   const actions = [];
   const skipped = [];
+  const ignored = [];
   let considered = 0;
 
   for (const gap of gaps) {
+    // 1. Tarefa de eval: mede o modelo, não o harness. Uma falha de benchmark
+    //    (tool-failing) ali NÃO é lacuna de ferramenta — ignorar, visível.
+    if (gap.kind === "tool-failing" && gap.taskId && evalIds.has(gap.taskId)) {
+      const reason = "tarefa de eval, mede o modelo não o harness";
+      ignored.push({ taskId: gap.taskId, kind: gap.kind, capability: gap.capability, reason });
+      emit({ event: "ignored", taskId: gap.taskId, reason });
+      continue;
+    }
+
     // 2. Trava de área protegida: recusa, não contorna.
     if (isProtectedPath(gapText(gap))) {
       const reason = `lacuna aponta para área protegida (${PROTECTED_AREAS.join(", ")}) — recusada`;
@@ -181,7 +236,7 @@ export async function runAutoPass(opts = {}) {
 
   // 4. Dry-run: só o plano. Nada é escrito, nada é promovido.
   if (dryRun) {
-    return { ok: true, dryRun: true, scanned: det?.scanned ?? null, considered, actions, skipped };
+    return { ok: true, dryRun: true, scanned: det?.scanned ?? null, considered, actions, skipped, ignored };
   }
 
   // 5. --auto: executa cada plano pelo loop, com promote real.
@@ -227,6 +282,7 @@ export async function runAutoPass(opts = {}) {
     actions: actions.length,
     results,
     skipped,
+    ignored,
   };
 }
 
@@ -314,4 +370,4 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
 
-export default { runAutoPass, runWatch, isProtectedPath, PROTECTED_AREAS, readLedgerRows };
+export default { runAutoPass, runWatch, isProtectedPath, PROTECTED_AREAS, readLedgerRows, loadEvalTaskIds };

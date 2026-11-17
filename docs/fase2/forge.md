@@ -388,7 +388,24 @@ O gatilho é o `tool-failing` do `detect.mjs`: mesma `taskId` com ≥ `threshold
 falhas (default 3) no ledger. Ele não gera falso positivo porque exige **evidência
 acumulada** (três execuções que falharam de verdade), não um palpite — ausência de
 catálogo não é lacuna (`tool-missing` só dispara com evidência explícita no
-registro). No ledger real, isso produz 1 lacuna real (D1-cria-soma) em vez de dezenas.
+registro).
+
+### Tarefa de eval não é lacuna
+
+Uma **tarefa de eval** (`evals/tasks/*.json`) mede o modelo/harness; ela não é uma
+ferramenta que "falta". Se D1 falha 4 vezes, isso significa "o modelo errou o
+benchmark", não "falta capacidade ao harness" — e o auto-disparo não deve perseguir
+isso (geraria artefato para consertar uma medição e queimaria token).
+
+Por isso o `runAutoPass` filtra `tool-failing` cujo `taskId` seja tarefa de eval:
+a lacuna fica **visível no dry-run, marcada como ignorada e com o motivo**
+(`· ignorado (tarefa de eval, mede o modelo não o harness): D1-cria-soma`). Ignorar
+em silêncio seria pior que o falso positivo. O filtro é **só para `tool-failing`**:
+`tool-missing` com erro "no such tool" pode indicar ferramenta realmente ausente e
+não é filtrado. `--include-eval` desliga o filtro (para diagnóstico do detector cru).
+
+No ledger real, isso reduz o auto a **zero lacuna acionável** (a única era D1, que
+é medição) — o auto-disparo não queima token perseguindo benchmark.
 
 ## Pendências
 
@@ -399,5 +416,6 @@ registro). No ledger real, isso produz 1 lacuna real (D1-cria-soma) em vez de de
 - [x] Geradores dos cinco kinds (`mcp-config`, `skill`, `cli`, `extension`, `mcp-server`).
 - [x] Gerador com modelo (`generate-llm.mjs`) + testes de interface sintetizados.
 - [x] Auto-disparo (`auto.mjs` + `cli.mjs auto`): dry-run por padrão, --auto com travas.
+- [x] Filtro de tarefa de eval: falha de benchmark não vira lacuna de ferramenta.
 - [ ] Etapa 5 (sandbox Windows) — fase posterior, com Job Objects + `cc-safety-net`.
 - [ ] Indexação semântica do registro (Voyager-style) na promoção.
