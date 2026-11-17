@@ -383,3 +383,17 @@
 {"at":"2026-11-17T12:59:12.124Z","taskId":"C4-docs-present","group":"C","passed":true,"durationMs":386,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"docs":7,"missing":0}}
 {"at":"2026-11-17T12:59:12.332Z","taskId":"C5-graph-model","group":"C","passed":true,"durationMs":206,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"casos":7}}
 {"at":"2026-11-17T12:59:12.628Z","taskId":"C6-forge-contract","group":"C","passed":true,"durationMs":271,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"casos":10}}
+{"at":"2026-11-17T14:27:53.074Z","taskId":"A1-router-reviewer","group":"A","passed":true,"durationMs":108,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"picks":20}}
+{"at":"2026-11-17T14:27:53.191Z","taskId":"A2-router-backoff","group":"A","passed":true,"durationMs":112,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"attempts":8,"cap":8000}}
+{"at":"2026-11-17T14:27:53.308Z","taskId":"A3-circuit-breaker","group":"A","passed":true,"durationMs":115,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"failures":3}}
+{"at":"2026-11-17T14:27:53.419Z","taskId":"A4-retry-policy","group":"A","passed":true,"durationMs":109,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"attempts":3}}
+{"at":"2026-11-17T14:27:53.610Z","taskId":"A5-router-budget","group":"A","passed":true,"durationMs":189,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"verificacoes":4}}
+{"at":"2026-11-17T14:27:53.732Z","taskId":"A6-router-pick-with-retry","group":"A","passed":true,"durationMs":119,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"verificacoes":4}}
+{"at":"2026-11-17T14:27:53.866Z","taskId":"A7-router-from-config","group":"A","passed":true,"durationMs":130,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"picks":12}}
+{"at":"2026-11-17T14:27:53.999Z","taskId":"A8-forge-choose-kind","group":"A","passed":true,"durationMs":130,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"casos":7}}
+{"at":"2026-11-17T14:27:54.392Z","taskId":"C1-gitignore-secrets","group":"C","passed":true,"durationMs":251,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"rules":7,"trackedFiles":204}}
+{"at":"2026-11-17T14:27:54.964Z","taskId":"C2-no-secrets-tracked","group":"C","passed":true,"durationMs":567,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"git":true,"trackedFiles":203,"skipped":0}}
+{"at":"2026-11-17T14:27:55.720Z","taskId":"C3-router-unit-tests","group":"C","passed":true,"durationMs":753,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"tests":15,"passed":15,"failures":0,"durationMs":484}}
+{"at":"2026-11-17T14:27:55.853Z","taskId":"C4-docs-present","group":"C","passed":true,"durationMs":131,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"docs":7,"missing":0}}
+{"at":"2026-11-17T14:27:56.086Z","taskId":"C5-graph-model","group":"C","passed":true,"durationMs":230,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"casos":7}}
+{"at":"2026-11-17T14:27:56.291Z","taskId":"C6-forge-contract","group":"C","passed":true,"durationMs":202,"tokens":0,"costUsd":0,"attempt":1,"runner":"local","error":null,"metrics":{"casos":10}}
