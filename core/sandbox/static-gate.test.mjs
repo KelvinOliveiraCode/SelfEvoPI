@@ -81,6 +81,10 @@ const CASOS = [
   ["secret-env-read", `const t = process.env.GITHUB_TOKEN;`],
   ["secret-env-read", `const k = process.env["OPENAI_API_KEY"];`],
   ["embedded-secret", `const k = "sk-abcdefghijklmnopqrstuvwx";`],
+  ["pi-state-access", `fs.readFileSync(".pi/settings.json");`],
+  ["pi-state-access", `fs.readFileSync("C:\\\\Users\\\\exemplo\\\\proj\\\\.pi\\\\settings.json");`],
+  ["pi-state-access", `fs.readFileSync(path.join(os.homedir(), ".pi", "agent", "models.json"));`],
+  ["pi-state-access", `fs.readFileSync(path.join(root, ".pi", "settings.local.json"));`],
   ["pi-config-access", `const h = fs.readFileSync(".pi/harness/last-known-good.json");`],
   ["outside-workspace-path", `fs.readFileSync("D:\\\\dados\\\\relatorio.csv");`],
   ["process-env-read", `const home = process.env.HOME;`],
@@ -112,6 +116,37 @@ test("numero da linha aponta a linha certa", () => {
 /* ------------------------------------------------------------------ */
 /* Severidade: o que bloqueia, o que só avisa                          */
 /* ------------------------------------------------------------------ */
+
+test("pi-state-access bloqueia settings e .pi/agent em qualquer formato", () => {
+  const ataques = [
+    `fs.readFileSync(".pi/settings.json");`,
+    `fs.readFileSync(".pi/settings.local.json");`,
+    `fs.readFileSync("C:\\\\Users\\\\exemplo\\\\.pi\\\\settings.json");`,
+    `fs.readFileSync(path.join(os.homedir(), ".pi", "settings.json"));`,
+    `fs.readFileSync(path.join(os.homedir(), ".pi", "agent", "auth.json"));`,
+    `fs.readFileSync(path.join(os.homedir(), ".pi", "agent", "models.json"));`,
+  ];
+  for (const code of ataques) {
+    const vs = scanSource(code, { workspace: WS });
+    const bloqueio = vs.some((v) => v.severity === "block" && (v.rule === "pi-state-access" || v.rule === "credential-store"));
+    assert.ok(bloqueio, `deveria bloquear: ${code} -> ${JSON.stringify(vs.map((v) => v.rule))}`);
+  }
+});
+
+test("pi-state-access nao bloqueia .pi/harness, .pi/npm nem codigo normal", () => {
+  const legitimos = [
+    `fs.readFileSync(".pi/harness/last-known-good.json");`,
+    `fs.readFileSync(path.join(root, ".pi", "harness", "ledger", "evals.jsonl"));`,
+    `fs.readFileSync(".pi/npm/package.json");`,
+    `fs.readFileSync("package.json");`,
+    `const total = 1 + 1; export default total;`,
+  ];
+  for (const code of legitimos) {
+    const vs = scanSource(code, { workspace: WS });
+    const bloqueou = vs.some((v) => v.severity === "block");
+    assert.equal(bloqueou, false, `bloqueou codigo legitimo: ${code} -> ${JSON.stringify(vs.map((v) => v.rule))}`);
+  }
+});
 
 test("cada regra esta declarada como block ou warn", () => {
   for (const r of RULES) {

