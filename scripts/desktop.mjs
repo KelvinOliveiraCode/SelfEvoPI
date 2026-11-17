@@ -617,33 +617,58 @@ function chatPage(m) {
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);
     font:400 15.5px/1.6 var(--font);-webkit-font-smoothing:antialiased}
-  .app{height:100%;display:flex;flex-direction:column;max-width:900px;margin:0 auto;padding:0 16px}
+  .app{height:100%;display:flex;flex-direction:column;max-width:980px;margin:0 auto;padding:0 16px}
 
-  header{height:56px;flex:0 0 auto;display:flex;align-items:center;gap:12px;
+  /* header 56 px */
+  header{height:56px;flex:0 0 auto;display:flex;align-items:center;gap:10px;
     border-bottom:1px solid var(--line)}
   header .logo{width:30px;height:30px;color:#fff;flex:0 0 auto}
   header .logo svg{width:100%;height:100%;display:block}
-  header h1{font-size:16px;font-weight:500;letter-spacing:-0.01em;margin:0}
-  header .host{margin-left:auto;display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px}
-  header .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block}
+  header h1{font-size:16px;font-weight:500;letter-spacing:-0.01em;margin:0;white-space:nowrap}
+  header .spacer{margin-left:auto}
+  header .host{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px;white-space:nowrap}
+  header .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;flex:0 0 auto}
+  header .dot.ok{background:var(--ok)} header .dot.warn{background:var(--warn)}
   header a{color:var(--muted);text-decoration:none;font-size:12.5px;padding:6px 8px;border-radius:6px;
     transition:background-color var(--t) var(--ease),color var(--t) var(--ease)}
   header a:hover{background:var(--bg-3);color:var(--fg)}
+
+  /* painel de estado sempre visível */
+  .statusbar{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;
+    padding:8px 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:12.5px}
+  .statusbar .item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .statusbar b{color:var(--fg);font-weight:500}
+  .statusbar .modes{display:inline-flex;gap:2px;background:var(--bg-2);border:1px solid var(--line);border-radius:999px;padding:2px}
+  .statusbar .modes button{background:transparent;border:none;color:var(--muted);font:400 11.5px/1 var(--font);
+    padding:4px 9px;border-radius:999px;cursor:pointer;transition:background-color var(--t) var(--ease),color var(--t) var(--ease)}
+  .statusbar .modes button[aria-pressed="true"]{background:var(--bg-3);color:var(--fg)}
 
   main{flex:1 1 auto;overflow-y:auto;padding:20px 0 8px;display:flex;flex-direction:column;gap:18px}
 
   .msg{display:flex;flex-direction:column;gap:4px}
   .msg .who{font-size:11.5px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;font-weight:500}
-  .msg .body{white-space:normal}
   .msg.you .body{color:var(--fg)}
   .msg.agent .body{color:var(--fg)}
   .msg .body strong{font-weight:500}
   .msg .body code{background:var(--bg-3);padding:1px 5px;border-radius:4px;font-size:.92em}
 
+  /* raciocínio: discreto, em cinza */
+  .reason{margin:2px 0 4px;padding-left:10px;border-left:2px solid var(--line);
+    color:var(--muted);font-size:13.5px;font-style:italic;white-space:pre-wrap}
+  .reason .lbl{font-style:normal;font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.8}
+
   .tool{margin-top:6px;color:var(--muted);font-size:13px;display:flex;align-items:baseline;gap:7px}
   .tool .sym{color:var(--muted)}
   .tool .tn{font-weight:500;color:var(--fg)}
   .tool .ta{opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60ch}
+
+  /* indicador de andamento: algo se move quando o turno roda */
+  .working{display:none;align-items:center;gap:8px;color:var(--muted);font-size:13.5px}
+  .working.on{display:flex}
+  .working .pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);opacity:.25;
+    transition:opacity var(--t) var(--ease)}
+  .working.on .pulse{opacity:1}
+  .working .dots{font-family:ui-monospace,monospace;letter-spacing:1px}
 
   .composer{flex:0 0 auto;padding:10px 0 6px;border-top:1px solid var(--line);background:var(--bg)}
   .actions{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
@@ -664,6 +689,30 @@ function chatPage(m) {
   footer{flex:0 0 auto;padding:8px 0 12px;color:var(--muted);font-size:12px;display:flex;
     justify-content:space-between;gap:12px;flex-wrap:wrap}
   .dot-sep{opacity:.5;padding:0 4px}
+  kbd{font:400 11px/1 ui-monospace,monospace;background:var(--bg-2);border:1px solid var(--line);
+    border-radius:4px;padding:1px 5px;color:var(--fg)}
+
+  /* painel lateral de skills/MCP */
+  .drawer{position:fixed;top:0;right:0;height:100%;width:min(420px,92vw);background:var(--bg-2);
+    border-left:1px solid var(--line);transform:translateX(100%);
+    transition:transform var(--t) var(--ease);display:flex;flex-direction:column;z-index:20}
+  .drawer.open{transform:translateX(0)}
+  .drawer header{border-bottom:1px solid var(--line);padding:14px 16px;align-items:center}
+  .drawer .body{overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:16px}
+  .drawer h2{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+    font-weight:500;margin:0 0 8px}
+  .drawer .row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .drawer .row:last-child{border-bottom:none}
+  .drawer .name{font-weight:500}
+  .drawer .tag{font-size:11px;color:var(--muted)}
+  .drawer .tag.warn{color:var(--warn)}
+  pre.log{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;
+    font:400 11.5px/1.5 ui-monospace,monospace;color:var(--muted);white-space:pre-wrap;
+    max-height:220px;overflow:auto;margin:0}
+  .drawer .copy{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;
+    padding:5px 10px;font:400 11.5px/1 var(--font);cursor:pointer;margin-top:8px}
+  .drawer .copy:hover{background:var(--bg-3)}
+  .empty{color:var(--muted);font-size:13px}
 </style>
 </head>
 <body>
@@ -671,9 +720,26 @@ function chatPage(m) {
   <header>
     <span class="logo">${LOGO_HEADER ?? ""}</span>
     <h1>SelfEvoPI</h1>
-    <span class="host"><span class="dot"></span>127.0.0.1:${PORT}</span>
+    <span class="spacer"></span>
+    <span class="host"><span class="dot" id="hdot"></span><span id="host">127.0.0.1:${PORT}</span></span>
+    <a href="#" id="openDrawer">skills</a>
     <a href="/panel">painel</a>
   </header>
+
+  <div class="statusbar" id="statusbar">
+    <span class="item">modo
+      <span class="modes" id="modes">
+        <button data-mode="plan">plan</button>
+        <button data-mode="build">build</button>
+        <button data-mode="ask">ask</button>
+      </span>
+    </span>
+    <span class="item">permissão <b id="perm">—</b></span>
+    <span class="item">modelo <b id="model">—</b></span>
+    <span class="item">effort <b id="effort">—</b></span>
+    <span class="item">cap. <b id="caps">—</b></span>
+    <span class="item" id="reasonWrap">raciocínio <b id="reason">—</b></span>
+  </div>
 
   <main id="log"></main>
 
@@ -691,15 +757,22 @@ function chatPage(m) {
 
   <footer>
     <span>${m.passes}/${m.baselineRuns} baseline<span class="dot-sep">·</span>${tests} testes<span class="dot-sep">·</span>${cold}</span>
-    <span>enter envia<span class="dot-sep">·</span>shift+enter quebra</span>
+    <span><kbd>/</kbd> commands<span class="dot-sep">·</span><kbd>@</kbd> files<span class="dot-sep">·</span><kbd>!</kbd> shell<span class="dot-sep">·</span>enter envia</span>
   </footer>
 </div>
+
+<aside class="drawer" id="drawer">
+  <header><h2>skills &amp; MCP</h2><span class="spacer"></span><a href="#" id="closeDrawer">fechar</a></header>
+  <div class="body" id="drawerBody"></div>
+</aside>
 
 <script>
 const log = document.getElementById("log");
 const input = document.getElementById("input");
 const msgs = [];
 let streaming = false;
+let mode = "build";
+let permission = "ask";
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -723,24 +796,58 @@ function render() {
 
     const body = document.createElement("div");
     body.className = "body";
+
+    if (m.reasoning) {
+      const r = document.createElement("div");
+      r.className = "reason";
+      r.innerHTML = "<span class='lbl'>raciocínio</span><br>" + esc(m.reasoning);
+      body.appendChild(r);
+    }
+
     if (m.role === "you") {
-      body.textContent = m.text;
+      const t = document.createElement("span");
+      t.textContent = m.text;
+      body.appendChild(t);
     } else {
-      body.innerHTML = md(m.text);
-      for (const t of m.tools) {
-        const line = document.createElement("div");
-        line.className = "tool";
-        line.innerHTML = "<span class='sym'>⏺</span><span class='tn'>" + esc(t.name) +
-          "</span>" + (t.arg ? "<span class='ta'>" + esc(t.arg) + "</span>" : "");
-        body.appendChild(line);
-      }
+      const t = document.createElement("span");
+      t.innerHTML = md(m.text);
+      body.appendChild(t);
+    }
+
+    for (const tool of (m.tools || [])) {
+      const line = document.createElement("div");
+      line.className = "tool";
+      line.innerHTML = "<span class='sym'>⏺</span><span class='tn'>" + esc(tool.name) +
+        "</span>" + (tool.arg ? "<span class='ta'>" + esc(tool.arg) + "</span>" : "");
+      body.appendChild(line);
+    }
+
+    if (m.role === "agent" && m === currentAgent() && streaming) {
+      const w = document.createElement("div");
+      w.className = "working on";
+      w.innerHTML = "<span class='pulse'></span><span>trabalhando<span class='dots' id='dots'></span></span>";
+      body.appendChild(w);
     }
 
     wrap.appendChild(who);
     wrap.appendChild(body);
     log.appendChild(wrap);
   }
+  animateDots();
   log.scrollTop = log.scrollHeight;
+}
+
+let dotTimer = null;
+function animateDots() {
+  if (dotTimer) { clearInterval(dotTimer); dotTimer = null; }
+  if (!streaming) return;
+  const el = document.getElementById("dots");
+  if (!el) return;
+  let n = 0;
+  dotTimer = setInterval(() => {
+    n = (n + 1) % 4;
+    if (el.isConnected) el.textContent = ".".repeat(n);
+  }, 400);
 }
 
 function currentAgent() {
@@ -757,7 +864,7 @@ async function send(text) {
   const msg = String(text || "").trim();
   if (!msg || streaming) return;
   msgs.push({ role: "you", text: msg });
-  const agent = { role: "agent", text: "", tools: [] };
+  const agent = { role: "agent", text: "", tools: [], reasoning: "" };
   msgs.push(agent);
   streaming = true;
   input.value = "";
@@ -768,7 +875,7 @@ async function send(text) {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: msg }),
+      body: JSON.stringify({ message: msg, mode }),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
@@ -785,19 +892,33 @@ async function send(text) {
   }
 }
 
+/* ---- SSE: texto, ferramenta, raciocínio, fim, erro ---- */
 const es = new EventSource("/api/chat/stream");
+
 es.addEventListener("text", (e) => {
   let d = {};
   try { d = JSON.parse(e.data); } catch { return; }
   const a = currentAgent();
   if (a && typeof d.delta === "string") { a.text += d.delta; render(); }
 });
+
+es.addEventListener("thinking", (e) => {
+  let d = {};
+  try { d = JSON.parse(e.data); } catch { return; }
+  const a = currentAgent();
+  if (a && typeof d.delta === "string") {
+    a.reasoning = (a.reasoning || "") + d.delta;
+    render();
+  }
+});
+
 es.addEventListener("tool", (e) => {
   let d = {};
   try { d = JSON.parse(e.data); } catch { return; }
   const a = currentAgent();
   if (a) { a.tools.push({ name: d.name || "tool", arg: d.arg || "" }); render(); }
 });
+
 es.addEventListener("error", (e) => {
   let d = {};
   try { d = JSON.parse(e.data); } catch { return; }
@@ -808,10 +929,126 @@ es.addEventListener("error", (e) => {
     render();
   }
 });
+
 es.addEventListener("settled", () => {
   streaming = false;
+  render();
   input.focus();
 });
+
+/* ---- painel de estado ---- */
+async function loadStatus() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    document.getElementById("model").textContent = s.model || (s.available ? "padrão" : "desligado");
+    document.getElementById("effort").textContent = s.thinkingLevel || "—";
+    const caps = Array.isArray(s.capabilities) && s.capabilities.length ? s.capabilities.join(", ") : "—";
+    document.getElementById("caps").textContent = caps;
+    const rr = document.getElementById("reasonWrap");
+    if (s.available === false) {
+      document.getElementById("reason").textContent = "desligado";
+    } else if (s.reasoning) {
+      document.getElementById("reason").textContent = "exposto";
+    } else {
+      document.getElementById("reason").textContent = "modelo não expõe";
+    }
+    document.getElementById("perm").textContent = permission;
+    const dot = document.getElementById("hdot");
+    dot.className = "dot " + (s.isStreaming || streaming ? "ok" : "");
+  } catch (e) { /* mantém o último */ }
+}
+
+/* ---- modos e permissão ---- */
+document.querySelectorAll("#modes button").forEach((b) => {
+  b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+  b.addEventListener("click", () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll("#modes button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  });
+});
+
+/* ---- drawer de skills/MCP ---- */
+const drawer = document.getElementById("drawer");
+document.getElementById("openDrawer").addEventListener("click", (e) => {
+  e.preventDefault();
+  drawer.classList.add("open");
+  loadIntegrations();
+});
+document.getElementById("closeDrawer").addEventListener("click", (e) => {
+  e.preventDefault();
+  drawer.classList.remove("open");
+});
+
+async function loadIntegrations() {
+  const body = document.getElementById("drawerBody");
+  let d;
+  try {
+    d = await (await fetch("/api/integrations")).json();
+  } catch (e) {
+    body.innerHTML = "<div class='empty'>não consegui ler as integrações.</div>";
+    return;
+  }
+  body.innerHTML = "";
+
+  const skills = document.createElement("section");
+  skills.innerHTML = "<h2>skills (" + (d.skills || []).length + ")</h2>";
+  if (!d.skills || d.skills.length === 0) {
+    skills.innerHTML += "<div class='empty'>nenhuma skill configurada.</div>";
+  } else {
+    for (const s of d.skills) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = "<span class='name'>" + esc(s.name) + "</span><span class='tag'>" + esc(s.description || "") + "</span>";
+      skills.appendChild(row);
+    }
+  }
+  body.appendChild(skills);
+
+  const mcp = document.createElement("section");
+  mcp.innerHTML = "<h2>mcp (" + (d.mcp || []).length + ")</h2>";
+  if (!d.mcp || d.mcp.length === 0) {
+    mcp.innerHTML += "<div class='empty'>nenhum servidor MCP configurado.</div>";
+  } else {
+    for (const s of d.mcp) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const cls = s.status === "configurado" ? "" : " warn";
+      row.innerHTML = "<span class='name'>" + esc(s.name) + "</span><span class='tag" + cls + "'>" + esc(s.status) + " · " + esc(s.transport || "") + "</span>";
+      mcp.appendChild(row);
+    }
+  }
+  if (d.mcpErrors && d.mcpErrors.length) {
+    const h = document.createElement("h2");
+    h.textContent = "falhas";
+    h.style.marginTop = "14px";
+    mcp.appendChild(h);
+    const pre = document.createElement("pre");
+    pre.className = "log";
+    pre.textContent = d.mcpErrors.join("\\n");
+    mcp.appendChild(pre);
+    const btn = document.createElement("button");
+    btn.className = "copy";
+    btn.textContent = "copiar log";
+    btn.addEventListener("click", () => navigator.clipboard?.writeText(d.mcpErrors.join("\\n")));
+    mcp.appendChild(btn);
+  }
+  if (d.stderr && d.stderr.trim()) {
+    const h = document.createElement("h2");
+    h.textContent = "log do processo";
+    h.style.marginTop = "14px";
+    mcp.appendChild(h);
+    const pre = document.createElement("pre");
+    pre.className = "log";
+    pre.textContent = d.stderr;
+    mcp.appendChild(pre);
+    const btn = document.createElement("button");
+    btn.className = "copy";
+    btn.textContent = "copiar";
+    btn.addEventListener("click", () => navigator.clipboard?.writeText(d.stderr));
+    mcp.appendChild(btn);
+  }
+  body.appendChild(mcp);
+}
 
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -822,10 +1059,16 @@ input.addEventListener("keydown", (e) => {
 input.addEventListener("input", resize);
 
 document.querySelectorAll("button[data-send]").forEach((b) => {
-  b.addEventListener("click", () => send(b.dataset.send));
+  b.addEventListener("click", () => {
+    const cmd = b.dataset.send;
+    if (permission === "ask" && !confirm("Rodar " + cmd + "?")) return;
+    send(cmd);
+  });
 });
 
 render();
+loadStatus();
+setInterval(loadStatus, 3000);
 input.focus();
 </script>
 </body>
@@ -837,6 +1080,20 @@ input.focus();
 /* ------------------------------------------------------------------ */
 
 /**
+ * Modos da conversa. É um conceito do SelfEvoPI (não do motor): muda a
+ * diretiva enviada com cada turno, e o painel mostra qual está ativo.
+ */
+export const MODES = Object.freeze({
+  ask: "Responda apenas com explicação, sem executar ferramentas.",
+  plan: "Antes de agir, descreva o plano em passos curtos e espere confirmação.",
+  build: "",
+});
+
+function modeDirective(mode) {
+  return MODES[mode] ?? MODES.build;
+}
+
+/**
  * Um único cliente de conversa por processo — é a mesma camada que a CLI usa
  * (`core/agent/pi-rpc.mjs`). O front-end nunca fala do motor: quem traduz
  * evento é o cliente; aqui só viramos evento em SSE.
@@ -844,6 +1101,7 @@ input.focus();
 let piClient = null;
 let piPromise = null;
 let turnRunning = false;
+let currentMode = "build";
 const sseClients = new Set();
 
 async function ensurePi() {
@@ -852,6 +1110,22 @@ async function ensurePi() {
     piPromise = createPiClient({ cwd: ROOT, ...(MODEL ? { model: MODEL } : {}) }).then(
       (c) => {
         piClient = c;
+        // raciocínio: o cliente normalizado descarta thinking_delta; assinamos o
+        // stream cru para mostrar o pensamento (discreto). Se o motor não emitir,
+        // simplesmente não chega nada — e o painel diz "não exposto".
+        try {
+          const raw = c._rpc;
+          if (raw && typeof raw.onEvent === "function") {
+            raw.onEvent((ev) => {
+              const inner = ev?.assistantMessageEvent;
+              if (ev?.type === "message_update" && inner?.type === "thinking_delta" && typeof inner.delta === "string") {
+                broadcast("thinking", { delta: inner.delta });
+              }
+            });
+          }
+        } catch {
+          /* sem acesso ao cru: raciocínio fica "não exposto" */
+        }
         return c;
       },
       (err) => {
@@ -861,6 +1135,81 @@ async function ensurePi() {
     );
   }
   return piPromise;
+}
+
+/** Estado do motor para o painel (modelo, effort, streaming, capacidades). */
+async function piState() {
+  try {
+    const client = await ensurePi();
+    const st = (await client._rpc.getState()) ?? {};
+    const model = st.model ?? null;
+    const caps = Array.isArray(model?.input) ? model.input.map(String) : [];
+    return {
+      available: true,
+      model: model ? model.name || model.id || null : null,
+      modelId: model?.id ?? null,
+      provider: model?.provider ?? null,
+      thinkingLevel: st.thinkingLevel ?? null,
+      reasoning: model?.reasoning === true,
+      capabilities: caps,
+      isStreaming: st.isStreaming === true,
+      sessionId: st.sessionId ?? null,
+      messageCount: st.messageCount ?? 0,
+    };
+  } catch (err) {
+    return { available: false, reason: productError(err) };
+  }
+}
+
+/** Skills (via comandos do motor) e MCP (via configuração), com falhas e log. */
+async function integrations() {
+  const out = { skills: [], mcp: [], stderr: "", source: "motor" };
+  try {
+    const client = await ensurePi();
+    const res = await client._rpc.getCommands();
+    const cmds = Array.isArray(res) ? res : Array.isArray(res?.commands) ? res.commands : [];
+    out.skills = cmds
+      .filter((c) => c && (c.source === "skill" || String(c.name || "").startsWith("skill:")))
+      .map((c) => ({
+        name: String(c.name || "").replace(/^skill:/, ""),
+        description: c.description ? String(c.description).slice(0, 120) : "",
+      }));
+    try {
+      out.stderr = String(client._rpc.getStderr?.() ?? "").slice(-4000);
+    } catch {
+      out.stderr = "";
+    }
+  } catch (err) {
+    out.error = productError(err);
+  }
+
+  // MCP: configuração do projeto e do usuário (caminhos fixos, nunca entrada HTTP)
+  const candidates = [path.join(ROOT, ".pi", "settings.json")];
+  const home = process.env.USERPROFILE || process.env.HOME;
+  if (home) candidates.push(path.join(home, ".pi", "agent", "settings.json"));
+  const seen = new Set();
+  for (const file of candidates) {
+    const doc = await readJson(file, null).catch(() => null);
+    const servers = doc?.mcp?.servers;
+    if (!servers || typeof servers !== "object") continue;
+    for (const [name, cfg] of Object.entries(servers)) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const failed = cfg?.enabled === false;
+      out.mcp.push({
+        name,
+        status: failed ? "desabilitado" : "configurado",
+        transport: cfg?.type || cfg?.transport || (cfg?.command ? "stdio" : cfg?.url ? "http" : "desconhecido"),
+      });
+    }
+  }
+  // falhas de MCP que aparecem no stderr do processo
+  const mcpErrors = out.stderr
+    .split(/\r?\n/)
+    .filter((l) => /mcp/i.test(l) && /error|fail|recus|timeout|ECONN/i.test(l))
+    .slice(-20);
+  out.mcpErrors = mcpErrors;
+  return out;
 }
 
 function sseSend(res, event, data) {
@@ -899,9 +1248,10 @@ function productError(err) {
  * `prompt()` apenas confirma o aceite ("started") — o turno termina no evento
  * `settled`. Por isso o encerramento NÃO espera o retorno do prompt.
  */
-function runTurn(message) {
+function runTurn(message, mode = "build") {
   if (turnRunning) return Promise.resolve(false);
   turnRunning = true;
+  const currentMode = MODES[mode] ? mode : "build";
 
   return (async () => {
     let client;
@@ -964,7 +1314,9 @@ function runTurn(message) {
       }, TURN_TIMEOUT_MS);
 
       // dispara; o fim é o evento `settled`, não o retorno do prompt
-      Promise.resolve(client.prompt(message)).catch((err) => {
+      const directive = modeDirective(currentMode);
+      const prompt = directive ? `[modo: ${currentMode}] ${directive}\n\n${message}` : message;
+      Promise.resolve(client.prompt(prompt)).catch((err) => {
         if (done) return;
         broadcast("error", { message: productError(err) });
         finishTurn(false);
@@ -1033,8 +1385,11 @@ const server = createServer(async (req, res) => {
     req.on("data", (c) => (body += c));
     req.on("end", async () => {
       let message = "";
+      let mode = "build";
       try {
-        message = String(JSON.parse(body || "{}").message ?? "");
+        const doc = JSON.parse(body || "{}");
+        message = String(doc.message ?? "");
+        if (typeof doc.mode === "string") mode = doc.mode;
       } catch {
         message = "";
       }
@@ -1049,9 +1404,28 @@ const server = createServer(async (req, res) => {
         return;
       }
       res.writeHead(202, { "content-type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify({ ok: true }));
-      await runTurn(message);
+      res.end(JSON.stringify({ ok: true, mode }));
+      currentMode = MODES[mode] ? mode : "build";
+      await runTurn(message, mode);
     });
+    return;
+  }
+
+  // painel de estado (modelo, effort, capacidades, streaming)
+  if (url.pathname === "/api/status") {
+    const st = await piState();
+    st.mode = currentMode;
+    st.turnRunning = turnRunning;
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify(st));
+    return;
+  }
+
+  // skills + MCP + log de falhas
+  if (url.pathname === "/api/integrations") {
+    const data = await integrations();
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify(data));
     return;
   }
 
