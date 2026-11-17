@@ -30,9 +30,9 @@ autoritativo está em **`docs/estado.md`** — este handoff é o atalho para ret
 | Prompt do PI puro | 8.684 tok |
 | Incremento do SelfEvoPI | **+501 tok** — meta < 1.500 |
 | `pi-subagents` | +1.654 tok, sob demanda |
-| Evals | **29 tarefas, 87/87** |
-| Tokens da suíte | ~210.800 |
-| Testes unitários | **371** |
+| Evals | **29 tarefas, 86/87 na baseline** (B11 é estocástico) |
+| Tokens da suíte | ~211.900 |
+| Testes unitários | **449** (448 passam, 1 skip) |
 | Custo | US$ 0,00 |
 
 ## 3. O que foi construído
@@ -96,8 +96,8 @@ Detalhe com evidência: `docs/fase1/decisoes.md`.
 ## 7. Comandos essenciais
 
 ```powershell
-npm test                                             # 371 testes
-node evals/gate.mjs                                  # 87/87
+npm test                                             # 449 testes
+node evals/gate.mjs                                  # 86/87 baseline (B11 estocástico)
 node scripts/measure-overhead.mjs --runs 10          # cold start
 node scripts/measure-selfevopi-overhead.mjs --runs 3 # orcamento de prompt
 node core/forge/cli.mjs detect --json
