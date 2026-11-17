@@ -430,3 +430,122 @@ export function describeModes() {
 export function modeList() {
   return MODE_NAMES.join(", ");
 }
+
+/* ------------------------------------------------------------------ */
+/* Tipo de permissao — o que a TUI mostra                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Classifica um modo resolvido pela **capacidade**, não pelo nome.
+ * Assim `goal` (que herda a base) recebe o rótulo da base sem caso especial.
+ */
+function classeDe(m) {
+  if (!m.canWrite && m.canExec && m.execScope === "readonly") return "readonly";
+  if (m.canWrite && m.canExec) return "workspace";
+  if (!m.canWrite && !m.canExec) return "none";
+  return "restrito";
+}
+
+/** Rótulos curtos: a linha de status da TUI tem espaço limitado (<= 24 chars). */
+const ROTULOS = Object.freeze({
+  readonly: "Leitura apenas",
+  workspace: "Aceita edições",
+  none: "Consulta apenas",
+  restrito: "Acesso restrito",
+});
+
+const RESUMOS = Object.freeze({
+  readonly: "lê e consulta, propõe um plano e não escreve até você aprovar",
+  workspace: "lê, escreve e executa dentro do workspace; fora dele, pede",
+  none: "lê e responde sobre o código; não escreve nem executa",
+  restrito: "acesso reduzido ao mínimo",
+});
+
+/**
+ * O que dispara uma pergunta ao humano, por capacidade.
+ * `trigger` é o nome estável (usável em código e em teste); `question` é o texto
+ * curto e objetivo que o humano lê — nunca "você tem certeza?".
+ */
+const PERGUNTAS = Object.freeze({
+  readonly: Object.freeze([
+    Object.freeze({
+      trigger: "write",
+      question: "A escrita não é permitida aqui. Aprovar o plano ou trocar para build?",
+    }),
+    Object.freeze({
+      trigger: "exec",
+      question: "Este comando não é comprovadamente de leitura. Executar mesmo assim?",
+    }),
+  ]),
+  workspace: Object.freeze([
+    Object.freeze({
+      trigger: "outside-workspace",
+      question: "Qual caminho fora do workspace precisa ser escrito, e por quê?",
+    }),
+    Object.freeze({
+      trigger: "approval",
+      question: "O artefato mexe em rede, credencial ou caminho externo. Aprovar?",
+    }),
+  ]),
+  none: Object.freeze([
+    Object.freeze({ trigger: "write", question: "Este modo não escreve. Trocar para build?" }),
+    Object.freeze({ trigger: "exec", question: "Este modo não executa. Trocar para build?" }),
+  ]),
+  restrito: Object.freeze([
+    Object.freeze({ trigger: "any", question: "Modo sem permissões. Trocar para build?" }),
+  ]),
+});
+
+/**
+ * Descreve o **tipo de permissão** de um modo, pronto para a linha de status.
+ *
+ *   describePermissions({ mode: "plan" })
+ *   -> { mode, label, summary, canRead, canWrite, canExec, execScope, asks }
+ *
+ * Modo inválido **não lança**: devolve um objeto fechado no mínimo
+ * (sem leitura, escrita ou execução) com `label: "Modo desconhecido"`,
+ * para a TUI mostrar o problema em vez de quebrar.
+ *
+ * @param {{mode?: string}} [opts]
+ */
+export function describePermissions({ mode, base = null } = {}) {
+  const nome = typeof mode === "string" && mode.trim() !== "" ? mode.trim() : "";
+
+  let resolvido;
+  try {
+    resolvido = resolveMode(nome, { base });
+  } catch {
+    return {
+      mode: nome === "" ? "(nenhum)" : nome,
+      label: "Modo desconhecido",
+      summary: "modo não reconhecido; permissões reduzidas ao mínimo",
+      canRead: false,
+      canWrite: false,
+      canExec: false,
+      execScope: "none",
+      asks: [],
+    };
+  }
+
+  const classe = classeDe(resolvido);
+  return {
+    mode: resolvido.name,
+    label: ROTULOS[classe],
+    summary: RESUMOS[classe],
+    canRead: resolvido.canRead,
+    canWrite: resolvido.canWrite,
+    canExec: resolvido.canExec,
+    execScope: resolvido.execScope,
+    asks: PERGUNTAS[classe].map((p) => ({ trigger: p.trigger, question: p.question })),
+  };
+}
+
+/** Rótulo sozinho, para quem só quer a linha de status: `permissionLabel("plan")`. */
+export function permissionLabel(mode) {
+  return describePermissions({ mode }).label;
+}
+
+/** Tabela modo -> rótulo, para relatório e para a TUI montar o menu. */
+export function describeAllPermissions() {
+  return MODE_NAMES.map((nome) => describePermissions({ mode: nome }));
+}
