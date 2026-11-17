@@ -7,6 +7,8 @@ import {
   normalize,
   expandSynonyms,
   charNgrams,
+  rawSimilarity,
+  glossarySimilarity,
   DEFAULT_DIMS,
 } from "./embed.mjs";
 
@@ -45,32 +47,44 @@ test("texto vazio gera vetor nulo (norma 0) sem quebrar", () => {
   assert.equal(norm, 0);
 });
 
-/* --------------------------- sinônimos > não-relacionados ------------------ */
+/* --------------------- honestidade das camadas -------------------------- */
 
-test("sinônimos têm similaridade maior que não-relacionados", () => {
-  const sinonimo = cosine("calcular imc", "indice de massa corporal");
-  const naoRelacionado = cosine("calcular imc", "criptografia quantica");
-  assert.ok(
-    sinonimo > naoRelacionado,
-    `sinônimo (${sinonimo}) deve ser > não-relacionado (${naoRelacionado})`,
-  );
+test("camada crua NÃO liga sinônimos sem forma (comportamento correto)", () => {
+  // Strings diferentes, sem caractere em comum: a forma crua dá ~0. Isso é o
+  // esperado — não existe semântica mágica no n-grama cru.
+  const cru = rawSimilarity("imc", "indice de massa corporal");
+  assert.ok(cru < 0.15, `cru deveria ser baixo, deu ${cru}`);
+  assert.ok(cosine("imc", "indice de massa corporal") < 0.15);
 });
 
-test("paráfrases conhecidas pontuam acima de ruído", () => {
-  const pares = [
-    ["arquivo de configuracao", "settings"],
-    ["subir servidor", "start server"],
-    ["validar entrada", "check input"],
-  ];
-  for (const [a, b] of pares) {
-    const similar = cosine(a, b);
-    const ruido = cosine(a, "receita de bolo de cenoura");
-    assert.ok(similar > ruido, `"${a}" vs "${b}" (${similar}) deve superar ruído (${ruido})`);
-  }
+test("glossário liga sinônimos cobertos (identidade após substituição)", () => {
+  // "imc" está no SYNONYM_GROUPS; a expansão colapsa os dois no mesmo canônico.
+  const g = glossarySimilarity("imc", "indice de massa corporal");
+  assert.ok(g > 0.9, `glossário deveria pontuar alto, deu ${g}`);
 });
 
-test("texto idêntico tem cosseno 1", () => {
+test("glossário NÃO cobre sinônimo fora do glossário", () => {
+  // "remover"/"excluir" não está no glossário: deve dar ~0.
+  const g = glossarySimilarity("remover", "excluir item da lista");
+  assert.ok(g < 0.15, `glossário não deveria cobrir, deu ${g}`);
+});
+
+test("texto idêntico tem similaridade 1 em ambas as camadas", () => {
   assert.ok(Math.abs(cosine("somar dois numeros", "somar dois numeros") - 1) < 1e-9);
+  assert.ok(Math.abs(glossarySimilarity("somar dois numeros", "somar dois numeros") - 1) < 1e-9);
+  assert.ok(Math.abs(rawSimilarity("somar dois numeros", "somar dois numeros") - 1) < 1e-9);
+});
+
+test("cosine é simétrico e limitado a [-1,1]", () => {
+  const a = cosine("subir servidor", "start server");
+  const b = cosine("start server", "subir servidor");
+  assert.ok(Math.abs(a - b) < 1e-9, "cosine deve ser simétrico");
+  assert.ok(a >= -1 && a <= 1);
+});
+
+test("rawSimilarity é limitado a [0,1] (contém direção, não simétrico)", () => {
+  const a = rawSimilarity("subir servidor", "start server");
+  assert.ok(a >= 0 && a <= 1, `deve estar em [0,1], deu ${a}`);
 });
 
 /* --------------------------- normalização ------------------------------- */

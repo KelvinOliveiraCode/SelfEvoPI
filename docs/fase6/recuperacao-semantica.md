@@ -1,84 +1,84 @@
-# Fase 6 — Recuperação semântica de skills
+# Fase 6 — Recuperação de capacidades em 3 camadas
 
 > **Agente:** A7 — Memória e Refine
-> **Status:** implementado (`core/memory/embed.mjs` + `core/memory/search.mjs`)
+> **Status:** implementado (`core/memory/embed.mjs`, `core/memory/ppmi.mjs`, `core/memory/search.mjs`)
 > **Fora de escopo:** embeddings por modelo/rede — este pacote é 100% local.
 
-## 1. O problema
+## 1. O problema e a correção honesta
 
-A busca de skills/memória era **lexical** (por termo). "calcular IMC" não achava "índice
-de massa corporal" porque as palavras não coincidem. Resultado: o harness "esquecia"
-capacidade que ele tinha e **re-gerava** a mesma coisa.
+A busca de skills era **lexical** (por termo). "calcular IMC" não achava "índice de massa
+corporal". A primeira tentativa de resolver isso virou, na prática, um **glossário de
+substituição disfarçado de semântica**: `cosine("settings","arquivo de configuracao")`
+devolvia `1.0000` porque ambos caíam no mesmo canônico — identidade após substituição,
+não semelhança. Isso é lookup table, não recuperação semântica.
 
-A busca lexical é boa quando o termo é literal ("somar" acha "somar dois números"), e
-ruim em sinônimos/paráfrases. A Fase 6 adiciona um caminho semântico **local** que cobre
-essa lacuna sem jogar fora a precisão da via literal.
+Esta fase corrige o problema de raiz: **três camadas separadas, nomeadas e medidas
+independentemente**, sem fingir que uma é a outra.
 
-## 2. Como funciona o embedding (`core/memory/embed.mjs`)
+## 2. As três camadas
 
-Determinístico, sem dependência, sem rede. Passos:
+| camada | módulo | técnica | o que compra | limitação honesta |
+|:---|:---|:---|:---|:---|
+| 1. lexical | `search.mjs` | casa termos no texto e tags (tag 3×) | precisão no literal | não liga sinônimos |
+| 2. PPMI | `ppmi.mjs` | co-ocorrência termo↔termo **aprendida do corpus** | sinônimos que aparecem juntos nos registros; melhora com o corpus | corpus pequeno = sinal fraco |
+| 3. glossário | `embed.mjs` (`glossarySimilarity`) | glossário curado à mão (`SYNONYM_GROUPS`) | cobre o que foi escrito, determinístico | **não aprende**; só cobre o que está no glossário |
 
-1. **normalização** — minúsculo, sem acento, espaços colapsados;
-2. **expansão de sinônimos** — um glossário local (`SYNONYM_GROUPS`) colapsa variantes no
-   mesmo canônico (ex.: `imc` / `índice de massa corporal` / `massa corporal` → `imc`);
-3. **n-gramas de caractere** (3–5) do texto normalizado+expandido;
-4. **feature hashing** (FNV-1a) em `dims` dimensões (padrão 256), com sinal;
-5. **normalização L2** → norma 1.
+### Camada 1 — n-gramas crus (`embed.mjs`)
 
-A similaridade entre dois textos é o **máximo** de três medidas robustas:
+`embed()` / `cosine()` / `rawSimilarity()`: *feature hashing* (FNV-1a) de n-gramas de
+caractere (3–5) em 256 dimensões, norma L2. É fuzzy de forma. **Não liga sinônimos** —
+`cosine("imc","indice de massa corporal")` dá ~0, e isso é o comportamento correto e
+verificado. É o piso real e o fallback de precisão.
 
-| medida | o que faz | quando ajuda |
-|:---|:---|:---|
-| `cosine` | cosseno dos vetores | textos de comprimento comparável |
-| `gramContainment` | fração dos n-gramas da consulta presentes na entrada | consulta curta vs. documento longo |
-| `tokenContainment` | fração dos tokens (pós-sinônimo) da consulta na entrada | sinônimo/paráfrase exata |
+### Camada 2 — PPMI sobre o corpus (`ppmi.mjs`)
 
-O `cosine` puro cai muito quando a consulta é curta e a entrada é longa (o vetor da
-entrada dilui). A contenção resolve isso perguntando "quanto da consulta está dentro da
-entrada?" — que é exatamente o caso de busca.
+Aprende co-ocorrência termo↔termo dos textos do próprio store. Se dois termos aparecem
+nos mesmos registros, ficam próximos. Fórmula: `PPMI(a,b) = max(0, log2( P(a,b)/(P(a)·P(b)) ))`.
+A consulta vira um vetor sobre os vizinhos PPMI dos seus termos; compara por cosseno.
+**Local, determinístico, zero dependência.** Só aprende o que o corpus contém — e melhora
+conforme a memória cresce.
 
-**Garantias:** mesma entrada → mesmo vetor (determinismo); norma 1; zero `import`; zero
-rede. Se precisar de rede, está errado.
+### Camada 3 — glossário (bootstrap, NÃO é semântica)
 
-## 3. Como a busca combina os dois caminhos (`search.mjs`)
+`glossarySimilarity()` expande sinônimos de um glossário curado (`SYNONYM_GROUPS`) antes de
+comparar. É **tabela de substituição**, não aprendizado. A função se chama
+`glossarySimilarity` (não `semanticSimilarity`) justamente para não confundir.
+
+## 3. Combinação
 
 ```
-escore = max(léxico, semântico × 2)
+score = max(lexScore, PPMI_SCALE×ppmi, GLOSSARY_SCALE×glossário)
 ```
 
-- **léxico**: casa no texto (peso 1) e nas tags (peso 3 — sinal curado por alguém), com
-  cobertura = fração dos termos que casaram.
-- **semântico**: `semanticSimilarity(query, entrada)` acima do piso `semanticFloor` (0.05).
-- O multiplicador 2 faz um sinônimo forte pontuar ~2: acima de um casamento literal (1),
-  abaixo de uma tag (3) — preservando a precisão léxica quando o termo é literal.
+Cada resultado traz `lexScore`, `ppmiScore`, `glossaryScore`, `rawScore` e `via` (qual
+camada decidiu). Qualquer um vê quanto cada camada compra.
 
-A busca só devolve entradas com `escore >= minScore` (1). Cada resultado traz diagnóstico:
-`score`, `lexScore`, `semanticScore`, `via` (`"lexical"` ou `"semantica"`).
+## 4. Tabela honesta (7 positivos + 2 negativos)
 
-## 4. Resultado medido (8 consultas com sinônimos)
+| # | consulta | tipo | lexical | raw(cam1) | ppmi(cam2) | glossário(cam3) | busca achou? |
+|:--|:---|:---|:---|:---|:---|:---|:---|
+| 1 | `imc` | glossário | nada | 0.00 | 0.00 | 1.00 | ✅ |
+| 2 | `start server` | glossário | nada | 0.22 | 0.00 | 0.50 | ✅ |
+| 3 | `settings` | glossário | nada | 0.00 | 0.00 | 1.00 | ✅ |
+| 4 | `analisador sintatico` | glossário | nada | 0.06 | 0.00 | 0.50 | ✅ |
+| 5 | `cifrar mensagem` | glossário | nada | 0.13 | 0.00 | 1.00 | ✅ |
+| 6 | `excluir item` | PPMI | ok | 0.50 | 0.85 | 0.50 | ✅ |
+| 7 | `gerar novo arquivo` | PPMI | ok | 0.40 | 0.49 | 0.40 | ✅ |
+| 8 | `tocar violao` | **não coberto** | nada | 0.00 | 0.00 | 0.00 | ✅ vazio |
+| 9 | `receita de bolo` | **não coberto** | nada | 0.00 | 0.00 | 0.00 | ✅ vazio |
 
-Entradas redigidas **sem** o termo literal da consulta (o caso real), 8 capacidades:
-
-| # | consulta | lexical (antes) | semântica (depois) |
-|:--|:---|:---|:---|
-| 1 | `imc` | #0 ✅ | #0 ✅ |
-| 2 | `iniciar servidor` | #1 ✅ | #1 ✅ |
-| 3 | `settings` | nada | #2 ✅ |
-| 4 | `schema json` | #3 ✅ | #3 ✅ |
-| 5 | `analisador sintatico` | nada | #4 ✅ |
-| 6 | `cifrar mensagem` | #5 ✅ | #5 ✅ |
-| 7 | `arquivo pdf` | #6 ✅ | #6 ✅ |
-| 8 | `banco de dados` | #7 ✅ | #7 ✅ |
-| — | `adicao de numeros` (controle negativo) | nada | nada ✅ |
-
-**Lexical 6/8 → semântica 8/8.** Os casos #3 (`settings` → configuração) e #5
-(`analisador sintático` → parser) que a lexical perdia, a semântica recupera.
+**Leitura:**
+- cam1 fica ~0 nos sinônimos — **correto**: forma não liga "imc" a "índice de massa corporal".
+- cam2 sobe para 0.49–0.85 **quando o corpus tem os termos juntos** no mesmo registro
+  (é o caso do `promote`, que grava `capability — artefato em ...`). Aprende dos dados.
+- cam3 dá 1.00 no que cobre e 0.00 no que não cobre (linhas 8–9).
+- **Sinônimos não cobertos dão vazio** — a busca não inventa casamento.
 
 ## 5. Orçamento de contexto
 
-A busca é **offline** e não entra no prompt — ela roda quando o agente pede
-`/mem find` ou `skills <termo>`. O overhead de contexto do SelfEvoPI (medido por
-`scripts/measure-selfevopi-overhead.mjs`) **não muda**:
+A busca é **offline** e não entra no prompt — roda só quando o agente pede `/mem find` ou
+`skills <termo>`. O overhead de contexto (medido por `scripts/measure-selfevopi-overhead.mjs`)
+**não muda**:
 
 ```
 pi-puro        8684 tok  (+0)
@@ -89,18 +89,7 @@ Orçamento      1500 tokens
 Veredito       dentro do orçamento (507 de 1500)
 ```
 
-## 6. O que NÃO é feito (e por quê)
-
-- **Sem modelo baixado, sem API, sem rede.** O embedding é um hashing determinístico. Se
-  o projeto quiser semântica "de verdade" (embeddings neurais), isso é outra fase — este
-  pacote não pode baixar nada.
-- **Sem dicionário de sinônimos "esperto".** O glossário é mantido à mão e cobre os
-  termos do domínio do SelfEvoPI. Ampliá-lo é seguro (só melhora a cobertura) e não muda
-  o custo.
-- **Nada de embeddings no prompt.** O vetor existe só na busca; o que entra no contexto é
-  a lista curta de resultados (`/mem find`).
-
-## 7. Como usar
+## 6. Como usar
 
 ```bash
 # dentro da sessão do PI
@@ -110,18 +99,27 @@ Veredito       dentro do orçamento (507 de 1500)
 node core/forge/cli.mjs skills imc
 ```
 
-## 8. Verificação
+## 7. Verificação
 
 ```bash
-node --test core/memory/*.test.mjs     # 72 testes (12 de embed + 6 de busca semântica)
-npm test                               # 389 testes
-node scripts/measure-selfevopi-overhead.mjs   # overhead inalterado
+node --test core/memory/*.test.mjs     # 83 testes (12 embed + 6 ppmi + 6 busca + ...)
+npm test
+node scripts/measure-selfevopi-overhead.mjs
 ```
+
+## 8. O que NÃO é feito (e por quê)
+
+- **Sem modelo baixado, sem API, sem rede.** As três camadas são determinísticas.
+- **O glossário é nomeado como glossário** no código (`SYNONYM_GROUPS`, `glossarySimilarity`)
+  e na doc — nunca como "semântica".
+- **Sinônimos não cobertos dão vazio** — há teste que prova isso; a busca não inventa.
+- **Corpus pequeno = PPMI fraco.** É o preço de não baixar modelo; documentado e medido.
 
 ## 9. Critério de aceite
 
-- `core/memory/embed.mjs` determinístico, norma 1, sem `import`, sem rede.
-- Sinônimos com similaridade > não-relacionados (provado em teste).
-- Busca semântica integrada ao `search.mjs`, com a lexical mantida como fallback.
+- `core/memory/embed.mjs`: determinístico, norma 1, sem `import`, sem rede.
+- Camada crua NÃO liga sinônimos (provado em teste).
+- Glossário nomeado como glossário; cobre só o que foi escrito.
+- PPMI aprende co-ocorrência do corpus (provado em teste).
 - `node --test core/memory/*.test.mjs` sai 0.
 - Overhead de contexto inalterado (abaixo do teto).

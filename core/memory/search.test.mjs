@@ -117,11 +117,9 @@ test("store invalido e recusado com mensagem clara", () => {
 
 /* --------------------- busca semântica (sinônimos) ---------------------- */
 
-test("busca semântica acha por sinônimo/paráfrase (não lexical)", () => {
+test("busca por glossário acha sinônimo coberto (imc ↔ indice de massa corporal)", () => {
   const { root, store } = tempStore();
   try {
-    // a entrada fala "índice de massa corporal" (sem "imc" no texto nem no caminho);
-    // a consulta diz "imc" — só a semântica liga os dois.
     store.append("skills", {
       text: "calcular o índice de massa corporal de uma pessoa — artefato em `skills/saude/cli.mjs`",
       tags: ["artefato", "cli"],
@@ -129,13 +127,15 @@ test("busca semântica acha por sinônimo/paráfrase (não lexical)", () => {
     const r = searchCapabilities(store, "imc");
     assert.ok(r.count >= 1, JSON.stringify(r));
     assert.match(r.results[0].text, /massa corporal/);
-    assert.equal(r.results[0].via, "semantica");
+    // a camada que decide aqui é o glossário (imc está no SYNONYM_GROUPS).
+    assert.ok(r.results[0].glossaryScore > 0, "glossário deve pontuar > 0");
+    assert.ok(["glossario", "ppmi", "lexical"].includes(r.results[0].via));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("busca semântica recupera 'settings' como 'arquivo de configuracao'", () => {
+test("busca por glossário recupera 'settings' como 'arquivo de configuracao'", () => {
   const { root, store } = tempStore();
   try {
     store.append("skills", {
@@ -145,6 +145,7 @@ test("busca semântica recupera 'settings' como 'arquivo de configuracao'", () =
     const r = searchCapabilities(store, "settings");
     assert.ok(r.count >= 1, JSON.stringify(r));
     assert.match(r.results[0].text, /configuracao/);
+    assert.ok(r.results[0].glossaryScore > 0, "glossário deve pontuar > 0");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -153,47 +154,77 @@ test("busca semântica recupera 'settings' como 'arquivo de configuracao'", () =
 test("literal continua sendo caminho válido (via lexical quando o termo é exato)", () => {
   const { root, store } = tempStore();
   try {
-    store.append("skills", { text: "somar dois numeros", tags: ["artefato"] });
-    const r = searchCapabilities(store, "somar");
+    // "repositório" é literal e NÃO está no glossário: só a via léxica pode achar.
+    store.append("skills", { text: "listar arquivos do repositorio local", tags: ["artefato"] });
+    const r = searchCapabilities(store, "repositorio", { glossary: false, ppmi: false });
     assert.ok(r.count >= 1);
-    // o termo é literal: o caminho léxico pontua (mesmo que a semântica também).
     const top = r.results[0];
     assert.ok(top.lexScore >= 1, "termo literal deve casar na via léxica");
+    assert.equal(top.via, "lexical");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("desligar semântica mantém só o caminho léxico", () => {
+test("desligar glossário + PPMI mantém só o caminho léxico", () => {
   const { root, store } = tempStore();
   try {
-    // sem "imc" no texto nem no caminho: a via léxica não acha.
     store.append("skills", {
       text: "calcular o índice de massa corporal — artefato em `skills/saude/cli.mjs`",
       tags: ["artefato"],
     });
-    const r = searchCapabilities(store, "imc", { semantic: false });
-    assert.equal(r.count, 0, "sem semântica, 'imc' não casa com 'massa corporal'");
+    const r = searchCapabilities(store, "imc", { glossary: false, ppmi: false });
+    assert.equal(r.count, 0, "sem glossário/PPMI, 'imc' não casa com 'massa corporal'");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("resultado traz campos de diagnóstico (score, via, semanticScore)", () => {
+test("camada PPMI aprende co-ocorrência do corpus (sinônimo não coberto)", () => {
+  const { root, store } = tempStore();
+  try {
+    // corpus com o par "remover"/"excluir" no mesmo registro — NÃO está no glossário.
+    store.append("project", { text: "remover um item da lista: excluir item da lista", tags: [] });
+    store.append("project", { text: "criar um arquivo: gerar um novo arquivo", tags: [] });
+    const r = searchCapabilities(store, "excluir", { glossary: false });
+    assert.ok(r.count >= 1, JSON.stringify(r));
+    assert.ok(r.results[0].ppmiScore > 0, "PPMI deve pontuar o par co-ocorrido");
+    assert.ok(r.results[0].glossaryScore === 0, "glossário desligado");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("sinônimo não coberto e sem glossário não é recuperado (falso em pares não vistos)", () => {
+  const { root, store } = tempStore();
+  try {
+    // corpus não tem "remover"/"excluir"; glossário também não cobre.
+    store.append("project", { text: "somar dois numeros", tags: [] });
+    const r = searchCapabilities(store, "excluir item", { glossary: false });
+    assert.equal(r.count, 0, "sem sinal, não deve inventar casamento");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resultado traz campos de diagnóstico por camada (lexScore, ppmiScore, glossaryScore)", () => {
   const { root, store } = tempStore();
   try {
     store.append("skills", { text: "somar dois numeros", tags: ["artefato"] });
     const r = searchCapabilities(store, "somar");
     const top = r.results[0];
     assert.equal(typeof top.score, "number");
-    assert.equal(typeof top.semanticScore, "number");
-    assert.ok(top.via === "lexical" || top.via === "semantica");
+    assert.equal(typeof top.lexScore, "number");
+    assert.equal(typeof top.ppmiScore, "number");
+    assert.equal(typeof top.glossaryScore, "number");
+    assert.equal(typeof top.rawScore, "number");
+    assert.ok(["lexical", "ppmi", "glossario"].includes(top.via));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("busca semântica não acha o que não existe (não-haskell ruído)", () => {
+test("busca por camada não acha o que não existe (ruído)", () => {
   const { root, store } = tempStore();
   try {
     store.append("skills", { text: "somar dois numeros", tags: ["artefato"] });
