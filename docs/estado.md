@@ -34,7 +34,7 @@ lacunas, gera artefatos e só promove o que não causa regressão.
 
 | Métrica | Valor | Meta | Comando |
 |:---|:---|:---|:---|
-| Cold start | **443 ms** (mín 383, máx 611, mediana) | < 500 ms | `node scripts/measure-overhead.mjs --runs 5` |
+| Cold start | **443 ms** mediana (mín 383, máx 611) com cache quente · 1,0–1,8 s na 1ª execução | < 500 ms | `node scripts/measure-overhead.mjs --runs 5` |
 | Prompt do PI puro | **8.680 tok** | — | idem |
 | Incremento do SelfEvoPI | **+506 tok** (memória no teto) | < 1.500 tok | `node scripts/measure-selfevopi-overhead.mjs --runs 3` |
 | `pi-subagents` (sob demanda) | +1.654 tok | — | idem |
@@ -212,7 +212,7 @@ A e C — os únicos que não precisam de chave de API. O gate completo fica loc
 
 | Item | Por quê |
 |:---|:---|
-| Validar a ponte contra o Pi-Harness instalado | a ponte de estado está entregue e testada; falta o app real, que não está nesta máquina |
+| Ponte de estado contra o pi-harness real | **resolvido** — validado em 17/11/2026 contra `pi-harness@0.1.1`; a limitação é do pacote, não da ponte (ver `docs/fase4-ponte.md`) |
 | Grupo B mistura structural e real | B9/B10/B11 chamam modelo (32.298 tok) e por isso o CI não roda o grupo B; B1–B8 seguem estruturais |
 | Auto-disparo do loop evolutivo | o ciclo é autônomo dado um gatilho, mas nada o agenda; a rotina diária faz refine, não evolução |
 | Agendamento da rotina diária | `scripts/schedule.mjs --install` registra `SelfEvoPI-Daily` no Task Scheduler (07:00 diário); requer sessão interativa |
