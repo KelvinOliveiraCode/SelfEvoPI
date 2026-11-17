@@ -268,23 +268,28 @@ npm run verify
 
 ### From the desktop
 
-Two launchers:
+Two shortcuts on the Desktop, both carrying the brand icon:
 
-- **`SelfEvoPI.cmd`** — menu: harness state, gap detection, evals, full verification, regression gate, panel, generated capabilities.
-- **`SelfEvoPI-Painel.cmd`** — the local panel at `http://127.0.0.1:7777`.
+- **`SelfEvoPI`** — opens the CLI: a keyboard-driven terminal interface with harness state, gap detection, evals, full verification, the regression gate, generated skills and the panel. Arrow keys navigate, `q` leaves.
+- **`SelfEvoPI-Painel`** — opens the desktop app: a native window without an address bar into the local dashboard, backed by the server on `127.0.0.1:7777`.
+
+The launcher sources live in `launcher/`, and the shortcuts point at them. Earlier copies are kept in `launcher/antigos/`.
 
 ### From the shell
 
 ```powershell
-npm run verify                          # tests + evals A/C + URLs
+npm run verify                          # tests + evals A/B/C + URLs
 npm test                                # 448 unit tests
 npm run gate                            # full gate (real model calls, slow)
+
+node apps/cli.mjs                       # the CLI (same as the desktop shortcut)
+node apps/cli.mjs --render status       # render one screen to text (no TTY needed)
 
 node core/forge/cli.mjs detect          # what gaps exist right now
 node core/forge/cli.mjs status          # harness state
 node core/forge/cli.mjs skills <term>   # what has already been generated
 node core/router/cli.mjs --snapshot     # routing decision
-node scripts/desktop.mjs                # local panel
+node scripts/desktop.mjs --app          # the desktop app (native window)
 ```
 
 ### The loop on a real objective
@@ -332,6 +337,7 @@ It binds to loopback only, reads nothing outside the repository, and executes no
 | [`docs/fase2/governanca.md`](docs/fase2/governanca.md) | verified rollback and human approval |
 | [`docs/fase3/painel.md`](docs/fase3/painel.md) | graph runtime and panel |
 | [`docs/fase4-ponte.md`](docs/fase4-ponte.md) | the state bridge for a desktop host |
+| [`docs/design/marca.md`](docs/design/marca.md) | brand system: palette, type scale, CLI and desktop anatomy |
 | [`docs/research/inspiracoes.md`](docs/research/inspiracoes.md) | audit of 23 primary sources, 41 decisions |
 | [`SECURITY.md`](SECURITY.md) | how to report a vulnerability, and the security model in one page |
 
@@ -344,22 +350,25 @@ It binds to loopback only, reads nothing outside the repository, and executes no
 | [`assets/wordmark.svg`](assets/wordmark.svg) | original wordmark (dark ink) |
 | [`assets/logo.svg`](assets/logo.svg) | original icon (dark ink) |
 | [`assets/wordmark-circulo.svg`](assets/wordmark-circulo.svg) | circular lockup |
+| [`assets/selfevopi.ico`](assets/selfevopi.ico) | app icon (six sizes, 16 to 256, transparent) |
 
-The README variants exist because the originals use near-black ink (`#111`), which disappears against a dark background. Same geometry, mid-grey (`#6e7781`), legible on both.
+The README variants exist because the originals use near-black ink (`#111`), which disappears against a dark background. Same geometry, mid-grey (`#6e7781`), legible on both. The full interface system — palette, type scale, and the two surface grammars (terminal and desktop) — is in [`docs/design/marca.md`](docs/design/marca.md).
 
 ## Project layout
 
 ```
+apps/               the CLI (keyboard-driven terminal interface)
 core/router/        multi-provider routing
 core/forge/         evolutionary core: contract, detect, specify, generate, gate, loop
 core/sandbox/       process isolation and static analysis
 core/governance/    verified rollback and human approval
 core/memory/        three-level memory with retrieval and pruning
-core/graph/         execution graph: runtime, persistent bridge, panel
+core/graph/         execution graph: runtime, persistent bridge, panel, pi-harness adapter
 evals/              29 tasks, checkers, regression gate
-scripts/            measurement, local panel, checkpoints, routines
+scripts/            measurement, desktop app, checkpoints, routines
+launcher/           desktop shortcuts and the icon generator
 .pi/harness/        persistent state (memory, ledger, reports, artifacts)
-docs/               decisions, state, research
+docs/               decisions, state, research, design system
 .github/workflows/  continuous integration
 ```
 
