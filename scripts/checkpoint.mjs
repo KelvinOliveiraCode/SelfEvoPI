@@ -81,7 +81,7 @@ async function status() {
   }
 }
 
-async function create(label) {
+async function create(label, checksFile) {
   if (!label || !/^[a-z0-9._-]+$/i.test(label)) {
     throw new Error("label inválido: use letras, números, ponto, hífen ou sublinhado");
   }
@@ -99,11 +99,37 @@ async function create(label) {
   lkg.sha = sha.slice(0, 7);
   lkg.tag = tag;
   lkg.branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
-  lkg.verifiedAt = new Date().toISOString().slice(0, 10);
+
+  // Se --checks foi passado, carrega os resultados reais e atualiza verifiedAt.
+  // Sem --checks, verifiedAt fica com a data antiga (nada foi verificado agora).
+  if (checksFile) {
+    const checksPath = path.resolve(ROOT, checksFile);
+    let checks;
+    try {
+      checks = JSON.parse(await readFile(checksPath, "utf8"));
+      if (!Array.isArray(checks)) throw new Error("formato inválido: esperado array JSON");
+    } catch (err) {
+      throw new Error(`não foi possível ler --checks ${checksFile}: ${err.message}`);
+    }
+    lkg.checks = checks;
+    lkg.verifiedAt = new Date().toISOString().slice(0, 10);
+  } else {
+    // Sem verificação real: marca como não verificado agora, preserva checks antigos.
+    lkg.checks = lkg.checks ?? [];
+    // verifiedAt NÃO é atualizado — fica com a data antiga.
+  }
+
   await writeLkg(lkg);
 
   console.log(`✓ checkpoint ${tag} → ${sha.slice(0, 7)}`);
   console.log(`  last-known-good atualizado`);
+  if (checksFile) {
+    console.log(`  verificação: ${lkg.checks.length} checks carregados de ${checksFile}`);
+    console.log(`  verifiedAt: ${lkg.verifiedAt}`);
+  } else {
+    console.log(`  verificação: nenhuma (use --checks <arquivo.json> para registrar)`);
+    console.log(`  verifiedAt: ${lkg.verifiedAt ?? "não definido"} (preservado)`);
+  }
 }
 
 async function restore(target, force) {
@@ -142,18 +168,23 @@ async function verify() {
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const force = process.argv.includes("--force");
+  const checksIdx = process.argv.indexOf("--checks");
+  const checksFile = checksIdx !== -1 && checksIdx + 1 < process.argv.length ? process.argv[checksIdx + 1] : null;
 
   switch (cmd) {
     case "status":
       return status();
-    case "create":
-      return create(rest[0]);
+    case "create": {
+      // Remove --checks e seu valor do rest para não confundir o label
+      const label = rest.find((a) => !a.startsWith("--") && a !== checksFile);
+      return create(label, checksFile);
+    }
     case "restore":
       return restore(rest[0], force);
     case "verify":
       return verify();
     default:
-      console.log("uso: node scripts/checkpoint.mjs <status|create <label>|restore <tag|sha> --force|verify>");
+      console.log("uso: node scripts/checkpoint.mjs <status|create <label> [--checks <arquivo.json>]|restore <tag|sha> --force|verify>");
       process.exit(2);
   }
 }

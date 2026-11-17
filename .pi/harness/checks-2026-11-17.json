@@ -1,0 +1,38 @@
+[
+  {
+    "name": "unit-tests",
+    "command": "npm test",
+    "result": "pass",
+    "detail": "371 testes (371 passam, 0 skip)"
+  },
+  {
+    "name": "evals-estruturais",
+    "command": "npm run verify",
+    "result": "pass",
+    "detail": "grupos A 8/8, B 8/8 e C 6/6, zero token"
+  },
+  {
+    "name": "evals-completo",
+    "command": "node evals/gate.mjs",
+    "result": "pass",
+    "detail": "67/67 (29 tarefas, 3 execuções)"
+  },
+  {
+    "name": "cold-start",
+    "command": "node scripts/measure-overhead.mjs --runs 5",
+    "result": "pass",
+    "detail": "1050 ms mediana, 783-1426 (cold-cache I/O; quente ~443 ms)"
+  },
+  {
+    "name": "prompt-budget",
+    "command": "node scripts/measure-selfevopi-overhead.mjs --runs 3",
+    "result": "pass",
+    "detail": "+506 tok (meta < 1.500)"
+  },
+  {
+    "name": "urls",
+    "command": "node scripts/verify-urls.mjs",
+    "result": "pass",
+    "detail": "33 URLs, 0 falhas"
+  }
+]
