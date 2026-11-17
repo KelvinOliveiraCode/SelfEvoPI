@@ -407,19 +407,30 @@ não é filtrado. `--include-eval` desliga o filtro (para diagnóstico do detect
 No ledger real, isso reduz o auto a **zero lacuna acionável** (a única era D1, que
 é medição) — o auto-disparo não queima token perseguindo benchmark.
 
-## Contenção do artefato (o artefato nunca executa solto)
+## Contenção do artefato
 
 O auto-disparo remove o humano do caminho — e o humano era a contenção de último
-resgate. Por isso o artefato gerado (código escrito por modelo) **nunca executa
-solto**: a sonda de interface o roda **dentro do sandbox** do A6
-(`core/sandbox/run-sandboxed.mjs`), com `workdir` = diretório temporário criado
-por `mkdtemp`, nunca a raiz do projeto.
+resgate. Por isso o artefato gerado (código escrito por modelo) é contido: a sonda
+de interface o roda **dentro do sandbox** do A6 (`core/sandbox/run-sandboxed.mjs`),
+com `workdir` = diretório temporário criado por `mkdtemp`, nunca a raiz do
+projeto.
 
 A arquitetura é preservada: o **verificador** (`verify.mjs`/`probe.mjs`) roda
 fora; quem **invoca o artefato** é a sonda, via `runSandboxed` — com Node
 Permission Model (fs restrito ao workdir, rede fechada pelo preload) e teardown de
 árvore no timeout. O `defaultRunVerification` do loop roda o verificador sem
 `shell` (o comando é gerado pelo loop, não entrada de usuário).
+
+**Cobertura é por kind, e não é total.** O artefato **CLI** nunca executa solto: a
+sonda o roda via `runSandboxed`. `mcp-server` e `extension` ainda executam via
+`spawnSync` porque o `runSandboxed` não oferece stdin para o JSON-RPC / host
+object — **limitação conhecida e documentada**, não cobertura dupla. `skill` e
+`mcp-config` não executam código.
+
+Para fechar a lacuna, o caminho natural é o `runSandboxed` ganhar `stdin` (o
+ artefato `mcp-server` fala JSON-RPC pelo stdin; a `extension` precisa de um
+host object). É mudança do A6 em `core/sandbox/` — **vale abrir**, mas fica fora
+deste pacote. Até lá, o doc é honesto sobre o que está contido.
 
 Três travas do gate (fail-closed):
 
