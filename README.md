@@ -10,7 +10,7 @@
 
 <br>
 
-![Tests](https://img.shields.io/badge/tests-577%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-581%20passing-brightgreen)
 ![Evals](https://img.shields.io/badge/evals-86%2F87%20(98.85%25)-brightgreen)
 ![Cold start](https://img.shields.io/badge/cold_start-443ms%20warm-blue)
 ![Prompt](https://img.shields.io/badge/prompt_overhead-%2B499%20of%201500-blue)
@@ -28,7 +28,7 @@ It starts from the [PI Coding Agent](https://github.com/earendil-works/pi) as it
 
 The result is not "a harness for pi". It is an agent with its own CLI, its own desktop app, its own brand, and its own name — and the engine underneath is an implementation detail you never have to see.
 
-The whole thing is **~27k lines of Node ESM** across 146 modules, with **577 passing unit tests** and **29 evaluation tasks**. Cold start is **443 ms** on a warm cache (1.0–1.8 s on the first run, cold). The prompt it adds to the engine is **499 tokens** at the ceiling, against a hard budget of 1,500.
+The whole thing is **~27k lines of Node ESM** across 146 modules, with **581 passing unit tests** and **29 evaluation tasks**. Cold start is **443 ms** on a warm cache (1.0–1.8 s on the first run, cold). The prompt it adds to the engine is **499 tokens** at the ceiling, against a hard budget of 1,500.
 
 ## Why it exists
 
@@ -52,7 +52,7 @@ Everything below was measured on this repository, on Windows 11, Node 24.13. Rep
 | Prompt added by SelfEvoPI | **+499 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs` |
 | Base agent prompt | 8.683 tok | — | same |
 | Evaluation suite | **29 tasks, 86/87 baseline (98.85%)** — B11 is stochastic (2/3 baseline, 3/3 last run) | no regression | `node evals/gate.mjs` |
-| Unit tests | **577 passing** (1 skipped: no pi-harness server) | — | `npm test` |
+| Unit tests | **581 passing** (1 skipped: no pi-harness server) | — | `npm test` |
 | Suite cost per task | **US$ 0.00** (free tier) | — | JSONL ledger |
 | Suite latency | ~5.9 s/task average | — | ledger |
 | Codebase | 146 files, ~27.2k lines | — | — |
@@ -274,26 +274,69 @@ npm run verify
 
 Two shortcuts on the Desktop, both carrying the brand icon:
 
-- **`SelfEvoPI`** — opens the CLI: a keyboard-driven terminal interface with harness state, gap detection, evals, full verification, the regression gate, generated skills and the panel. Arrow keys navigate, `q` leaves.
-- **`SelfEvoPI-Painel`** — opens the desktop app: a native window without an address bar into the local dashboard, backed by the server on `127.0.0.1:7777`.
+- **`SelfEvoPI`** — opens the CLI: a keyboard-driven terminal interface. Type `/` at any time and the command palette opens with every command, filtering as you type.
+- **`SelfEvoPI-Painel`** — opens the desktop app: a native window without an address bar into the conversation, backed by the server on `127.0.0.1:7777`.
 
 The launcher sources live in `launcher/`, and the shortcuts point at them. Earlier copies are kept in `launcher/antigos/`.
+
+### The CLI
+
+A conversation, not a menu. The engine underneath is invisible — the interface is SelfEvoPI's.
+
+```
+  ◍  SelfEvoPI                                              v0.5.0
+  ────────────────────────────────────────────────────────────────
+  ● main · pronto · 86/87 baseline · build
+
+  › /
+  ┌────────────────────────────────────────────────────────────────┐
+  │ > /ask             modo ask: só responde, nunca toca em disco  │
+  │   /build           modo build: escreve e executa no workspace  │
+  │   /clear           limpa a conversa e começa de novo           │
+  │   /compact         compacta o histórico da conversa            │
+  │   ...                                                          │
+  └────────────────────────────────────────────────────────────────┘
+  ↑↓ navegar  enter escolher  esc fechar
+```
+
+| Comando | O que faz |
+|:--|:--|
+| `/evals` `/gate` `/detect` | os grupos estruturais, o gate completo, as lacunas abertas |
+| `/forge <meta>` | inicia um ciclo evolutivo rumo à meta |
+| `/memory <termo>` `/skills` | busca na memória (lexical + PPMI) e o que já foi gerado |
+| `/compact` | resume o histórico quando a janela enche |
+| `/sessions` `/sessions <id>` | lista sessões ou carrega uma |
+| `/cost` `/status` `/context` | tokens e custo, estado da sessão, uso da janela |
+| `/mcp` `/init` | servidores declarados e rascunho de `AGENTS.md` |
+| `/model [nome]` `/clear` `/help` | modelo da conversa, limpar, ajuda |
+
+**Modos** — mudam o que o agente pode fazer, e aparecem na barra de estado:
+
+| Modo | Lê | Escreve | Executa |
+|:--|:--:|:--:|:--:|
+| `/plan` | ✅ | ❌ | só leitura |
+| `/build` | ✅ | ✅ no workspace | ✅ no workspace |
+| `/ask` | ✅ | ❌ | ❌ |
+
+`/goal <condição>` define uma condição de conclusão. Um avaliador separado checa ao fim de cada turno e a meta se limpa sozinha quando o objetivo é atingido — nunca fica acesa.
 
 ### From the shell
 
 ```powershell
 npm run verify                          # tests + evals A/B/C + URLs
-npm test                                # 577 unit tests
+npm test                                # 581 unit tests
 npm run gate                            # full gate (real model calls, slow)
 
 node apps/cli.mjs                       # the CLI (same as the desktop shortcut)
 node apps/cli.mjs --render status       # render one screen to text (no TTY needed)
+node apps/cli.mjs --render palette      # the command palette, as text
 
 node core/forge/cli.mjs detect          # what gaps exist right now
 node core/forge/cli.mjs status          # harness state
 node core/forge/cli.mjs skills <term>   # what has already been generated
 node core/router/cli.mjs --snapshot     # routing decision
 node scripts/desktop.mjs --app          # the desktop app (native window)
+node scripts/schedule.mjs --status      # the daily routine
 ```
 
 ### The loop on a real objective
