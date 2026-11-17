@@ -407,19 +407,27 @@ export function renderMarkdown(md) {
 /* Comandos de barra                                                  */
 /* ------------------------------------------------------------------ */
 
-export const SLASH_COMMANDS = [
-  { cmd: "/evals", desc: "roda os grupos A/B/C (estruturais)" },
-  { cmd: "/gate", desc: "gate completo (usa modelo; pode demorar)" },
-  { cmd: "/detect", desc: "lacunas de ferramenta em aberto" },
-  { cmd: "/forge <meta>", desc: "inicia um ciclo evolutivo rumo à meta" },
-  { cmd: "/memory <termo>", desc: "busca na memória (lexical + PPMI)" },
-  { cmd: "/skills", desc: "o que o loop já gerou e registrou" },
-  { cmd: "/model [nome]", desc: "mostra ou troca o modelo da conversa" },
-  { cmd: "/clear", desc: "limpa a conversa e começa de novo" },
-  { cmd: "/help", desc: "mostra esta lista" },
+// FONTE ÚNICA dos comandos de barra. A paleta e o /help leem daqui; o `run`
+// é o executor. Nada de lista duplicada.
+export const COMMANDS = [
+  { name: "/evals", args: "", description: "roda os grupos A/B/C (estruturais)", run: runEvals },
+  { name: "/gate", args: "", description: "gate completo (usa modelo; pode demorar)", run: runGate },
+  { name: "/detect", args: "", description: "lacunas de ferramenta em aberto", run: runDetect },
+  { name: "/forge", args: "<meta>", description: "inicia um ciclo evolutivo rumo à meta", run: runForge },
+  { name: "/memory", args: "<termo>", description: "busca na memória (lexical + PPMI)", run: runMemory },
+  { name: "/skills", args: "", description: "o que o loop já gerou e registrou", run: runSkills },
+  { name: "/model", args: "[nome]", description: "mostra ou troca o modelo da conversa", run: runModel },
+  { name: "/clear", args: "", description: "limpa a conversa e começa de novo", run: runClear },
+  { name: "/help", args: "", description: "mostra esta lista", run: runHelp },
 ];
 
-const SLASH_NAMES = new Set(SLASH_COMMANDS.map((c) => c.cmd.split(" ")[0]));
+const SLASH_NAMES = new Set(COMMANDS.map((c) => c.name));
+
+// Derivado de COMMANDS (nome+args e descrição) para quem só precisa do texto.
+export const SLASH_COMMANDS = COMMANDS.map((c) => ({
+  cmd: c.name + (c.args ? " " + c.args : ""),
+  description: c.description,
+}));
 
 /**
  * Classifica uma linha de entrada.
@@ -446,13 +454,14 @@ export function parseInput(raw) {
   return { type: "chat", text: line };
 }
 
-/** Ajuda (/help) — voz do produto, sem citar o motor. */
+/** Ajuda (/help) — voz do produto, sem citar o motor. Lê de COMMANDS. */
 export function renderHelp() {
   const out = [];
   out.push(paint("COMANDOS", "bold"));
   out.push("");
-  for (const c of SLASH_COMMANDS) {
-    out.push(`  ${paint(c.cmd.padEnd(16), "fg")}  ${paint(c.desc, "muted")}`);
+  for (const c of COMMANDS) {
+    const label = c.name + (c.args ? " " + c.args : "");
+    out.push(`  ${paint(label.padEnd(20), "fg")}  ${paint(c.description, "muted")}`);
   }
   out.push("");
   out.push(paint("CONVERSA", "bold"));
@@ -461,6 +470,146 @@ export function renderHelp() {
   out.push(`  ${paint("Ctrl+C", "fg")} cancela a resposta em curso e devolve a linha.`);
   out.push(`  ${paint("q", "fg")} / ${paint("/quit", "fg")} / ${paint("Ctrl+D", "fg")} saem.`);
   return out.map((line) => wrapAnsi(line, WIDTH)).join("\n");
+}
+
+/* ------------------------------------------------------------------ */
+/* Paleta de comandos (filtro puro + desenho puro)                    */
+/* ------------------------------------------------------------------ */
+
+/** Corta uma linha (com ANSI) a `w` colunas visíveis, pondo "…" no fim. */
+function truncateVisible(s, w) {
+  if (visibleWidth(s) <= w) return s;
+  if (w <= 1) return "…";
+  const tokens = [];
+  const re = /\x1b\[[0-9;]*m/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(s))) {
+    for (const ch of s.slice(last, m.index)) tokens.push(ch);
+    tokens.push(m[0]);
+    last = m.index + m[0].length;
+  }
+  for (const ch of s.slice(last)) tokens.push(ch);
+  let out = "";
+  let vis = 0;
+  for (const t of tokens) {
+    if (t.startsWith("\x1b")) {
+      out += t;
+      continue;
+    }
+    if (vis >= w - 1) break;
+    out += t;
+    vis++;
+  }
+  return out + "…\x1b[0m";
+}
+
+/** Preenche/trunca uma linha para exatamente `w` colunas visíveis. */
+function padVisible(s, w) {
+  const vw = visibleWidth(s);
+  if (vw > w) return truncateVisible(s, w);
+  if (vw < w) return s + " ".repeat(w - vw);
+  return s;
+}
+
+const normName = (n) => String(n).replace(/^\//, "").toLowerCase();
+
+/** Subsequência: os caracteres de `needle` aparecem em ordem em `hay`. */
+function isSubsequence(needle, hay) {
+  let i = 0;
+  for (const ch of hay) {
+    if (ch === needle[i]) i++;
+    if (i === needle.length) return true;
+  }
+  return i === needle.length;
+}
+
+/**
+ * Filtra os comandos por uma consulta (sem a barra inicial). Prefixo e fuzzy
+ * (subsequência). Puro e determinístico — a base da paleta e do teste.
+ *
+ * @param {string} query
+ * @returns {Array<{name:string,args:string,description:string}>}
+ */
+export function filterCommands(query) {
+  const q = normName(query).trim();
+  const all = COMMANDS.map((c) => ({ name: c.name, args: c.args, description: c.description }));
+  if (q === "") return all.sort((a, b) => a.name.localeCompare(b.name));
+  const scored = [];
+  for (const c of all) {
+    const n = normName(c.name);
+    let score = -1;
+    if (n.startsWith(q)) score = 0; // prefixo (melhor)
+    else if (isSubsequence(q, n)) score = 1; // fuzzy
+    if (score >= 0) scored.push({ c, score });
+  }
+  scored.sort((a, b) => a.score - b.score || a.c.name.localeCompare(b.c.name));
+  return scored.map((s) => s.c);
+}
+
+/**
+ * Desenha a paleta como linhas ANSI (caixa de largura `width` = W). Cada linha
+ * tem exatamente W colunas visíveis. `selectedIndex` destaca uma linha.
+ *
+ * @param {Array} commands  saída de filterCommands
+ * @param {number} selectedIndex
+ * @param {number} width largura total (colunas)
+ * @returns {string[]}
+ */
+export function renderPalette(commands, selectedIndex, width) {
+  const W = Math.max(40, Math.floor(width));
+  const top = "  ┌" + "─".repeat(W - 4) + "┐";
+  const bottom = "  └" + "─".repeat(W - 4) + "┘";
+
+  if (!commands || commands.length === 0) {
+    const mid = "  │" + padVisible("  nenhum comando", W - 4) + "│";
+    return [top, mid, bottom];
+  }
+
+  const label = (c) => c.name + (c.args ? " " + c.args : "");
+  let nameW = 0;
+  for (const c of commands) nameW = Math.max(nameW, visibleWidth(label(c)));
+  nameW += 2;
+  const inner = W - 4;
+  const descW = Math.max(4, inner - 3 - nameW); // 3 = " > " / "   "
+  const sel = Math.max(0, Math.min(selectedIndex | 0, commands.length - 1));
+  // no máximo 8 linhas visíveis; a seleção acompanha (janela deslizante)
+  const MAX_ROWS = 8;
+  let winStart = 0;
+  if (commands.length > MAX_ROWS) {
+    winStart = Math.max(0, Math.min(sel - (MAX_ROWS >> 1), commands.length - MAX_ROWS));
+  }
+  const winEnd = Math.min(commands.length, winStart + MAX_ROWS);
+
+  const lines = [top];
+  for (let i = winStart; i < winEnd; i++) {
+    const c = commands[i];
+    const isSel = i === sel;
+    const marker = isSel ? " > " : "   ";
+    let name = label(c);
+    name = visibleWidth(name) > nameW ? padVisible(name, nameW) : name + " ".repeat(nameW - visibleWidth(name));
+    let desc = c.description;
+    if (visibleWidth(desc) > descW) desc = truncateVisible(desc, descW);
+    const content = padVisible(marker + name + desc, inner);
+    lines.push("  │" + (isSel ? paint(content, "bold") : content) + "│");
+  }
+  lines.push(bottom);
+  return lines;
+}
+
+/** Frame headless da paleta (para --render palette / palette-filtered). */
+export function renderPaletteFrame(filterQuery = "", width = WIDTH) {
+  const filtered = filterCommands(filterQuery);
+  const palette = renderPalette(filtered, 0, width);
+  const out = [];
+  out.push(renderBanner());
+  out.push(rule());
+  out.push(renderStatusLine({}));
+  out.push("");
+  out.push(`  ${paint("›", "fg")} /${filterQuery}`);
+  for (const l of palette) out.push(l);
+  out.push(paint("  ↑↓ navegar  enter escolher  esc fechar", "dim"));
+  return out.map((line) => wrapAnsi(line, width)).join("\n");
 }
 
 /* ------------------------------------------------------------------ */
@@ -566,166 +715,170 @@ function tailLines(text, n = 8) {
  * um código de processo (0 = ok). `ctx` carrega o cliente de conversa (pi) e
  * dados de estado.
  */
-export async function runSlash(name, arg, out, ctx = {}) {
-  switch (name) {
-    case "/help":
-      out(renderHelp());
-      return 0;
+/* ------------------------------------------------------------------ */
+/* Executores dos comandos (usados por COMMANDS e por runSlash)        */
+/* ------------------------------------------------------------------ */
 
-    case "/detect": {
-      const { detectGaps } = await import("../core/forge/detect.mjs");
-      const det = await detectGaps({ ledger: LEDGER, threshold: 3, maxGaps: 20 });
-      const lines = [
-        paint(`  execuções lidas: ${det.scanned}`, "fg"),
-        paint(`  lacunas abertas: ${det.gaps.length}`, "fg"),
-      ];
-      for (const g of det.gaps.slice(0, 12)) {
-        lines.push(`  ${paint("●", "warn")} [${g.kind}] ${g.taskId} → ${g.capability}`);
-      }
-      if (det.gaps.length === 0) lines.push(paint("  nenhuma lacuna acionável", "muted"));
-      out(lines.join("\n"));
-      return 0;
-    }
+async function runHelp({ out }) {
+  out(renderHelp());
+  return 0;
+}
 
-    case "/skills": {
-      const { openStore } = await import("../core/memory/store.mjs");
-      const store = openStore({ root: MEMORY });
-      const entries = store.query({ level: "skills" }).filter((e) => !e.invalid);
-      if (entries.length === 0) {
-        out(paint("  nenhuma skill registrada ainda", "muted"));
-        return 0;
-      }
-      const lines = [paint(`  ${entries.length} skill(s) registrada(s)`, "fg")];
-      for (const e of entries.slice(0, 15)) {
-        lines.push(`  ${paint("●", "ok")} ${String(e.text).replace(/\s+/g, " ").slice(0, 64)}`);
-      }
-      out(lines.join("\n"));
-      return 0;
-    }
-
-    case "/memory": {
-      const termo = arg.trim();
-      const { openStore } = await import("../core/memory/store.mjs");
-      const { searchCapabilities } = await import("../core/memory/search.mjs");
-      const store = openStore({ root: MEMORY });
-      if (!termo) {
-        const all = store.query({ level: "skills" }).filter((e) => !e.invalid);
-        out(paint(`  memória: ${all.length} skill(s). Use /memory <termo> para buscar.`, "muted"));
-        return 0;
-      }
-      const res = searchCapabilities(store, termo, { levels: ["skills", "project", "session"], limit: 10 });
-      if (res.count === 0) {
-        out(paint(`  nada encontrado para "${termo}" — talvez ainda não tenha sido gerado`, "muted"));
-        return 0;
-      }
-      const lines = [paint(`  "${termo}" — ${res.count} resultado(s)`, "fg")];
-      for (const r of res.results) {
-        lines.push(`  ${paint("●", "ok")} [${r.score}] ${String(r.text).replace(/\s+/g, " ").slice(0, 70)}`);
-      }
-      out(lines.join("\n"));
-      return 0;
-    }
-
-    case "/evals": {
-      out(paint("  rodando os grupos estruturais (A/B/C)…", "muted"));
-      const results = [];
-      for (const g of ["A", "B", "C"]) {
-        const r = await runProcess(process.execPath, [path.join(ROOT, "evals", "run.mjs"), "--group", g, "--no-ledger"]);
-        const last = tailLines(r.out, 1)[0] || `grupo ${g}: sem saída`;
-        results.push({ g, code: r.code, last });
-      }
-      const lines = [""];
-      for (const r of results) {
-        lines.push(`  ${paint(r.g, "fg")}  ${r.last}`);
-      }
-      out(lines.join("\n"));
-      return results.every((r) => r.code === 0) ? 0 : 1;
-    }
-
-    case "/gate": {
-      out(paint("  gate completo — usa o modelo e pode demorar…", "muted"));
-      const r = await runProcess(process.execPath, [path.join(ROOT, "evals", "gate.mjs")]);
-      const last = tailLines(r.out, 10);
-      out(last.map((l) => "  " + l).join("\n") || paint("  (sem saída)", "muted"));
-      return r.code;
-    }
-
-    case "/forge": {
-      const meta = arg.trim();
-      if (!meta) {
-        out(paint("  uso: /forge <meta>  (ex.: /forge \"extrair HTML com seletor\")", "muted"));
-        return 2;
-      }
-      out(paint(`  iniciando ciclo evolutivo rumo a: ${meta}`, "muted"));
-      out(paint("  (um ciclo mexe em arquivos e pode demorar; Ctrl+C interrompe)", "muted"));
-      const r = await runProcess(process.execPath, [path.join(ROOT, "core", "forge", "cli.mjs"), "evolve", "--goal", meta], {
-        onLine: (line) => out(paint("  · " + line, "muted")),
-      });
-      out(paint(`  outcome: ${r.code === 0 ? "concluído" : "interrompido ou reprovado"}`, r.code === 0 ? "ok" : "warn"));
-      return r.code;
-    }
-
-    case "/model": {
-      const pi = ctx.pi;
-      const nome = arg.trim();
-      const configured = listConfiguredModels(); // [{ provider, id }] — só nomes, sem chaves
-      if (!nome) {
-        // lista o que está configurado, agrupado por provedor (nunca imprime chaves)
-        let current = null;
-        if (pi) {
-          const state = await pi.getState().catch(() => ({}));
-          current = state.model ? `${state.model.provider}/${state.model.id}` : null;
-        }
-        const lines = [];
-        if (current) lines.push(paint(`  modelo atual: ${current}`, "fg"));
-        if (configured.length === 0) {
-          lines.push(paint("  nenhum modelo configurado encontrado.", "warn"));
-          out(lines.join("\n"));
-          return 0;
-        }
-        const byProv = new Map();
-        for (const m of configured) {
-          if (!byProv.has(m.provider)) byProv.set(m.provider, []);
-          byProv.get(m.provider).push(m.id);
-        }
-        for (const [prov, ids] of byProv) {
-          lines.push("");
-          lines.push(paint(`  ${prov}`, "bold"));
-          for (const id of ids) lines.push(`    ${id}`);
-        }
-        out(lines.join("\n"));
-        return 0;
-      }
-      if (!pi) {
-        out(paint("  a conversa está desativada; não dá para trocar o modelo agora", "muted"));
-        return 2;
-      }
-      const alvo = configured.find((m) =>
-        nome.includes("/") ? `${m.provider}/${m.id}` === nome : m.id === nome || m.id.includes(nome),
-      );
-      if (!alvo) {
-        out(paint(`  não encontrei o modelo "${nome}" entre os configurados. Use /model para ver a lista.`, "warn"));
-        return 2;
-      }
-      await pi.setModel(alvo.provider, alvo.id).catch(() => {});
-      out(paint(`  modelo: ${alvo.provider}/${alvo.id}`, "ok"));
-      return 0;
-    }
-
-    case "/clear": {
-      const pi = ctx.pi;
-      if (pi) {
-        await pi.newSession().catch(() => {});
-      }
-      ctx.onClear?.();
-      out(paint("  conversa limpa", "muted"));
-      return 0;
-    }
-
-    default:
-      out(paint(`  comando desconhecido: ${name}  (tente /help)`, "warn"));
-      return 2;
+async function runDetect({ out }) {
+  const { detectGaps } = await import("../core/forge/detect.mjs");
+  const det = await detectGaps({ ledger: LEDGER, threshold: 3, maxGaps: 20 });
+  const lines = [
+    paint(`  execuções lidas: ${det.scanned}`, "fg"),
+    paint(`  lacunas abertas: ${det.gaps.length}`, "fg"),
+  ];
+  for (const g of det.gaps.slice(0, 12)) {
+    lines.push(`  ${paint("●", "warn")} [${g.kind}] ${g.taskId} → ${g.capability}`);
   }
+  if (det.gaps.length === 0) lines.push(paint("  nenhuma lacuna acionável", "muted"));
+  out(lines.join("\n"));
+  return 0;
+}
+
+async function runSkills({ out }) {
+  const { openStore } = await import("../core/memory/store.mjs");
+  const store = openStore({ root: MEMORY });
+  const entries = store.query({ level: "skills" }).filter((e) => !e.invalid);
+  if (entries.length === 0) {
+    out(paint("  nenhuma skill registrada ainda", "muted"));
+    return 0;
+  }
+  const lines = [paint(`  ${entries.length} skill(s) registrada(s)`, "fg")];
+  for (const e of entries.slice(0, 15)) {
+    lines.push(`  ${paint("●", "ok")} ${String(e.text).replace(/\s+/g, " ").slice(0, 64)}`);
+  }
+  out(lines.join("\n"));
+  return 0;
+}
+
+async function runMemory({ arg, out }) {
+  const termo = arg.trim();
+  const { openStore } = await import("../core/memory/store.mjs");
+  const { searchCapabilities } = await import("../core/memory/search.mjs");
+  const store = openStore({ root: MEMORY });
+  if (!termo) {
+    const all = store.query({ level: "skills" }).filter((e) => !e.invalid);
+    out(paint(`  memória: ${all.length} skill(s). Use /memory <termo> para buscar.`, "muted"));
+    return 0;
+  }
+  const res = searchCapabilities(store, termo, { levels: ["skills", "project", "session"], limit: 10 });
+  if (res.count === 0) {
+    out(paint(`  nada encontrado para "${termo}" — talvez ainda não tenha sido gerado`, "muted"));
+    return 0;
+  }
+  const lines = [paint(`  "${termo}" — ${res.count} resultado(s)`, "fg")];
+  for (const r of res.results) {
+    lines.push(`  ${paint("●", "ok")} [${r.score}] ${String(r.text).replace(/\s+/g, " ").slice(0, 70)}`);
+  }
+  out(lines.join("\n"));
+  return 0;
+}
+
+async function runEvals({ out }) {
+  out(paint("  rodando os grupos estruturais (A/B/C)…", "muted"));
+  const results = [];
+  for (const g of ["A", "B", "C"]) {
+    const r = await runProcess(process.execPath, [path.join(ROOT, "evals", "run.mjs"), "--group", g, "--no-ledger"]);
+    const last = tailLines(r.out, 1)[0] || `grupo ${g}: sem saída`;
+    results.push({ g, code: r.code, last });
+  }
+  const lines = [""];
+  for (const r of results) {
+    lines.push(`  ${paint(r.g, "fg")}  ${r.last}`);
+  }
+  out(lines.join("\n"));
+  return results.every((r) => r.code === 0) ? 0 : 1;
+}
+
+async function runGate({ out }) {
+  out(paint("  gate completo — usa o modelo e pode demorar…", "muted"));
+  const r = await runProcess(process.execPath, [path.join(ROOT, "evals", "gate.mjs")]);
+  const last = tailLines(r.out, 10);
+  out(last.map((l) => "  " + l).join("\n") || paint("  (sem saída)", "muted"));
+  return r.code;
+}
+
+async function runForge({ arg, out }) {
+  const meta = arg.trim();
+  if (!meta) {
+    out(paint("  uso: /forge <meta>  (ex.: /forge \"extrair HTML com seletor\")", "muted"));
+    return 2;
+  }
+  out(paint(`  iniciando ciclo evolutivo rumo a: ${meta}`, "muted"));
+  out(paint("  (um ciclo mexe em arquivos e pode demorar; Ctrl+C interrompe)", "muted"));
+  const r = await runProcess(process.execPath, [path.join(ROOT, "core", "forge", "cli.mjs"), "evolve", "--goal", meta], {
+    onLine: (line) => out(paint("  · " + line, "muted")),
+  });
+  out(paint(`  outcome: ${r.code === 0 ? "concluído" : "interrompido ou reprovado"}`, r.code === 0 ? "ok" : "warn"));
+  return r.code;
+}
+
+async function runModel({ arg, out, pi }) {
+  const nome = arg.trim();
+  const configured = listConfiguredModels(); // [{ provider, id }] — só nomes, sem chaves
+  if (!nome) {
+    // lista o que está configurado, agrupado por provedor (nunca imprime chaves)
+    let current = null;
+    if (pi) {
+      const state = await pi.getState().catch(() => ({}));
+      current = state.model ? `${state.model.provider}/${state.model.id}` : null;
+    }
+    const lines = [];
+    if (current) lines.push(paint(`  modelo atual: ${current}`, "fg"));
+    if (configured.length === 0) {
+      lines.push(paint("  nenhum modelo configurado encontrado.", "warn"));
+      out(lines.join("\n"));
+      return 0;
+    }
+    const byProv = new Map();
+    for (const m of configured) {
+      if (!byProv.has(m.provider)) byProv.set(m.provider, []);
+      byProv.get(m.provider).push(m.id);
+    }
+    for (const [prov, ids] of byProv) {
+      lines.push("");
+      lines.push(paint(`  ${prov}`, "bold"));
+      for (const id of ids) lines.push(`    ${id}`);
+    }
+    out(lines.join("\n"));
+    return 0;
+  }
+  if (!pi) {
+    out(paint("  a conversa está desativada; não dá para trocar o modelo agora", "muted"));
+    return 2;
+  }
+  const alvo = configured.find((m) =>
+    nome.includes("/") ? `${m.provider}/${m.id}` === nome : m.id === nome || m.id.includes(nome),
+  );
+  if (!alvo) {
+    out(paint(`  não encontrei o modelo "${nome}" entre os configurados. Use /model para ver a lista.`, "warn"));
+    return 2;
+  }
+  await pi.setModel(alvo.provider, alvo.id).catch(() => {});
+  out(paint(`  modelo: ${alvo.provider}/${alvo.id}`, "ok"));
+  return 0;
+}
+
+async function runClear({ out, pi, onClear }) {
+  if (pi) {
+    await pi.newSession().catch(() => {});
+  }
+  onClear?.();
+  out(paint("  conversa limpa", "muted"));
+  return 0;
+}
+
+export async function runSlash(name, arg, out, ctx = {}) {
+  const cmd = COMMANDS.find((c) => c.name === name);
+  if (!cmd) {
+    out(paint(`  comando desconhecido: ${name}  (tente /help)`, "warn"));
+    return 2;
+  }
+  return cmd.run({ arg, out, pi: ctx.pi, onClear: ctx.onClear });
 }
 
 /* ------------------------------------------------------------------ */
@@ -927,12 +1080,62 @@ function waitForSettle(pi, timeoutMs = 120_000) {
  * @returns {{ state:{buf:string,cur:number}, effect:("submit"|"sigint"|"eof"|null) }}
  */
 export function reduceLine(st, key) {
-  const s = { buf: st.buf ?? "", cur: Math.max(0, Math.min(st.cur ?? (st.buf ?? "").length, (st.buf ?? "").length)) };
+  const s = {
+    buf: st.buf ?? "",
+    cur: Math.max(0, Math.min(st.cur ?? (st.buf ?? "").length, (st.buf ?? "").length)),
+    sel: st.sel ?? 0,
+    dismissed: st.dismissed ?? false,
+  };
   const effect = (e) => ({ state: s, effect: e ?? null });
+  const open = () => !s.dismissed && s.buf.startsWith("/") && !s.buf.includes(" ");
+  const resetDismissed = () => {
+    if (s.buf === "" || !s.buf.startsWith("/") || s.buf.includes(" ")) s.dismissed = false;
+  };
+  const selectCurrent = () => {
+    const filtered = filterCommands(s.buf.slice(1));
+    if (filtered.length === 0) return false;
+    const c = filtered[Math.max(0, Math.min(s.sel, filtered.length - 1))];
+    const fill = c.name + (c.args ? " " : "");
+    s.buf = fill;
+    s.cur = fill.length;
+    s.dismissed = true; // não reabre após selecionar
+    return true;
+  };
 
-  if (key === "enter") return effect("submit");
+  if (key === "enter") {
+    // paleta aberta: Enter seleciona (preenche), não executa
+    if (open() && selectCurrent()) return effect("selected");
+    return effect("submit");
+  }
+  if (key === "tab") {
+    if (open() && selectCurrent()) return effect("selected");
+    return effect();
+  }
+  if (key === "esc") {
+    if (open()) {
+      s.dismissed = true;
+      return effect("palette-closed");
+    }
+    return effect();
+  }
   if (key === "ctrl-c") return effect("sigint");
   if (key === "ctrl-d") return effect("eof");
+  if (key === "up") {
+    const n = open() ? filterCommands(s.buf.slice(1)).length : 0;
+    if (n > 0) {
+      s.sel = (s.sel - 1 + n) % n;
+      return effect("palette-move");
+    }
+    return effect("history-up");
+  }
+  if (key === "down") {
+    const n = open() ? filterCommands(s.buf.slice(1)).length : 0;
+    if (n > 0) {
+      s.sel = (s.sel + 1) % n;
+      return effect("palette-move");
+    }
+    return effect("history-down");
+  }
   if (key === "left") {
     s.cur = Math.max(0, s.cur - 1);
     return effect();
@@ -950,17 +1153,28 @@ export function reduceLine(st, key) {
     return effect();
   }
   if (key === "backspace") {
-    if (s.cur > 0) s.buf = s.buf.slice(0, s.cur - 1) + s.buf.slice(s.cur), s.cur--;
+    if (s.cur > 0) {
+      s.buf = s.buf.slice(0, s.cur - 1) + s.buf.slice(s.cur);
+      s.cur--;
+      resetDismissed();
+      s.sel = 0;
+    }
     return effect();
   }
   if (key === "delete") {
-    if (s.cur < s.buf.length) s.buf = s.buf.slice(0, s.cur) + s.buf.slice(s.cur + 1);
+    if (s.cur < s.buf.length) {
+      s.buf = s.buf.slice(0, s.cur) + s.buf.slice(s.cur + 1);
+      resetDismissed();
+      s.sel = 0;
+    }
     return effect();
   }
   // imprimível (um caractere)
   if (typeof key === "string" && key.length === 1) {
     s.buf = s.buf.slice(0, s.cur) + key + s.buf.slice(s.cur);
     s.cur++;
+    resetDismissed();
+    s.sel = 0; // digitar volta a seleção ao topo
     return effect();
   }
   return effect();
@@ -1048,19 +1262,37 @@ function printHeader(write, data) {
  */
 export async function repl({ pi, write, input, setRaw, data = {} }) {
   const keymap = makeKeyMap();
-  let line = { buf: "", cur: 0 };
+  let line = { buf: "", cur: 0, sel: 0, dismissed: false };
   let history = [];
   let histIdx = -1;
   let running = false;
   let quitting = false;
 
-  const echo = () => {
-    write("\r\x1b[2K  " + paint("›", "fg") + " " + line.buf);
-    // posiciona o cursor dentro do buffer
-    const back = line.buf.length - line.cur;
-    if (back > 0) write(`\x1b[${back}D`);
+  const paletteWidth = () => {
+    const cols = (process.stdout && process.stdout.columns) || 80;
+    return Math.max(40, Math.min(cols - 4, 116));
   };
-  const prompt = () => echo();
+
+  // Redesenho incremental: limpa SÓ da linha de entrada para baixo.
+  const drawInput = () => {
+    const open = !line.dismissed && line.buf.startsWith("/") && !line.buf.includes(" ");
+    const filtered = open ? filterCommands(line.buf.slice(1)) : [];
+    const sel = filtered.length ? Math.max(0, Math.min(line.sel, filtered.length - 1)) : 0;
+    const paletteLines = open ? renderPalette(filtered, sel, paletteWidth()) : [];
+    const footer = open
+      ? paint("  ↑↓ navegar  enter escolher  esc fechar", "dim")
+      : paint("  enter enviar · / comandos · q sair", "dim");
+    write("\r\x1b[J");
+    write("  " + paint("›", "fg") + " " + line.buf);
+    for (const pl of paletteLines) write("\n" + pl);
+    write("\n" + footer);
+    const below = paletteLines.length + 1;
+    if (below > 0) write(`\x1b[${below}A`);
+    const col = 4 + line.cur;
+    write("\r");
+    if (col > 0) write(`\x1b[${col}C`);
+  };
+  const prompt = () => drawInput();
 
   const finishRun = async () => {
     running = false;
@@ -1104,55 +1336,54 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
   const onData = (chunk) => {
     for (const key of keymap(chunk)) {
       if (quitting) return;
-      if (key === "__sigint") {
-        if (running && pi) {
-          // Ctrl+C durante a conversa: cancela e volta à linha
-          pi.abort().catch(() => {});
+      if (running) {
+        if (key === "ctrl-c") {
+          if (pi) pi.abort().catch(() => {});
           write("^C\n");
           running = false;
-          write(engineUnavailableNote().length ? "" : "");
-          prompt();
-        } else {
-          // Ctrl+C na linha: limpa; se já vazia duas vezes, sai
-          if (line.buf === "") {
-            quitting = true;
-            write("\n");
-          } else {
-            line = { buf: "", cur: 0 };
-            write("\n");
-            prompt();
-          }
-        }
-        continue;
-      }
-      if (running) continue; // durante a conversa, só Ctrl+C importa
-      if (key === "up") {
-        if (history.length > 0 && histIdx > 0) {
-          histIdx--;
-          line = { buf: history[histIdx] ?? "", cur: (history[histIdx] || "").length };
-          echo();
-        }
-        continue;
-      }
-      if (key === "down") {
-        if (histIdx < history.length) {
-          histIdx++;
-          line = { buf: history[histIdx] ?? "", cur: (history[histIdx] || "").length };
-          echo();
+          drawInput();
         }
         continue;
       }
       const { state, effect } = reduceLine(line, key);
-      line = state;
-      if (effect === "submit") {
-        const text = line.buf;
-        line = { buf: "", cur: 0 };
-        submit(text);
-      } else if (effect === "eof") {
-        quitting = true;
-        write("\n");
-      } else {
-        echo();
+      switch (effect) {
+        case "submit": {
+          const text = state.buf;
+          line = { buf: "", cur: 0, sel: 0, dismissed: false };
+          submit(text);
+          break;
+        }
+        case "sigint": {
+          if (state.buf === "") {
+            quitting = true;
+            write("\n");
+          } else {
+            line = { buf: "", cur: 0, sel: 0, dismissed: false };
+            write("\n");
+            drawInput();
+          }
+          break;
+        }
+        case "eof":
+          quitting = true;
+          write("\n");
+          break;
+        case "history-up":
+        case "history-down": {
+          if (effect === "history-up") {
+            if (history.length > 0 && histIdx > 0) histIdx--;
+          } else if (histIdx < history.length) {
+            histIdx++;
+          }
+          const buf = history[histIdx] ?? "";
+          line = { buf, cur: buf.length, sel: 0, dismissed: false };
+          drawInput();
+          break;
+        }
+        default:
+          line = state;
+          drawInput();
+          break;
       }
     }
   };
@@ -1220,11 +1451,11 @@ function makeKeyMap() {
           continue;
         }
         // Esc sozinho
-        yield "__ignore";
+        yield "esc";
         continue;
       }
       if (code === 0x03) {
-        yield "__sigint";
+        yield "ctrl-c";
         continue;
       }
       if (code === 0x04) {
@@ -1240,7 +1471,7 @@ function makeKeyMap() {
         continue;
       }
       if (code === 0x09) {
-        yield "__ignore"; // Tab: ignora (sem autocompletar)
+        yield "tab"; // Tab: seleciona na paleta
         continue;
       }
       if (code >= 0x20) {
@@ -1308,8 +1539,10 @@ async function main() {
     if (screen === "conversation") frame = renderConversationFrame(data);
     else if (screen === "help") frame = [renderBanner(), rule(), renderStatusLine(data), "", renderHelp()].join("\n");
     else if (screen === "banner") frame = [renderBanner(), rule(), renderStatusLine(data)].join("\n");
+    else if (screen === "palette") frame = renderPaletteFrame("", 72);
+    else if (screen === "palette-filtered") frame = renderPaletteFrame("ev", 72);
     else {
-      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, help, banner)\n`);
+      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, help, banner, palette, palette-filtered)\n`);
       process.exit(2);
     }
     process.stdout.write(frame + "\n");
