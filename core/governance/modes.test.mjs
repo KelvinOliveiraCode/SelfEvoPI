@@ -275,3 +275,119 @@ test("modeList e o registro não expõem yolo", () => {
   assert.equal(Object.hasOwn(MODES, "yolo"), false);
   assert.equal(Object.hasOwn(MODES, "bypass"), false);
 });
+
+/* ------------------------------------------------------------------ */
+/* describePermissions — o que a TUI mostra                            */
+/* ------------------------------------------------------------------ */
+
+import { describePermissions, permissionLabel, describeAllPermissions } from "./modes.mjs";
+
+test("os três modos devolvem rótulo, resumo e asks corretos", () => {
+  const plan = describePermissions({ mode: "plan" });
+  assert.equal(plan.mode, "plan");
+  assert.equal(plan.label, "Leitura apenas");
+  assert.equal(plan.canRead, true);
+  assert.equal(plan.canWrite, false);
+  assert.equal(plan.canExec, true);
+  assert.equal(plan.execScope, "readonly");
+  assert.ok(plan.summary.length > 20, "resumo tem de dizer o que o modo faz");
+  assert.ok(!/\?$/.test(plan.summary), "resumo é afirmação, não pergunta");
+  assert.deepEqual(plan.asks.map((a) => a.trigger), ["write", "exec"]);
+
+  const build = describePermissions({ mode: "build" });
+  assert.equal(build.mode, "build");
+  assert.equal(build.label, "Aceita edições");
+  assert.equal(build.canWrite, true);
+  assert.deepEqual(build.asks.map((a) => a.trigger), ["outside-workspace", "approval"]);
+
+  const ask = describePermissions({ mode: "ask" });
+  assert.equal(ask.mode, "ask");
+  assert.equal(ask.label, "Consulta apenas");
+  assert.equal(ask.canWrite, false);
+  assert.equal(ask.canExec, false);
+  assert.equal(ask.execScope, "none");
+  assert.deepEqual(ask.asks.map((a) => a.trigger), ["write", "exec"]);
+});
+
+test("label é curto o bastante para a linha de status", () => {
+  for (const nome of MODE_NAMES) {
+    const d = describePermissions({ mode: nome });
+    assert.ok(d.label.length > 0, `${nome} tem rótulo`);
+    assert.ok(d.label.length <= 24, `rótulo de ${nome} tem ${d.label.length} chars: "${d.label}"`);
+  }
+});
+
+test("modo inválido não quebra e falha fechado", () => {
+  for (const ruim of ["yolo", "bypassPermissions", "turbo", "", null, undefined, 42]) {
+    const d = describePermissions({ mode: ruim });
+    assert.equal(d.label, "Modo desconhecido");
+    assert.equal(d.canRead, false, "modo desconhecido não lê");
+    assert.equal(d.canWrite, false);
+    assert.equal(d.canExec, false);
+    assert.equal(d.execScope, "none");
+    assert.deepEqual(d.asks, []);
+  }
+  // sem argumento nenhum também não lança
+  assert.equal(describePermissions().label, "Modo desconhecido");
+});
+
+test("as perguntas do tipo de permissão batem com as perguntas do guard", () => {
+  // plan: o guard recusa a escrita e pergunta; o tipo de permissão anuncia isso
+  const plano = describePermissions({ mode: "plan" });
+  const escritaPlan = guard({ mode: "plan", action: "write", path: DENTRO, workspace: WS });
+  assert.equal(escritaPlan.decision, "block");
+  assert.ok(escritaPlan.questions.length > 0, "guard já pergunta ao recusar");
+  assert.ok(plano.asks.some((a) => a.trigger === "write"));
+
+  // build: o guard faz ask fora do workspace, e o tipo de permissão anuncia
+  const build = describePermissions({ mode: "build" });
+  const foraBuild = guard({ mode: "build", action: "write", path: FORA, workspace: WS });
+  assert.equal(foraBuild.decision, "ask");
+  assert.ok(build.asks.some((a) => a.trigger === "outside-workspace"));
+
+  // ask: o guard bloqueia execução, e o tipo de permissão anuncia
+  const ask = describePermissions({ mode: "ask" });
+  assert.equal(guard({ mode: "ask", action: "exec", command: "ls" }).decision, "block");
+  assert.ok(ask.asks.some((a) => a.trigger === "exec"));
+});
+
+test("todo texto de pergunta é curto e objetivo", () => {
+  for (const d of describeAllPermissions()) {
+    for (const a of d.asks) {
+      assert.ok(a.question.endsWith("?"), `pergunta de ${d.mode}/${a.trigger} tem de terminar com ?`);
+      assert.ok(a.question.length <= 90, `pergunta longa demais (${a.question.length}): ${a.question}`);
+      assert.ok(!/tem certeza/i.test(a.question), "nada de 'você tem certeza?'");
+    }
+  }
+});
+
+test("as permissões do tipo batem com resolveMode", () => {
+  for (const nome of MODE_NAMES) {
+    const m = resolveMode(nome);
+    const d = describePermissions({ mode: nome });
+    assert.equal(d.canRead, m.canRead, nome);
+    assert.equal(d.canWrite, m.canWrite, nome);
+    assert.equal(d.canExec, m.canExec, nome);
+    assert.equal(d.execScope, m.execScope, nome);
+  }
+});
+
+test("goal recebe o rótulo da base, sem caso especial", () => {
+  assert.equal(describePermissions({ mode: "goal" }).label, describePermissions({ mode: "build" }).label);
+  assert.equal(
+    describePermissions({ mode: "goal", base: "plan" }).label,
+    describePermissions({ mode: "plan" }).label
+  );
+});
+
+test("permissionLabel e describeAllPermissions são consistentes", () => {
+  assert.equal(permissionLabel("plan"), "Leitura apenas");
+  assert.equal(permissionLabel("yolo"), "Modo desconhecido");
+
+  const todos = describeAllPermissions();
+  assert.deepEqual(
+    todos.map((d) => d.mode),
+    MODE_NAMES
+  );
+  for (const d of todos) assert.equal(d.label, permissionLabel(d.mode));
+});
