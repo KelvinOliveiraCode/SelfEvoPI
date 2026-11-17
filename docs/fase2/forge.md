@@ -354,6 +354,42 @@ node core/forge/cli.mjs evolve --goal "expor uma ferramenta de soma" --kind mcp-
 node core/forge/cli.mjs evolve --goal "registrar comando no PI" --kind extension --dry-run
 ```
 
+## Auto-disparo (evolução sem operador)
+
+O `cli.mjs evolve` só roda quando um humano chama. O `auto.mjs` fecha o
+ciclo: o harness detecta a lacuna sozinho e, com `--auto`, executa o pipeline.
+Vive em `core/forge/auto.mjs` e a linha de frente é o subcomando `auto`:
+
+```bash
+node core/forge/cli.mjs auto --once            # uma passada (default é dry-run)
+node core/forge/cli.mjs auto --watch --interval 60   # repete a cada 60s, com backoff
+node core/forge/cli.mjs auto --once --auto     # executa de verdade
+node core/forge/cli.mjs auto --once --json     # saída de uma linha
+```
+
+### O padrão é dry-run
+
+Sem `--auto`, `auto --once` apenas **IMPRIME o plano** (meta, kind, comando) e
+não escreve nada, não promove nada, não toca em arquivo. O teste compara o hash
+da árvore antes/depois: idêntico. `--auto` é obrigatório para agir.
+
+### Mesmo com --auto, três travas
+
+1. **Nunca promove sem o gate passar.** O `runAutoPass` delega ao loop, que só
+   chama `promote` quando `decidePromotion` aprova; gate vermelho faz rollback.
+2. **Toda ação auto-disparada vai ao ledger** com `origin: "auto"` (vs `"manual"`).
+3. **Área protegida é recusada, não contornada.** Se a lacuna aponta para
+   `evals/`, `core/governance/` ou `scripts/verify-urls.mjs`, a ação é
+   pulada com mensagem (`PROTECTED_AREAS` em `auto.mjs`).
+
+### Gatilho de lacuna
+
+O gatilho é o `tool-failing` do `detect.mjs`: mesma `taskId` com ≥ `threshold`
+falhas (default 3) no ledger. Ele não gera falso positivo porque exige **evidência
+acumulada** (três execuções que falharam de verdade), não um palpite — ausência de
+catálogo não é lacuna (`tool-missing` só dispara com evidência explícita no
+registro). No ledger real, isso produz 1 lacuna real (D1-cria-soma) em vez de dezenas.
+
 ## Pendências
 
 - [x] Detector de lacunas (`detect.mjs`) — os três gatilhos.
@@ -362,5 +398,6 @@ node core/forge/cli.mjs evolve --goal "registrar comando no PI" --kind extension
 - [x] Promoção real (`promote.mjs`): copia + commit atômico + `last-known-good`.
 - [x] Geradores dos cinco kinds (`mcp-config`, `skill`, `cli`, `extension`, `mcp-server`).
 - [x] Gerador com modelo (`generate-llm.mjs`) + testes de interface sintetizados.
+- [x] Auto-disparo (`auto.mjs` + `cli.mjs auto`): dry-run por padrão, --auto com travas.
 - [ ] Etapa 5 (sandbox Windows) — fase posterior, com Job Objects + `cc-safety-net`.
 - [ ] Indexação semântica do registro (Voyager-style) na promoção.

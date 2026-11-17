@@ -23,10 +23,10 @@ import { runGate, decidePromotion } from "./gatekeeper.mjs";
 import { createEvolutionLoop } from "./loop.mjs";
 import { promoteArtifact } from "./promote.mjs";
 
-const ROOT = path.resolve(import.meta.dirname, "..", "..");
-const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
-const BASELINE = path.join(ROOT, "evals", "baseline.json");
-const TASKS_DIR = path.join(ROOT, "evals", "tasks");
+export const ROOT = path.resolve(import.meta.dirname, "..", "..");
+export const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
+export const BASELINE = path.join(ROOT, "evals", "baseline.json");
+export const TASKS_DIR = path.join(ROOT, "evals", "tasks");
 const DEFAULT_MODEL = process.env.SELFEOPI_MODEL || "kilo1/nvidia/nemotron-3-ultra-550b-a55b:free";
 
 /* ------------------------------------------------------------------ */
@@ -80,7 +80,7 @@ async function readJson(file, fallback = null) {
  * no ledger), devolve `{ skipped: true }` em vez de reprovar: o gate passa a
  * julgar pela evidência do próprio artefato, e diz isso no laudo.
  */
-async function realRunEvals({ taskId, runs }) {
+export async function realRunEvals({ taskId, runs }) {
   if (!taskId || !existsSync(path.join(TASKS_DIR, `${taskId}.json`))) {
     return [{ skipped: true, reason: `sem tarefa de eval "${taskId}"` }];
   }
@@ -112,7 +112,7 @@ async function realRunEvals({ taskId, runs }) {
  * reprovou (regressão), não há estado verde a gravar. Evita que um artefato
  * reprovado vire "último estado bom" por engano.
  */
-async function realPromote({ artifactDir, report, request }) {
+export async function realPromote({ artifactDir, report, request }) {
   const taskId = request?.taskId ?? report?.taskId ?? "tarefa";
   // Sem tarefa de eval, a evidência é a do próprio artefato (mesmo critério do gate).
   const gateOk = report?.skipped
@@ -372,6 +372,84 @@ async function cmdSkills(args) {
 }
 
 /* ------------------------------------------------------------------ */
+/* auto — auto-disparo do loop (evolução sem operador)                 */
+/* ------------------------------------------------------------------ */
+
+async function cmdAuto(args) {
+  const { runAutoPass, runWatch, isProtectedPath, PROTECTED_AREAS } = await import("./auto.mjs");
+
+  // default é dry-run: sem --auto, só imprime o plano.
+  const auto = Boolean(args.flags.auto);
+  const watch = Boolean(args.flags.watch);
+  const once = Boolean(args.flags.once) || !watch;
+  const interval = Number(args.flags.interval ?? 60);
+  const threshold = Number(args.flags.threshold ?? 3);
+  const maxGaps = Number(args.flags["max-gaps"] ?? 5);
+
+  // carimbo de origem no ledger: só em modo --auto
+  const writeLedger = auto
+    ? async (entry) => {
+        const { append } = await import("../../evals/lib/ledger.mjs");
+        await append(LEDGER, [entry]);
+      }
+    : null;
+
+  const passOpts = {
+    ledger: LEDGER,
+    threshold,
+    maxGaps,
+    auto,
+    writeLedger,
+    onEvent: args.flags.json ? null : (e) => text(`  · ${e.event}${e.taskId ? ` (${e.taskId})` : ""}`),
+  };
+
+  if (watch) {
+    // --watch: repete com backoff. Para em erro de Ctrl+C (shouldStop).
+    let stopping = false;
+    const stop = () => { stopping = true; };
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+    const out = await runWatch({ ...passOpts, intervalMs: interval * 1000, shouldStop: () => stopping });
+    if (args.flags.json) jsonLine({ ok: out.ok, watch: true, passes: out.passes, stopped: out.stopped });
+    else text(`watch: ${out.passes} passada(s)${out.stopped ? " (interrompido)" : ""}`);
+    return 0;
+  }
+
+  // --once (default): uma passada.
+  const out = await runAutoPass(passOpts);
+  if (args.flags.json) {
+    jsonLine(out);
+  } else {
+    text(`modo: ${out.dryRun ? "dry-run (nada foi alterado)" : "auto (ações executadas)"}`);
+    if (out.scanned != null) text(`ledger: ${out.scanned} execução(ões) lida(s)`);
+    if (out.considered !== undefined) text(`lacunas acionáveis: ${out.considered}`);
+    if (out.actions && out.actions.length > 0) {
+      for (const a of out.actions) {
+        if (typeof a === "object") {
+          text(`  plano: [${a.gapKind}] ${a.taskId} → ${a.capability}`);
+          text(`         ${a.command}`);
+        } else {
+          text(`  ação #${a}`);
+        }
+      }
+    } else if (out.dryRun) {
+      text("  nenhuma lacuna detectada — nada a fazer");
+    }
+    if (out.skipped && out.skipped.length > 0) {
+      for (const sk of out.skipped) text(`  pulado: ${sk.taskId ?? "?"} — ${sk.reason}`);
+    }
+    if (!out.dryRun && out.results) {
+      for (const r of out.results) {
+        text(`  resultado: ${r?.outcome ?? "?"} (${r?.taskId ?? "?"})`);
+      }
+    }
+  }
+  // Em dry-run, sempre exit 0 (é só diagnóstico). Em auto, exit 1 se algo falhou.
+  if (!out.dryRun && Array.isArray(out.results) && out.results.some((r) => r?.outcome === "error")) return 1;
+  return 0;
+}
+
+/* ------------------------------------------------------------------ */
 /* main                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -384,6 +462,7 @@ async function main() {
   else if (cmd === "gate") code = await cmdGate(args);
   else if (cmd === "status") code = await cmdStatus();
   else if (cmd === "skills") code = await cmdSkills(args);
+  else if (cmd === "auto") code = await cmdAuto(args);
   else {
     if (args.flags.json) jsonLine({ ok: false, error: "comando desconhecido" });
     else {
@@ -392,6 +471,7 @@ async function main() {
       text("  node core/forge/cli.mjs evolve --task <id> [--dry-run] [--json]");
       text("  node core/forge/cli.mjs gate --artifact <dir> --task <id>");
       text("  node core/forge/cli.mjs skills [termo] [--level skills|project|all] [--json]");
+      text("  node core/forge/cli.mjs auto [--once|--watch] [--interval 60] [--auto] [--json]");
       text("  node core/forge/cli.mjs status");
     }
     code = 2;
@@ -399,4 +479,10 @@ async function main() {
   process.exitCode = code;
 }
 
-main();
+// Só executa quando chamado como CLI; importar não dispara o main (evita
+// recursão quando auto.mjs ou um teste importa este módulo).
+import { pathToFileURL } from "node:url";
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
+  main();
+}
