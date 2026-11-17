@@ -17,10 +17,13 @@
  *   const pi = await createPiClient({ cwd, model });
  *   pi.on("text",    (delta) => {});   // streaming de texto (string)
  *   pi.on("tool",    (call)  => {});   // atividade de ferramenta ({ name, args, phase })
+ *   pi.on("error",   (msg)   => {});   // erro bruto do modelo/provedor (texto cru)
  *   pi.on("settled", (info)  => {});   // fim da execução automática ({ aborted })
  *   await pi.prompt("pergunta");
  *   await pi.abort();                  // cancela a execução em curso
  *   await pi.close();
+ *
+ *   listConfiguredModels()             // [{ provider, id }] só nomes (sem chaves)
  *
  * Resolução do motor: o SelfEvoPI é Node puro e não declara o motor como
  * dependência (zero dependência nova). O motor está instalado globalmente;
@@ -29,7 +32,8 @@
  * front-end (voz do SelfEvoPI).
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -68,6 +72,40 @@ export function findEngine(opts = {}) {
   return { available: false, reason: "motor não encontrado nesta máquina" };
 }
 
+/**
+ * Lista os modelos CONFIGURADOS (provedor + id), lendo APENAS os campos de
+ * nome/id do arquivo de modelos do motor. NUNCA lê nem devolve chaves de API —
+ * só o que já é salvo como nome de modelo.
+ *
+ * @returns {Array<{provider: string, id: string}>}
+ */
+export function listConfiguredModels() {
+  const file =
+    process.env.PI_MODELS_FILE ||
+    path.join(process.env.USERPROFILE || os.homedir(), ".pi", "agent", "models.json");
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return [];
+  }
+  const providers = doc && typeof doc === "object" ? doc.providers : null;
+  if (!providers || typeof providers !== "object") return [];
+  const out = [];
+  for (const [provider, entry] of Object.entries(providers)) {
+    const models = entry && typeof entry === "object" ? entry.models : null;
+    const ids = Array.isArray(models)
+      ? models
+          .map((m) => (typeof m === "string" ? m : (m && (m.id || m.name)) || ""))
+          .filter(Boolean)
+      : models && typeof models === "object"
+        ? Object.keys(models)
+        : [];
+    for (const id of ids) out.push({ provider, id: String(id) });
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------ */
 /* Mapeamento evento → estado de tela (puro, testável)                */
 /* ------------------------------------------------------------------ */
@@ -104,6 +142,16 @@ export function normalizeEvent(ev) {
         isError: ev.isError === true,
         durationMs: typeof ev.durationMs === "number" ? ev.durationMs : null,
       };
+    case "message_end": {
+      // erro do provedor/modelo: a mensagem assistente vem com stopReason "error"
+      // e o texto cru em errorMessage (ex.: 401 Invalid bearer token). Emite como
+      // "error" para o front-end traduzir em voz do produto — nunca mostra cru.
+      const msg = ev.message;
+      if (msg && msg.role === "assistant" && msg.stopReason === "error") {
+        return { kind: "error", message: String(msg.errorMessage || "erro") };
+      }
+      return null;
+    }
     case "agent_settled":
       return { kind: "settled", aborted: ev.aborted === true };
     default:
@@ -155,6 +203,7 @@ class PiClient {
     if (!n) return;
     if (n.kind === "text") this._emit("text", n.delta);
     else if (n.kind === "tool") this._emit("tool", n);
+    else if (n.kind === "error") this._emit("error", n.message);
     else if (n.kind === "settled") this._emit("settled", n);
   }
 
@@ -254,4 +303,4 @@ export async function createPiClient(options = {}) {
   return client;
 }
 
-export default { createPiClient, normalizeEvent, findEngine };
+export default { createPiClient, normalizeEvent, findEngine, listConfiguredModels };

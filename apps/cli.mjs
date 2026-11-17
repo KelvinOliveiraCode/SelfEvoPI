@@ -30,7 +30,7 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-import { findEngine } from "../core/agent/pi-rpc.mjs";
+import { findEngine, listConfiguredModels } from "../core/agent/pi-rpc.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
@@ -476,6 +476,37 @@ export function engineUnavailableNote() {
   ].join("\n");
 }
 
+/**
+ * Traduz um erro cru do modelo/provedor em voz do produto, com a ação.
+ * Nunca mostra o corpo cru (401, stack, etc.). `raw` é só para classificar.
+ */
+export function engineErrorMessage(raw) {
+  const s = String(raw || "").toLowerCase();
+  const auth =
+    s.includes("401") ||
+    s.includes("403") ||
+    s.includes("invalid bearer token") ||
+    s.includes("authentication") ||
+    s.includes("unauthorized") ||
+    s.includes("model not found") ||
+    s.includes("invalid model") ||
+    s.includes("no credential") ||
+    s.includes("apikey") ||
+    s.includes("api key");
+  const lines = [];
+  if (auth) {
+    lines.push(paint("  não consegui falar com o modelo desta conversa.", "warn"));
+    lines.push(paint("  o modelo padrão não tem credencial ativa nesta máquina.", "muted"));
+  } else {
+    lines.push(paint("  não consegui falar com o modelo agora.", "warn"));
+    lines.push(paint("  pode ser conexão ou o modelo estar indisponível; tente de novo.", "muted"));
+  }
+  lines.push("");
+  lines.push(paint("  /model          ver os modelos disponíveis", "fg"));
+  lines.push(paint("  /model <nome>   trocar o modelo desta conversa", "fg"));
+  return lines.join("\n");
+}
+
 /* ------------------------------------------------------------------ */
 /* Processos auxiliares (comandos de barra que rodam algo)            */
 /* ------------------------------------------------------------------ */
@@ -622,28 +653,47 @@ export async function runSlash(name, arg, out, ctx = {}) {
 
     case "/model": {
       const pi = ctx.pi;
-      if (!pi) {
-        out(paint("  a conversa está desativada (sem motor); /model não se aplica agora", "muted"));
-        return 0;
-      }
       const nome = arg.trim();
+      const configured = listConfiguredModels(); // [{ provider, id }] — só nomes, sem chaves
       if (!nome) {
-        const [state, models] = await Promise.all([pi.getState().catch(() => ({})), pi.getAvailableModels().catch(() => [])]);
-        const cur = state.model ? `${state.model.provider}/${state.model.id}` : "—";
-        const lines = [paint(`  modelo atual: ${cur}`, "fg"), ""];
-        for (const m of models) lines.push(`  ${m.provider}/${m.id}`);
+        // lista o que está configurado, agrupado por provedor (nunca imprime chaves)
+        let current = null;
+        if (pi) {
+          const state = await pi.getState().catch(() => ({}));
+          current = state.model ? `${state.model.provider}/${state.model.id}` : null;
+        }
+        const lines = [];
+        if (current) lines.push(paint(`  modelo atual: ${current}`, "fg"));
+        if (configured.length === 0) {
+          lines.push(paint("  nenhum modelo configurado encontrado.", "warn"));
+          out(lines.join("\n"));
+          return 0;
+        }
+        const byProv = new Map();
+        for (const m of configured) {
+          if (!byProv.has(m.provider)) byProv.set(m.provider, []);
+          byProv.get(m.provider).push(m.id);
+        }
+        for (const [prov, ids] of byProv) {
+          lines.push("");
+          lines.push(paint(`  ${prov}`, "bold"));
+          for (const id of ids) lines.push(`    ${id}`);
+        }
         out(lines.join("\n"));
         return 0;
       }
-      const models = await pi.getAvailableModels().catch(() => []);
-      const alvo = nome.includes("/")
-        ? models.find((m) => `${m.provider}/${m.id}` === nome)
-        : models.find((m) => m.id === nome || m.id.includes(nome));
-      if (!alvo) {
-        out(paint(`  não encontrei o modelo "${nome}"`, "warn"));
+      if (!pi) {
+        out(paint("  a conversa está desativada; não dá para trocar o modelo agora", "muted"));
         return 2;
       }
-      await pi.setModel(alvo.provider, alvo.id);
+      const alvo = configured.find((m) =>
+        nome.includes("/") ? `${m.provider}/${m.id}` === nome : m.id === nome || m.id.includes(nome),
+      );
+      if (!alvo) {
+        out(paint(`  não encontrei o modelo "${nome}" entre os configurados. Use /model para ver a lista.`, "warn"));
+        return 2;
+      }
+      await pi.setModel(alvo.provider, alvo.id).catch(() => {});
       out(paint(`  modelo: ${alvo.provider}/${alvo.id}`, "ok"));
       return 0;
     }
@@ -676,6 +726,7 @@ export async function runSlash(name, arg, out, ctx = {}) {
 export async function converse(pi, text, write, setBusy = () => {}) {
   let buf = "";
   let drawn = 0;
+  let hadError = false;
   const redraw = () => {
     if (drawn > 0) write(`\x1b[${drawn}A`); // sobe para o topo do bloco
     const rendered = buf ? renderMarkdown(buf).split("\n") : [];
@@ -710,6 +761,11 @@ export async function converse(pi, text, write, setBusy = () => {}) {
         : "";
     write(`  ${paint("⏺", "fg")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
   });
+  const offError = pi.on("error", (message) => {
+    hadError = true;
+    flush();
+    write(engineErrorMessage(message) + "\n");
+  });
   const offSettled = pi.on("settled", () => {});
 
   setBusy(true);
@@ -721,6 +777,7 @@ export async function converse(pi, text, write, setBusy = () => {}) {
     write(`  ${paint("não consegui iniciar a conversa agora. Tente novamente.", "fail")}\n`);
     offText();
     offTool();
+    offError();
     offSettled();
     setBusy(false);
     return false;
@@ -728,12 +785,17 @@ export async function converse(pi, text, write, setBusy = () => {}) {
   // espera o settled (o redesenho roda nos eventos)
   await settled;
   flush();
-  if (buf.trim() === "" ) write("\n");
-  write("\n");
   offText();
   offTool();
+  offError();
   offSettled();
   setBusy(false);
+  if (hadError) {
+    write("\n");
+    return false;
+  }
+  if (buf.trim() === "") write("\n");
+  write("\n");
   return true;
 }
 

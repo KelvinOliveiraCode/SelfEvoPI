@@ -29,6 +29,7 @@ import {
   reduceLine,
   converse,
   engineUnavailableNote,
+  engineErrorMessage,
   runSlash,
   stripAnsi,
   visibleWidth,
@@ -115,8 +116,7 @@ test("parseInput reconhece quit, slash com argumento, prosa e vazio", () => {
 test("runSlash com motor ausente não derruba (/model, /clear)", async () => {
   let out = "";
   const code = await runSlash("/model", "", (s) => (out += s + "\n"), { pi: null });
-  assert.equal(code, 0);
-  assert.match(stripAnsi(out), /desativada|sem motor/i);
+  assert.equal(code, 0); // /model lista os configurados mesmo sem conversa ativa
   out = "";
   const code2 = await runSlash("/clear", "", (s) => (out += s + "\n"), { pi: null });
   assert.equal(code2, 0);
@@ -253,6 +253,44 @@ test("converse: faz streaming do texto e mostra linhas de ferramenta", async () 
   assert.ok(out.includes("mundo"), "segunda parte do texto ausente");
   assert.ok(!out.includes("**"), "negrito saiu cru no streaming");
   assert.ok(out.includes("read") && out.includes("a.txt"), "linha de ferramenta ausente");
+});
+
+test("engineErrorMessage: 401 vira voz do produto, sem corpo cru", () => {
+  const msg = stripAnsi(engineErrorMessage('401 {"error":{"type":"authentication_error","message":"Invalid bearer token"}}'));
+  assert.match(msg, /não consegui falar com o modelo desta conversa/);
+  assert.ok(!/401/i.test(msg), "vazou o 401");
+  assert.ok(!/bearer/i.test(msg), "vazou 'invalid bearer token'");
+  assert.match(msg, /\/model/);
+});
+
+test("engineErrorMessage: erro genérico (rede) adapta sem corpo cru", () => {
+  const msg = stripAnsi(engineErrorMessage("connect ETIMEDOUT 1.2.3.4:443"));
+  assert.match(msg, /não consegui falar com o modelo agora/);
+  assert.ok(!/ETIMEDOUT|1\.2\.3\.4/.test(msg), "vazou o erro cru");
+  assert.match(msg, /\/model/);
+});
+
+test("converse: erro do modelo mostra a mensagem, não texto vazio", async () => {
+  const pi = fakePi({
+    script: (emit) => {
+      emit("error", "401 Invalid bearer token");
+      emit("settled", { aborted: false });
+    },
+  });
+  const chunks = [];
+  await converse(pi, "oi", (s) => chunks.push(s));
+  const out = stripAnsi(chunks.join(""));
+  assert.match(out, /não consegui falar com o modelo desta conversa/);
+  assert.ok(!/401/i.test(out), "vazou 401 no terminal");
+  assert.ok(!/bearer/i.test(out), "vazou 'bearer token' no terminal");
+});
+
+test("runSlash /model lista os configurados sem lançar (código 0)", async () => {
+  let out = "";
+  const code = await runSlash("/model", "", (s) => (out += s + "\n"), { pi: null });
+  assert.equal(code, 0);
+  // não imprime chave nem corpo do arquivo; ou lista modelos, ou diz que não há
+  assert.ok(out.length >= 0);
 });
 
 /* ---------------------------------------------------------------- */

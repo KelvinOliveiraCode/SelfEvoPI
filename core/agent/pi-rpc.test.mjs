@@ -78,6 +78,20 @@ test("normalizeEvent: agent_settled e eventos irrelevantes", () => {
   assert.equal(normalizeEvent({ type: "message_update", assistantMessageEvent: { type: "text_start" } }), null);
 });
 
+test("normalizeEvent: message_end de assistente com erro vira { kind: error }", () => {
+  const n = normalizeEvent({
+    type: "message_end",
+    message: { role: "assistant", stopReason: "error", errorMessage: '401 {"error":"Invalid bearer token"}' },
+  });
+  assert.equal(n.kind, "error");
+  assert.match(n.message, /401/);
+  // mensagem assistente normal (stopReason "stop") não vira erro
+  assert.equal(
+    normalizeEvent({ type: "message_end", message: { role: "assistant", stopReason: "stop", content: [] } }),
+    null,
+  );
+});
+
 test("createPiClient: text_delta chega ao callback 'text' como string", async () => {
   const fake = makeFakeRpc();
   const pi = await createPiClient({ client: fake });
@@ -108,6 +122,19 @@ test("createPiClient: agent_settled dispara 'settled' uma vez", async () => {
   fake.emit({ type: "agent_settled", aborted: false });
   fake.emit({ type: "agent_start" }); // irrelevante: não dispara nada
   assert.equal(settled, 1);
+});
+
+test("createPiClient: erro do modelo chega ao callback 'error' com o texto cru", async () => {
+  const fake = makeFakeRpc();
+  const pi = await createPiClient({ client: fake });
+  const errs = [];
+  pi.on("error", (m) => errs.push(m));
+  fake.emit({
+    type: "message_end",
+    message: { role: "assistant", stopReason: "error", errorMessage: "401 Invalid bearer token" },
+  });
+  assert.equal(errs.length, 1);
+  assert.match(errs[0], /401/);
 });
 
 test("createPiClient: prompt encaminha a mensagem ao rpc", async () => {
