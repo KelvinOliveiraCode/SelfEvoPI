@@ -49,7 +49,7 @@ Everything below was measured on this repository, on Windows 11, Node 24.13. Rep
 | Metric | Value | Budget | How |
 |:---|:---|:---|:---|
 | Cold start | **443 ms** warm (min 383, max 611) · **1.012–1.806 s** cold cache | < 500 ms warm | `scripts/measure-overhead.mjs` |
-| Prompt added by SelfEvoPI | **+508 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs` |
+| Prompt added by SelfEvoPI | **+499 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs` |
 | Base agent prompt | 8.683 tok | — | same |
 | Evaluation suite | **29 tasks, 86/87 baseline (98.85%)** — B11 is stochastic (2/3 baseline, 3/3 last run) | no regression | `node evals/gate.mjs` |
 | Unit tests | **448 passing** (1 skipped: no pi-harness server) | — | `npm test` |
@@ -62,7 +62,7 @@ Everything below was measured on this repository, on Windows 11, Node 24.13. Rep
 
 The base agent already spends ~8.7k tokens before SelfEvoPI does anything. A naive extension set blows the budget on its own — a single orchestration extension measured **+1,653 tokens per turn**, which alone exceeds the entire 1,500-token allowance, with no measured gain in accuracy.
 
-So SelfEvoPI ships its own contribution at **+508 tokens** and loads everything else on demand. That is a third of the budget, with two thirds held in reserve.
+So SelfEvoPI ships its own contribution at **+499 tokens** and loads everything else on demand. That is a third of the budget, with two thirds held in reserve.
 
 ## Architecture
 
