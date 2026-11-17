@@ -58,7 +58,8 @@ test("condição satisfeita quando o turno cobre a condição", () => {
   const r = evaluateGoal(state, { lastTurn });
   assert.equal(r.done, true);
   assert.equal(r.impossible, false);
-  assert.match(r.reason, /satisfeita/);
+  // o turno traz "pronto" (marcador), então a regra é "conclusão sinalizada".
+  assert.match(r.reason, /conclusão sinalizada|satisfeita/);
 });
 
 /* ------------------------------ evaluateGoal: impossível ------------------ */
@@ -151,4 +152,51 @@ test("avaliação não chama modelo (é pura)", () => {
   const state = setGoal({}, "condição");
   const r = evaluateGoal(state, { lastTurn: "texto" });
   assert.equal(typeof r.done, "boolean");
+});
+
+/* -------------------- marcador de conclusão + cobertura ------------------- */
+
+test("caso do revisor: 'pronto, extraí os dados do HTML' fecha (marcador + 33%)", () => {
+  const state = setGoal({}, "extrair dados de um HTML local");
+  const r = evaluateGoal(state, { lastTurn: "pronto, extraí os dados do HTML" });
+  assert.equal(r.done, true, JSON.stringify(r));
+  assert.equal(r.impossible, false);
+  assert.match(r.reason, /conclusão sinalizada/i);
+});
+
+test("conclusão com marcador e cobertura baixa fecha (done)", () => {
+  // cobertura ~50% (>=0.3, <0.8) com marcador "pronto"
+  const state = setGoal({}, "extrair os dados de uma tabela HTML");
+  const r = evaluateGoal(state, { lastTurn: "pronto, extraí os dados do HTML" });
+  assert.equal(r.done, true, JSON.stringify(r));
+  assert.match(r.reason, /conclusão sinalizada/);
+});
+
+test("conclusão sem marcador e cobertura alta fecha (done)", () => {
+  // turno repete quase toda a condição, sem palavra de conclusão
+  const state = setGoal({}, "corrigir o bug do parser de JSON");
+  const r = evaluateGoal(state, { lastTurn: "corrigi o bug do parser de JSON" });
+  assert.equal(r.done, true, JSON.stringify(r));
+});
+
+test("marcador de conclusão mas cobertura zero não fecha (pending)", () => {
+  const state = setGoal({}, "extrair dados de um HTML local");
+  // "pronto" mas não fala do tema da condição
+  const r = evaluateGoal(state, { lastTurn: "pronto, vou almoçar agora" });
+  assert.equal(r.done, false, JSON.stringify(r));
+  assert.equal(r.impossible, false);
+  assert.match(r.reason, /cobertura/i);
+});
+
+test("frase de continuação sem marcador e cobertura baixa não fecha", () => {
+  const state = setGoal({}, "extrair dados de um HTML local");
+  const r = evaluateGoal(state, { lastTurn: "continuo trabalhando nisso" });
+  assert.equal(r.done, false, JSON.stringify(r));
+  assert.equal(r.impossible, false);
+});
+
+test("limiares nomeados e documentados (0.3 e 0.8)", async () => {
+  const { DONE_COVERAGE_MIN, DONE_COVERAGE_STRONG } = await import("./goal.mjs");
+  assert.equal(DONE_COVERAGE_MIN, 0.3);
+  assert.equal(DONE_COVERAGE_STRONG, 0.8);
 });

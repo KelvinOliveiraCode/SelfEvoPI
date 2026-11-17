@@ -50,6 +50,39 @@ const FAILURE_MARKERS = [
   "waiting for",
 ];
 
+/**
+ * Marcador de conclusão no turno: o agente sinaliza que terminou.
+ * Usado em conjunto com a cobertura (ver DONE_COVERAGE_MIN).
+ */
+const DONE_MARKERS = [
+  "pronto",
+  "concluido",
+  "feito",
+  "terminei",
+  "finalizado",
+  "completei",
+  "entregue",
+  "done",
+  "completed",
+  "finished",
+  "that's done",
+];
+
+/**
+ * Limiar de cobertura quando há marcador de conclusão no turno (0..1).
+ * Justificativa: uma frase de conclusão natural reformula em vez de repetir a
+ * condição, então exige-se pouca sobreposição — só o suficiente para garantir que
+ * o turno fala do tema da condição, não de outra coisa.
+ */
+export const DONE_COVERAGE_MIN = 0.3;
+
+/**
+ * Limiar de cobertura que fecha a goal sozinho, sem marcador (0..1).
+ * Justificativa: se o turno cobre quase toda a condição, é conclusão por
+ * evidência direta — reformulação nenhuma esconde isso.
+ */
+export const DONE_COVERAGE_STRONG = 0.8;
+
 /** Normaliza texto: minúsculo, sem acento, espaços colapsados. */
 function normalize(text) {
   return String(text ?? "")
@@ -146,8 +179,9 @@ export function clearGoal(state) {
  *   1. sem goal → `done` (nada a fazer);
  *   2. turno com marcador de falha → `impossible` (erro que o usuário precisa corrigir);
  *   3. turno com marcador de impossibilidade → `impossible`;
- *   4. cobertura da condição no turno acima do limiar → `done`;
- *   5. senão → `pending`.
+ *   4. marcador de conclusão E cobertura >= DONE_COVERAGE_MIN (0.3) → `done`;
+ *   5. cobertura >= DONE_COVERAGE_STRONG (0.8), com ou sem marcador → `done`;
+ *   6. senão → `pending`.
  *
  * Se `deps.judge` for passado, ele tem a palavra final: recebe
  * `{ condition, lastTurn }` e devolve `{ done, impossible, reason }`. O default é a
@@ -204,19 +238,39 @@ export function evaluateGoal(state, { lastTurn = "" } = {}, deps = {}) {
 
   // 3. Cobertura da condição no turno (heurística de satisfação).
   const cov = coverage(condition, turn);
-  const threshold = 0.8;
-  if (cov >= threshold) {
+  const hasDoneMarker = DONE_MARKERS.some((m) => normTurn.includes(m));
+
+  // (a) marcador de conclusão + cobertura mínima → done
+  if (hasDoneMarker && cov >= DONE_COVERAGE_MIN) {
     return {
       done: true,
       impossible: false,
-      reason: `condição satisfeita (cobertura ${(cov * 100).toFixed(0)}% >= ${(threshold * 100).toFixed(0)}%)`,
+      reason: `conclusão sinalizada ("${DONE_MARKERS.find((m) => normTurn.includes(m))}") com cobertura ${(cov * 100).toFixed(0)}% >= ${(DONE_COVERAGE_MIN * 100).toFixed(0)}%`,
+    };
+  }
+
+  // (b) cobertura forte, sem precisar de marcador → done
+  if (cov >= DONE_COVERAGE_STRONG) {
+    return {
+      done: true,
+      impossible: false,
+      reason: `condição satisfeita (cobertura ${(cov * 100).toFixed(0)}% >= ${(DONE_COVERAGE_STRONG * 100).toFixed(0)}%)`,
+    };
+  }
+
+  // (c) marcador de conclusão mas cobertura insuficiente → não fecha
+  if (hasDoneMarker) {
+    return {
+      done: false,
+      impossible: false,
+      reason: `marcador de conclusão presente, mas cobertura ${(cov * 100).toFixed(0)}% < ${(DONE_COVERAGE_MIN * 100).toFixed(0)}%`,
     };
   }
 
   return {
     done: false,
     impossible: false,
-    reason: `pendente (cobertura ${(cov * 100).toFixed(0)}% < ${(threshold * 100).toFixed(0)}%)`,
+    reason: `pendente (cobertura ${(cov * 100).toFixed(0)}% < ${(DONE_COVERAGE_MIN * 100).toFixed(0)}% com marcador, < ${(DONE_COVERAGE_STRONG * 100).toFixed(0)}% sem marcador)`,
   };
 }
 
