@@ -200,3 +200,35 @@ test("limiares nomeados e documentados (0.3 e 0.8)", async () => {
   assert.equal(DONE_COVERAGE_MIN, 0.3);
   assert.equal(DONE_COVERAGE_STRONG, 0.8);
 });
+
+/* -------------------- verbos de conclusão no passado ---------------------- */
+
+test("caso do revisor: 'extraí os dados do html local completo' fecha (verbo no passado)", () => {
+  const state = setGoal({}, "extrair dados de um HTML local");
+  const r = evaluateGoal(state, { lastTurn: "extraí os dados do html local completo" });
+  assert.equal(r.done, true, JSON.stringify(r));
+  assert.equal(r.impossible, false);
+  assert.match(r.reason, /conclusão sinalizada/);
+});
+
+test("'continuo implementando' não fecha (gerúndio, não passado)", () => {
+  const state = setGoal({}, "implementar o módulo de cache");
+  const r = evaluateGoal(state, { lastTurn: "continuo implementando o módulo de cache" });
+  assert.equal(r.done, false, JSON.stringify(r));
+  assert.equal(r.impossible, false);
+});
+
+test("conjugação protege: 'não consegui implementar' não dispara marcador de conclusão", () => {
+  // condição que o turno NÃO cobre por inteiro; só fecharia se o marcador disparasse.
+  // "implementar" (infinitivo) ≠ "implementei" (passado): o marcador NÃO deve disparar.
+  const state = setGoal({}, "implementar o módulo de cache com suporte a TTL e eviction LRU");
+  const r = evaluateGoal(state, { lastTurn: "não consegui implementar o módulo de cache" });
+  assert.equal(r.done, false, JSON.stringify(r));
+});
+
+test("marcador é palavra inteira: 'subindo' não casa com 'subi'", () => {
+  // "subi" está em DONE_MARKERS; "subindo" (em andamento) NÃO deve disparar conclusão.
+  const state = setGoal({}, "subir o servidor de produção");
+  const r = evaluateGoal(state, { lastTurn: "subindo o servidor de produção, aguardando" });
+  assert.equal(r.done, false, JSON.stringify(r));
+});
