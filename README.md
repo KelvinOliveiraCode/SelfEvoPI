@@ -173,7 +173,7 @@ Eight isolated worktrees (`.worktrees/A1`–`A8`), each with a disjoint file sco
 
 | Gate | What it checks | Enforcement |
 |:---|:---|:---|
-| `npm test` | 577 unit tests | CI on every push |
+| `npm test` | 581 unit tests | CI on every push |
 | `npm run verify` | tests + evals A/C + source URL integrity | CI |
 | `node evals/gate.mjs` | 3 runs per task vs baseline | local, before merge |
 | `scripts/verify-urls.mjs` | 33 cited sources still reachable | CI |
