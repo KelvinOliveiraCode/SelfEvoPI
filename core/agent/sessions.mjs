@@ -136,6 +136,8 @@ async function scanSessions(dir) {
       turns: countTurns(messages),
       tokens: estimateTokens(messages),
       forkedFrom: (header && header.forkedFrom) || null,
+      // De qual front-end a sessão nasceu. Header antigo não tem o campo: é CLI.
+      client: (header && header.client) || "cli",
     });
   }
   return sessions;
@@ -193,7 +195,7 @@ export async function listSessions(dir, { refresh = false } = {}) {
 export async function loadSession(dir, id) {
   const file = await findSessionFile(dir, id);
   if (!file) {
-    return { messages: [], meta: { id, title: null, startedAt: null, turns: 0, tokens: 0, forkedFrom: null } };
+    return { messages: [], meta: { id, title: null, startedAt: null, turns: 0, tokens: 0, forkedFrom: null, client: "cli" } };
   }
   const text = await readFile(file, "utf8");
   const { header, messages } = parseSession(text);
@@ -206,6 +208,7 @@ export async function loadSession(dir, id) {
       turns: countTurns(messages),
       tokens: estimateTokens(messages),
       forkedFrom: (header && header.forkedFrom) || null,
+      client: (header && header.client) || "cli",
     },
   };
 }
