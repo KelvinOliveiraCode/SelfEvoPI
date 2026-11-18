@@ -660,11 +660,13 @@ function chatPage(m) {
 </head>
 <body>
 <div class="app">
+  <aside class="sessions" id="sessions" aria-label="sessoes"></aside>
   <header>
     <span class="logo">${LOGO_HEADER ?? ""}</span>
     <h1>SelfEvoPI</h1>
     <span class="spacer"></span>
     <span class="host"><span class="dot" id="hdot"></span><span id="host">127.0.0.1:${PORT}</span></span>
+    <a href="#" id="settings">config</a>
     <a href="#" id="openDrawer">skills</a>
     <a href="/panel">painel</a>
   </header>
@@ -699,6 +701,8 @@ function chatPage(m) {
   </div>
 
   <div id="verify" class="verify none">verificação: nenhuma ação executada — o texto do modelo não é evidência</div>
+
+  <div id="settingsPanel" class="settingspanel none" aria-label="configuracoes"></div>
 
   <footer>
     <span>${m.passes}/${m.baselineRuns} baseline<span class="dot-sep">·</span>${tests} testes</span>
@@ -985,6 +989,22 @@ function toolArg(args) {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
+
+  // Modulos irmaos do app.js. Sem esta rota, o `import("./sessions.js")` do
+  // app.js cai no 404 do servidor e a lista de sessoes fica vazia em silencio.
+  const MODULOS = new Set(["sessions.js", "settings.js"]);
+  const modulo = url.pathname.startsWith("/") ? url.pathname.slice(1) : "";
+  if (MODULOS.has(modulo)) {
+    try {
+      const txt = await readFile(path.join(ROOT, "apps", "desktop", modulo), "utf8");
+      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" });
+      res.end(txt);
+    } catch {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("modulo nao encontrado");
+    }
+    return;
+  }
 
   // rotas de sessao ficam em modulo proprio (scripts/desktop-sessions.mjs) para
   // nao disputar este arquivo com quem as escreveu.

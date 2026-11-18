@@ -879,7 +879,7 @@ test("renderSettings: mostra o que está valendo nesta sessão", () => {
   assert.match(texto, /high/);
   assert.match(texto, /\/tmp\/sessoes/);
   assert.match(texto, /20/);
-  assert.match(texto, /ctrl,\+ fecha/);
+  assert.match(texto, /ctrl\+, fecha/);
 });
 
 test("renderSettings: sem diretório resolvido não inventa caminho", () => {
@@ -944,7 +944,7 @@ test("REPL: ctrl+, abre as configurações e fecha de novo", async () => {
   const aberta = stripAnsi(all);
   assert.match(aberta, /configurações/);
   assert.match(aberta, /permissão:/);
-  assert.match(aberta, /ctrl,\+ fecha/);
+  assert.match(aberta, /ctrl\+, fecha/);
 
   all = "";
   input.emit("data", "\x1c"); // fecha

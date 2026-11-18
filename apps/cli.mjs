@@ -1516,14 +1516,24 @@ export function renderPanel(info = statusInfo, data = {}) {
  * concordarem sem o usuário adivinhar.
  */
 export function renderSettings(info = statusInfo, { sessionsDir = null, commands = COMMANDS.length } = {}) {
+  // rótulo ocupa 17 colunas ("    modelo:      "); o resto é do valor, e o
+  // valor é cortado para o frame não estourar as 72 colunas com um caminho
+  // longo ou um id de modelo comprido.
+  const cut = (valor) => {
+    const plain = stripAnsi(String(valor ?? ""));
+    const max = WIDTH - 17;
+    if (max <= 1) return "…";
+    return plain.length > max ? plain.slice(0, max - 1) + "…" : plain;
+  };
+
   const lines = [];
   lines.push(paint("  configurações", "fg"));
-  lines.push(`    modelo:      ${paint(info.model || "-", "fg")}`);
-  lines.push(`    modo:        ${paint(info.mode, "bold")}`);
-  lines.push(`    permissão:   ${paint(info.permission, "fg")}`);
-  if (info.reasoning) lines.push(`    raciocínio:  ${info.reasoning}`);
-  if (info.context) lines.push(`    contexto:    ${info.context}`);
-  lines.push(`    sessões:     ${sessionsDir ?? "(não resolvido)"}`);
+  lines.push(`    modelo:      ${paint(cut(info.model || "-"), "fg")}`);
+  lines.push(`    modo:        ${paint(cut(info.mode), "bold")}`);
+  lines.push(`    permissão:   ${paint(cut(info.permission), "fg")}`);
+  if (info.reasoning) lines.push(`    raciocínio:  ${cut(info.reasoning)}`);
+  if (info.context) lines.push(`    contexto:    ${cut(info.context)}`);
+  lines.push(`    sessões:     ${cut(sessionsDir ?? "(não resolvido)")}`);
   lines.push(`    comandos:    ${commands}`);
   lines.push("");
   lines.push(paint("  ctrl+, fecha", "dim"));
