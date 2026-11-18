@@ -34,8 +34,8 @@ lacunas, gera artefatos e só promove o que não causa regressão.
 
 | Métrica | Valor | Meta | Comando |
 |:---|:---|:---|:---|
-| Cold start, CLI SelfEvoPI | **88 ms** média (mín 75, máx 119) · 10 execuções | < 500 ms | `node apps/cli.mjs --version` |
-| Cold start, motor por baixo | **426 ms** mediana (mín 396, máx 490) · 1,0–1,8 s na 1ª execução | — | `node scripts/measure-overhead.mjs --runs 10` |
+| Cold start | **426 ms** mediana (mín 396, máx 490) com cache quente · 1,0–1,8 s na 1ª execução | — | `node scripts/measure-overhead.mjs --runs 10` |
+| Cold start, só a CLI | **88 ms** média (mín 75, máx 119) · 10 execuções | < 500 ms | `node apps/cli.mjs --version` |
 | Prompt do PI puro | **8.680 tok** | — | idem |
 | Incremento do SelfEvoPI | **+499 tok** (memória no teto) | < 1.500 tok | `node scripts/measure-selfevopi-overhead.mjs --runs 3` |
 | `pi-subagents` (sob demanda) | +1.654 tok | — | idem |

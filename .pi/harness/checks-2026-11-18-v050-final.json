@@ -24,7 +24,7 @@
     "detail": "media 88 ms (min 75, max 119), cache quente; meta < 500 ms"
   },
   {
-    "name": "cold-start-motor",
+    "name": "cold-start",
     "command": "node scripts/measure-overhead.mjs --runs 10",
     "result": "pass",
     "detail": "mediana 426 ms (min 396, max 490) com cache quente; 1,0-1,8 s na 1a execucao"
