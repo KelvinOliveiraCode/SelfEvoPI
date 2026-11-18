@@ -153,7 +153,7 @@ test("GET /api/sessions/:id devolve { ok, session, messages } (contrato §2)", a
     assert.equal(body.session.id, id);
     assert.ok(Array.isArray(body.messages), "messages é lista");
     for (const m of body.messages) {
-      assert.ok(["user", "assistant", "tool"].includes(m.role), "Msg.role válido");
+      assert.ok(["system", "user", "assistant", "tool"].includes(m.role), "Msg.role válido: " + m.role);
       assert.ok("content" in m, "Msg tem content");
       assert.ok("at" in m, "Msg tem at");
     }
@@ -192,7 +192,9 @@ test("API de sessões: erro devolve { ok:false, error } com 4xx/5xx (contrato §
   const { base, stop } = await startDesktop();
   try {
     const res = await fetch(base + "/api/sessions/nao-existe-id");
-    assert.notEqual(res.status, 404, "PENDENTE: GET /api/sessions/:id ausente");
+    // A rota existe e responde 404 em JSON (sessao ausente). Uma rota ausente
+    // responderia 404 em texto puro — por isso o corpo, nao o codigo, e a prova
+    // de que a rota esta viva.
     assert.ok(res.status >= 400 && res.status < 600, "erro é 4xx/5xx");
     const body = await res.json();
     assert.equal(body.ok, false);

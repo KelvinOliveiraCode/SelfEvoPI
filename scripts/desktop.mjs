@@ -35,10 +35,43 @@ import path from "node:path";
 import process from "node:process";
 
 import { createPiClient } from "../core/agent/pi-rpc.mjs";
+import { handleSessionRoute } from "./desktop-sessions.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const APP_W = 1280;
 const APP_H = 820;
+
+/**
+ * Pasta de sessões do projeto em execução.
+ *
+ * O motor grava em ~/.pi/agent/sessions/<cwd codificado>/<iso>_<uuid>.jsonl.
+ * A CLI acha a subpasta certa casando `header.cwd` com a raiz do projeto
+ * (sessionDir() em apps/cli.mjs). A mesma regra aqui: sem ela, CLI e desktop
+ * conversariam sobre a base e nunca sobre a mesma sessão.
+ *
+ * Cai na base quando nenhuma subpasta casa — foi de lá que a CLI sempre partiu.
+ */
+async function sessionDir() {
+  const base = path.join(process.env.USERPROFILE || process.env.HOME || ".", ".pi", "agent", "sessions");
+  const entries = await readdir(base, { withFileTypes: true }).catch(() => []);
+  let parseSession = () => ({ header: null });
+  try {
+    ({ parseSession } = await import("../core/agent/sessions.mjs"));
+  } catch {
+    return base;
+  }
+  const alvo = String(ROOT).replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase();
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const sub = path.join(base, e.name);
+    const files = (await readdir(sub).catch(() => [])).filter((f) => f.endsWith(".jsonl"));
+    if (files.length === 0) continue;
+    const { header } = parseSession(await readFile(path.join(sub, files[0]), "utf8").catch(() => ""));
+    const cwd = header && typeof header.cwd === "string" ? header.cwd : null;
+    if (cwd && cwd.replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase() === alvo) return sub;
+  }
+  return base;
+}
 
 /** Escapa HTML para valores interpolados no servidor. */
 function esc(s) {
@@ -1372,6 +1405,12 @@ function toolArg(args) {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
+
+  // rotas de sessao ficam em modulo proprio (scripts/desktop-sessions.mjs) para
+  // nao disputar este arquivo com quem as escreveu.
+  if (url.pathname.startsWith("/api/sessions")) {
+    if (await handleSessionRoute({ req, res, url, dir: await sessionDir() })) return;
+  }
 
   // tela principal: a conversa
   if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/chat") {
