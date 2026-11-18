@@ -234,9 +234,9 @@ async function collectMetrics() {
   const coldFromEstado = parseColdStartEstado(estado);
   let cold = { value: null, asOf: null, source: null };
   if (coldFromMedidas != null) {
-    cold = { value: coldFromMedidas, asOf: "2026-11-17", source: "docs/medidas-2026-11-17.md" };
+    cold = { value: coldFromMedidas, asOf: docDate(medidas, "docs/medidas-2026-11-17.md"), source: "docs/medidas-2026-11-17.md" };
   } else if (coldFromEstado != null) {
-    cold = { value: coldFromEstado, asOf: "2026-11-17", source: "docs/estado.md" };
+    cold = { value: coldFromEstado, asOf: docDate(estado, "docs/estado.md"), source: "docs/estado.md" };
   } else {
     const n = firstNumber(lkgDetail(lkg, "cold-start"));
     if (n != null) cold = { value: n, asOf: lkg?.verifiedAt ?? null, source: "last-known-good.json" };
@@ -245,7 +245,7 @@ async function collectMetrics() {
   const testsFromEstado = parseTestsEstado(estado);
   let tests = { value: null, asOf: null, source: null };
   if (testsFromEstado != null) {
-    tests = { value: testsFromEstado, asOf: "2026-11-17", source: "docs/estado.md" };
+    tests = { value: testsFromEstado, asOf: docDate(estado, "docs/estado.md"), source: "docs/estado.md" };
   } else {
     const n = firstNumber(lkgDetail(lkg, "unit-tests"));
     if (n != null) tests = { value: n, asOf: lkg?.verifiedAt ?? null, source: "last-known-good.json" };
@@ -267,6 +267,26 @@ function parseColdStartMedidas(text) {
   if (!text) return null;
   const m = text.match(/(\d+)\s*ms\D{0,40}novo valor de referência/i);
   return m ? Number(m[1]) : null;
+}
+
+/**
+ * Data de medição de um documento.
+ *
+ * Numero com data e evidencia; numero sem data e afirmacao. A data vem do
+ * proprio documento — do cabeçalho "Atualizado: AAAA-MM-DD" quando existe,
+ * do nome do arquivo (medidas-AAAA-MM-DD.md) quando e o que ele carrega.
+ * Fixar a data no codigo seria dizer "medido em" um dia que nao e o da medição.
+ */
+function docDate(text, filePath) {
+  if (text) {
+    const noHeader = text.match(/Atualizado:\*{0,2}\s*(\d{4}-\d{2}-\d{2})/i);
+    if (noHeader) return noHeader[1];
+  }
+  if (filePath) {
+    const noNome = String(filePath).match(/(\d{4}-\d{2}-\d{2})/);
+    if (noNome) return noNome[1];
+  }
+  return null;
 }
 
 /** Linha "Cold start | **443 ms** ..." de docs/estado.md. */
@@ -596,7 +616,17 @@ function appCommand(browser, url) {
 
 function chatPage(m) {
   const tests = m.tests.value == null ? "—" : String(m.tests.value);
-  const cold = m.cold.value == null ? "—" : `${m.cold.value} ms`;
+  // Numero sem data e afirmacao; numero com data e evidencia. No rodap　
+  // compacto nao cabe a data inteira, entao ela vai no titulo, junto com a
+  // fonte — a mesma disciplina dos cartoes do /panel.
+  const coldEvidence = [
+    "cold start",
+    m.cold.source ? `fonte: ${m.cold.source}` : null,
+    fmtDate(m.cold.asOf) ? `medido em ${fmtDate(m.cold.asOf)}` : null,
+  ].filter(Boolean).join(" · ");
+  const cold = m.cold.value == null
+    ? "—"
+    : `<span class="mv-inline" title="${esc(coldEvidence)}">cold ${m.cold.value} ms</span>`;
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
