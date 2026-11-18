@@ -1,0 +1,79 @@
+# ---------------------------------------------------------------
+# SelfEvoPI — .gitignore blindado
+# Regra: se é segredo, cache ou artefato gerado, nunca entra.
+# ---------------------------------------------------------------
+
+# Segredos e credenciais (NUNCA commitar)
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+secrets.json
+credentials.json
+providers.local.json
+.pi/agent/
+.pi/auth/
+.pi/settings.local.json
+
+# OpenCode / terceiros (podem conter chaves)
+opencode.json
+opencode.jsonc
+!opencode.example.json
+
+# Dependencias
+node_modules/
+.pnpm-store/
+.pnpm-debug.log
+bun.lockb
+
+# Build e cache
+dist/
+build/
+out/
+*.tsbuildinfo
+.cache/
+.turbo/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Worktrees isolados dos subagentes
+.worktrees/
+
+# Estado efemero do harness
+.pi/harness/tmp/
+.pi/harness/*.tmp
+.pi/harness/graph/
+.pi/harness/reports/
+*.swp
+*.swo
+
+# Sistema operacional
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Editores
+.vscode/
+.idea/
+*.code-workspace
+
+# Cobertura e saidas de teste
+coverage/
+.nyc_output/
+test-results/
+*.trx
+
+# PDFs e binarios grandes (usar Git LFS se precisar)
+*.pdf
+*.zip
+*.7z
+*.mp4
+*.mov
+*.psd

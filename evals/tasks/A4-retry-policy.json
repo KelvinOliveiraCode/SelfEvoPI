@@ -1,0 +1,9 @@
+{
+  "id": "A4-retry-policy",
+  "group": "A",
+  "title": "withRetry tenta de novo, respeita retryOn e informa o backoff",
+  "description": "Garante que withRetry recupera na 3ª tentativa, desiste imediatamente quando retryOn e false e repassa ao onRetry o backoff da tentativa.",
+  "checker": "node evals/checks/check-retry-policy.mjs",
+  "timeoutMs": 30000,
+  "tags": ["router", "retry", "backoff"]
+}
