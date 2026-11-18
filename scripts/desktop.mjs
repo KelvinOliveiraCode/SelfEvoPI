@@ -29,16 +29,53 @@
 
 import { createServer } from "node:http";
 import { readFile, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 
 import { createPiClient } from "../core/agent/pi-rpc.mjs";
+import { listSessions, loadSession, forkSession, parseSession } from "../core/agent/sessions.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const APP_W = 1280;
 const APP_H = 820;
+const HOME = process.env.USERPROFILE || process.env.HOME || ".";
+const SESSIONS_DIR = path.join(HOME, ".pi", "agent", "sessions");
+
+function samePath(a, b) {
+  const n = (p) => String(p).replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase();
+  return n(a) === n(b);
+}
+
+/** Descobre a pasta de sessões do projeto (header.cwd == raiz), como o CLI. */
+async function sessionDir() {
+  let entries = [];
+  try {
+    entries = await readdir(SESSIONS_DIR, { withFileTypes: true });
+  } catch {
+    return SESSIONS_DIR;
+  }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const sub = path.join(SESSIONS_DIR, e.name);
+    let files = [];
+    try {
+      files = (await readdir(sub)).filter((f) => f.endsWith(".jsonl"));
+    } catch {
+      continue;
+    }
+    if (files.length === 0) continue;
+    try {
+      const first = readFileSync(path.join(sub, files[0]), "utf8");
+      const { header } = parseSession(first);
+      if (header && typeof header.cwd === "string" && samePath(header.cwd, ROOT)) return sub;
+    } catch {
+      /* segue */
+    }
+  }
+  return SESSIONS_DIR;
+}
 
 /** Escapa HTML para valores interpolados no servidor. */
 function esc(s) {
@@ -615,18 +652,9 @@ function appCommand(browser, url) {
 /* ------------------------------------------------------------------ */
 
 function chatPage(m) {
-  const tests = m.tests.value == null ? "—" : String(m.tests.value);
-  // Numero sem data e afirmacao; numero com data e evidencia. No rodap　
-  // compacto nao cabe a data inteira, entao ela vai no titulo, junto com a
-  // fonte — a mesma disciplina dos cartoes do /panel.
-  const coldEvidence = [
-    "cold start",
-    m.cold.source ? `fonte: ${m.cold.source}` : null,
-    fmtDate(m.cold.asOf) ? `medido em ${fmtDate(m.cold.asOf)}` : null,
-  ].filter(Boolean).join(" · ");
-  const cold = m.cold.value == null
-    ? "—"
-    : `<span class="mv-inline" title="${esc(coldEvidence)}">cold ${m.cold.value} ms</span>`;
+  const tests = m.tests.value == null ? "-" : String(m.tests.value);
+  const css = readFileSync(path.join(ROOT, "apps", "desktop", "desktop.css"), "utf8");
+  const js = readFileSync(path.join(ROOT, "apps", "desktop", "app.js"), "utf8");
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -634,116 +662,7 @@ function chatPage(m) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SelfEvoPI — conversa</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<style>
-  :root {
-    --bg:#000000; --bg-2:#0d0d0d; --bg-3:#1a1a1a;
-    --fg:#ffffff; --muted:#787878;
-    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.18);
-    --ok:#3FB950; --warn:#D29922; --fail:#F85149;
-    --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-    --r:8px; --ease:cubic-bezier(.22,1,.36,1); --t:200ms;
-  }
-  *{box-sizing:border-box}
-  html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--fg);
-    font:400 15.5px/1.6 var(--font);-webkit-font-smoothing:antialiased}
-  .app{height:100%;display:flex;flex-direction:column;max-width:980px;margin:0 auto;padding:0 16px}
-
-  /* header 56 px */
-  header{height:56px;flex:0 0 auto;display:flex;align-items:center;gap:10px;
-    border-bottom:1px solid var(--line)}
-  header .logo{width:30px;height:30px;color:#fff;flex:0 0 auto}
-  header .logo svg{width:100%;height:100%;display:block}
-  header h1{font-size:16px;font-weight:500;letter-spacing:-0.01em;margin:0;white-space:nowrap}
-  header .spacer{margin-left:auto}
-  header .host{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px;white-space:nowrap}
-  header .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;flex:0 0 auto}
-  header .dot.ok{background:var(--ok)} header .dot.warn{background:var(--warn)}
-  header a{color:var(--muted);text-decoration:none;font-size:12.5px;padding:6px 8px;border-radius:6px;
-    transition:background-color var(--t) var(--ease),color var(--t) var(--ease)}
-  header a:hover{background:var(--bg-3);color:var(--fg)}
-
-  /* painel de estado sempre visível */
-  .statusbar{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;
-    padding:8px 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:12.5px}
-  .statusbar .item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-  .statusbar b{color:var(--fg);font-weight:500}
-  .statusbar .modes{display:inline-flex;gap:2px;background:var(--bg-2);border:1px solid var(--line);border-radius:999px;padding:2px}
-  .statusbar .modes button{background:transparent;border:none;color:var(--muted);font:400 11.5px/1 var(--font);
-    padding:4px 9px;border-radius:999px;cursor:pointer;transition:background-color var(--t) var(--ease),color var(--t) var(--ease)}
-  .statusbar .modes button[aria-pressed="true"]{background:var(--bg-3);color:var(--fg)}
-
-  main{flex:1 1 auto;overflow-y:auto;padding:20px 0 8px;display:flex;flex-direction:column;gap:18px}
-
-  .msg{display:flex;flex-direction:column;gap:4px}
-  .msg .who{font-size:11.5px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;font-weight:500}
-  .msg.you .body{color:var(--fg)}
-  .msg.agent .body{color:var(--fg)}
-  .msg .body strong{font-weight:500}
-  .msg .body code{background:var(--bg-3);padding:1px 5px;border-radius:4px;font-size:.92em}
-
-  /* raciocínio: discreto, em cinza */
-  .reason{margin:2px 0 4px;padding-left:10px;border-left:2px solid var(--line);
-    color:var(--muted);font-size:13.5px;font-style:italic;white-space:pre-wrap}
-  .reason .lbl{font-style:normal;font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.8}
-
-  .tool{margin-top:6px;color:var(--muted);font-size:13px;display:flex;align-items:baseline;gap:7px}
-  .tool .sym{color:var(--muted)}
-  .tool .tn{font-weight:500;color:var(--fg)}
-  .tool .ta{opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60ch}
-
-  /* indicador de andamento: algo se move quando o turno roda */
-  .working{display:none;align-items:center;gap:8px;color:var(--muted);font-size:13.5px}
-  .working.on{display:flex}
-  .working .pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);opacity:.25;
-    transition:opacity var(--t) var(--ease)}
-  .working.on .pulse{opacity:1}
-  .working .dots{font-family:ui-monospace,monospace;letter-spacing:1px}
-
-  .composer{flex:0 0 auto;padding:10px 0 6px;border-top:1px solid var(--line);background:var(--bg)}
-  .actions{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
-  .actions button{background:var(--bg-2);color:var(--muted);border:1px solid var(--line);
-    border-radius:6px;padding:5px 10px;font:400 12px/1 var(--font);cursor:pointer;
-    transition:background-color var(--t) var(--ease),color var(--t) var(--ease),border-color var(--t) var(--ease)}
-  .actions button:hover{background:var(--bg-3);color:var(--fg);border-color:var(--line-strong)}
-
-  .inputwrap{display:flex;align-items:flex-end;gap:8px;background:var(--bg-2);
-    border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;
-    transition:border-color var(--t) var(--ease)}
-  .inputwrap:focus-within{border-color:var(--line-strong)}
-  .inputwrap .prompt{color:var(--muted);font-size:15px;flex:0 0 auto}
-  textarea{flex:1 1 auto;background:transparent;border:none;outline:none;resize:none;
-    color:var(--fg);font:400 15.5px/1.6 var(--font);max-height:180px;padding:0}
-  textarea::placeholder{color:var(--muted)}
-
-  footer{flex:0 0 auto;padding:8px 0 12px;color:var(--muted);font-size:12px;display:flex;
-    justify-content:space-between;gap:12px;flex-wrap:wrap}
-  .dot-sep{opacity:.5;padding:0 4px}
-  kbd{font:400 11px/1 ui-monospace,monospace;background:var(--bg-2);border:1px solid var(--line);
-    border-radius:4px;padding:1px 5px;color:var(--fg)}
-
-  /* painel lateral de skills/MCP */
-  .drawer{position:fixed;top:0;right:0;height:100%;width:min(420px,92vw);background:var(--bg-2);
-    border-left:1px solid var(--line);transform:translateX(100%);
-    transition:transform var(--t) var(--ease);display:flex;flex-direction:column;z-index:20}
-  .drawer.open{transform:translateX(0)}
-  .drawer header{border-bottom:1px solid var(--line);padding:14px 16px;align-items:center}
-  .drawer .body{overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:16px}
-  .drawer h2{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
-    font-weight:500;margin:0 0 8px}
-  .drawer .row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
-  .drawer .row:last-child{border-bottom:none}
-  .drawer .name{font-weight:500}
-  .drawer .tag{font-size:11px;color:var(--muted)}
-  .drawer .tag.warn{color:var(--warn)}
-  pre.log{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;
-    font:400 11.5px/1.5 ui-monospace,monospace;color:var(--muted);white-space:pre-wrap;
-    max-height:220px;overflow:auto;margin:0}
-  .drawer .copy{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;
-    padding:5px 10px;font:400 11.5px/1 var(--font);cursor:pointer;margin-top:8px}
-  .drawer .copy:hover{background:var(--bg-3)}
-  .empty{color:var(--muted);font-size:13px}
-</style>
+<style>${css}</style>
 </head>
 <body>
 <div class="app">
@@ -753,27 +672,26 @@ function chatPage(m) {
     <span class="spacer"></span>
     <span class="host"><span class="dot" id="hdot"></span><span id="host">127.0.0.1:${PORT}</span></span>
     <a href="#" id="openDrawer">skills</a>
+    <a href="#" id="settings">config</a>
     <a href="/panel">painel</a>
   </header>
 
-  <div class="statusbar" id="statusbar">
+  <div class="statusbar" id="status">
     <span class="item">modo
-      <span class="modes" id="modes">
-        <button data-mode="plan">plan</button>
-        <button data-mode="build">build</button>
-        <button data-mode="ask">ask</button>
-      </span>
+      <span class="modes" id="modes"></span>
     </span>
-    <span class="item">permissão <b id="perm">—</b></span>
-    <span class="item">modelo <b id="model">—</b></span>
-    <span class="item">effort <b id="effort">—</b></span>
-    <span class="item">cap. <b id="caps">—</b></span>
-    <span class="item" id="reasonWrap">raciocínio <b id="reason">—</b></span>
+    <span class="item">permissão <b id="s-perm">ask</b></span>
+    <span class="item">modelo <b id="s-model">—</b></span>
+    <span class="item">effort <b id="s-effort">—</b></span>
+    <span class="item">cap. <b id="s-caps">—</b></span>
+    <span class="item">raciocínio <b id="s-reason">—</b></span>
   </div>
 
-  <main id="log"></main>
+  <main id="chat"></main>
 
-  <div class="composer">
+  <div id="working" class="working"><span class="pulse"></span><span>trabalhando<span class="dots" id="dots"></span></span></div>
+
+  <div class="composer" id="composer">
     <div class="actions">
       <button data-send="/evals">/evals</button>
       <button data-send="/detect">/detect</button>
@@ -782,12 +700,16 @@ function chatPage(m) {
     <div class="inputwrap">
       <span class="prompt">&gt;</span>
       <textarea id="input" rows="1" placeholder="escreva uma mensagem..."></textarea>
+      <button id="send" type="button" class="send">enviar</button>
     </div>
+    <div id="controlBar" class="controlbar"></div>
   </div>
 
+  <div id="verify" class="verify none">verificação: nenhuma ação executada — o texto do modelo não é evidência</div>
+
   <footer>
-    <span>${m.passes}/${m.baselineRuns} baseline<span class="dot-sep">·</span>${tests} testes<span class="dot-sep">·</span>${cold}</span>
-    <span><kbd>/</kbd> commands<span class="dot-sep">·</span><kbd>@</kbd> files<span class="dot-sep">·</span><kbd>!</kbd> shell<span class="dot-sep">·</span>enter envia</span>
+    <span>${m.passes}/${m.baselineRuns} baseline<span class="dot-sep">·</span>${tests} testes</span>
+    <span><kbd>/</kbd> commands<span class="dot-sep">·</span><kbd>@</kbd> files<span class="dot-sep">·</span><kbd>!</kbd> shell<span class="dot-sep">·</span><kbd>Ctrl</kbd>+<kbd>K</kbd> sessões<span class="dot-sep">·</span>enter envia</span>
   </footer>
 </div>
 
@@ -796,311 +718,14 @@ function chatPage(m) {
   <div class="body" id="drawerBody"></div>
 </aside>
 
-<script>
-const log = document.getElementById("log");
-const input = document.getElementById("input");
-const msgs = [];
-let streaming = false;
-let mode = "build";
-let permission = "ask";
+<aside class="settings-panel" id="settingsPanel"></aside>
 
-function esc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-}
-function md(s) {
-  let h = esc(s);
-  h = h.replace(/\`([^\`]+)\`/g, "<code>$1</code>");
-  h = h.replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>");
-  return h;
-}
+<aside class="sessions-panel" id="sessionsPanel">
+  <header><h2>sessões</h2><span class="spacer"></span><a href="#" id="closeSessions">fechar</a></header>
+  <div class="sessions-list" id="sessions"></div>
+</aside>
 
-function render() {
-  log.innerHTML = "";
-  for (const m of msgs) {
-    const wrap = document.createElement("div");
-    wrap.className = "msg " + (m.role === "you" ? "you" : "agent");
-
-    const who = document.createElement("div");
-    who.className = "who";
-    who.textContent = m.role === "you" ? "Você" : "SelfEvoPI";
-
-    const body = document.createElement("div");
-    body.className = "body";
-
-    if (m.reasoning) {
-      const r = document.createElement("div");
-      r.className = "reason";
-      r.innerHTML = "<span class='lbl'>raciocínio</span><br>" + esc(m.reasoning);
-      body.appendChild(r);
-    }
-
-    if (m.role === "you") {
-      const t = document.createElement("span");
-      t.textContent = m.text;
-      body.appendChild(t);
-    } else {
-      const t = document.createElement("span");
-      t.innerHTML = md(m.text);
-      body.appendChild(t);
-    }
-
-    for (const tool of (m.tools || [])) {
-      const line = document.createElement("div");
-      line.className = "tool";
-      line.innerHTML = "<span class='sym'>⏺</span><span class='tn'>" + esc(tool.name) +
-        "</span>" + (tool.arg ? "<span class='ta'>" + esc(tool.arg) + "</span>" : "");
-      body.appendChild(line);
-    }
-
-    if (m.role === "agent" && m === currentAgent() && streaming) {
-      const w = document.createElement("div");
-      w.className = "working on";
-      w.innerHTML = "<span class='pulse'></span><span>trabalhando<span class='dots' id='dots'></span></span>";
-      body.appendChild(w);
-    }
-
-    wrap.appendChild(who);
-    wrap.appendChild(body);
-    log.appendChild(wrap);
-  }
-  animateDots();
-  log.scrollTop = log.scrollHeight;
-}
-
-let dotTimer = null;
-function animateDots() {
-  if (dotTimer) { clearInterval(dotTimer); dotTimer = null; }
-  if (!streaming) return;
-  const el = document.getElementById("dots");
-  if (!el) return;
-  let n = 0;
-  dotTimer = setInterval(() => {
-    n = (n + 1) % 4;
-    if (el.isConnected) el.textContent = ".".repeat(n);
-  }, 400);
-}
-
-function currentAgent() {
-  for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === "agent") return msgs[i];
-  return null;
-}
-
-function resize() {
-  input.style.height = "auto";
-  input.style.height = Math.min(180, input.scrollHeight) + "px";
-}
-
-async function send(text) {
-  const msg = String(text || "").trim();
-  if (!msg || streaming) return;
-  msgs.push({ role: "you", text: msg });
-  const agent = { role: "agent", text: "", tools: [], reasoning: "" };
-  msgs.push(agent);
-  streaming = true;
-  input.value = "";
-  resize();
-  render();
-
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: msg, mode }),
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      if (agent.text === "" && agent.tools.length === 0) msgs.pop();
-      msgs.push({ role: "agent", text: j.error || "não consegui iniciar o turno.", tools: [] });
-      streaming = false;
-      render();
-    }
-  } catch (e) {
-    if (agent.text === "" && agent.tools.length === 0) msgs.pop();
-    msgs.push({ role: "agent", text: "não consegui falar com o servidor.", tools: [] });
-    streaming = false;
-    render();
-  }
-}
-
-/* ---- SSE: texto, ferramenta, raciocínio, fim, erro ---- */
-const es = new EventSource("/api/chat/stream");
-
-es.addEventListener("text", (e) => {
-  let d = {};
-  try { d = JSON.parse(e.data); } catch { return; }
-  const a = currentAgent();
-  if (a && typeof d.delta === "string") { a.text += d.delta; render(); }
-});
-
-es.addEventListener("thinking", (e) => {
-  let d = {};
-  try { d = JSON.parse(e.data); } catch { return; }
-  const a = currentAgent();
-  if (a && typeof d.delta === "string") {
-    a.reasoning = (a.reasoning || "") + d.delta;
-    render();
-  }
-});
-
-es.addEventListener("tool", (e) => {
-  let d = {};
-  try { d = JSON.parse(e.data); } catch { return; }
-  const a = currentAgent();
-  if (a) { a.tools.push({ name: d.name || "tool", arg: d.arg || "" }); render(); }
-});
-
-es.addEventListener("error", (e) => {
-  let d = {};
-  try { d = JSON.parse(e.data); } catch { return; }
-  const a = currentAgent();
-  if (a) {
-    if (a.text === "" && a.tools.length === 0) a.text = d.message || "não consegui concluir.";
-    else a.text += "\\n\\n" + (d.message || "não consegui concluir.");
-    render();
-  }
-});
-
-es.addEventListener("settled", () => {
-  streaming = false;
-  render();
-  input.focus();
-});
-
-/* ---- painel de estado ---- */
-async function loadStatus() {
-  try {
-    const s = await (await fetch("/api/status")).json();
-    document.getElementById("model").textContent = s.model || (s.available ? "padrão" : "desligado");
-    document.getElementById("effort").textContent = s.thinkingLevel || "—";
-    const caps = Array.isArray(s.capabilities) && s.capabilities.length ? s.capabilities.join(", ") : "—";
-    document.getElementById("caps").textContent = caps;
-    const rr = document.getElementById("reasonWrap");
-    if (s.available === false) {
-      document.getElementById("reason").textContent = "desligado";
-    } else if (s.reasoning) {
-      document.getElementById("reason").textContent = "exposto";
-    } else {
-      document.getElementById("reason").textContent = "modelo não expõe";
-    }
-    document.getElementById("perm").textContent = permission;
-    const dot = document.getElementById("hdot");
-    dot.className = "dot " + (s.isStreaming || streaming ? "ok" : "");
-  } catch (e) { /* mantém o último */ }
-}
-
-/* ---- modos e permissão ---- */
-document.querySelectorAll("#modes button").forEach((b) => {
-  b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
-  b.addEventListener("click", () => {
-    mode = b.dataset.mode;
-    document.querySelectorAll("#modes button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-  });
-});
-
-/* ---- drawer de skills/MCP ---- */
-const drawer = document.getElementById("drawer");
-document.getElementById("openDrawer").addEventListener("click", (e) => {
-  e.preventDefault();
-  drawer.classList.add("open");
-  loadIntegrations();
-});
-document.getElementById("closeDrawer").addEventListener("click", (e) => {
-  e.preventDefault();
-  drawer.classList.remove("open");
-});
-
-async function loadIntegrations() {
-  const body = document.getElementById("drawerBody");
-  let d;
-  try {
-    d = await (await fetch("/api/integrations")).json();
-  } catch (e) {
-    body.innerHTML = "<div class='empty'>não consegui ler as integrações.</div>";
-    return;
-  }
-  body.innerHTML = "";
-
-  const skills = document.createElement("section");
-  skills.innerHTML = "<h2>skills (" + (d.skills || []).length + ")</h2>";
-  if (!d.skills || d.skills.length === 0) {
-    skills.innerHTML += "<div class='empty'>nenhuma skill configurada.</div>";
-  } else {
-    for (const s of d.skills) {
-      const row = document.createElement("div");
-      row.className = "row";
-      row.innerHTML = "<span class='name'>" + esc(s.name) + "</span><span class='tag'>" + esc(s.description || "") + "</span>";
-      skills.appendChild(row);
-    }
-  }
-  body.appendChild(skills);
-
-  const mcp = document.createElement("section");
-  mcp.innerHTML = "<h2>mcp (" + (d.mcp || []).length + ")</h2>";
-  if (!d.mcp || d.mcp.length === 0) {
-    mcp.innerHTML += "<div class='empty'>nenhum servidor MCP configurado.</div>";
-  } else {
-    for (const s of d.mcp) {
-      const row = document.createElement("div");
-      row.className = "row";
-      const cls = s.status === "configurado" ? "" : " warn";
-      row.innerHTML = "<span class='name'>" + esc(s.name) + "</span><span class='tag" + cls + "'>" + esc(s.status) + " · " + esc(s.transport || "") + "</span>";
-      mcp.appendChild(row);
-    }
-  }
-  if (d.mcpErrors && d.mcpErrors.length) {
-    const h = document.createElement("h2");
-    h.textContent = "falhas";
-    h.style.marginTop = "14px";
-    mcp.appendChild(h);
-    const pre = document.createElement("pre");
-    pre.className = "log";
-    pre.textContent = d.mcpErrors.join("\\n");
-    mcp.appendChild(pre);
-    const btn = document.createElement("button");
-    btn.className = "copy";
-    btn.textContent = "copiar log";
-    btn.addEventListener("click", () => navigator.clipboard?.writeText(d.mcpErrors.join("\\n")));
-    mcp.appendChild(btn);
-  }
-  if (d.stderr && d.stderr.trim()) {
-    const h = document.createElement("h2");
-    h.textContent = "log do processo";
-    h.style.marginTop = "14px";
-    mcp.appendChild(h);
-    const pre = document.createElement("pre");
-    pre.className = "log";
-    pre.textContent = d.stderr;
-    mcp.appendChild(pre);
-    const btn = document.createElement("button");
-    btn.className = "copy";
-    btn.textContent = "copiar";
-    btn.addEventListener("click", () => navigator.clipboard?.writeText(d.stderr));
-    mcp.appendChild(btn);
-  }
-  body.appendChild(mcp);
-}
-
-input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    send(input.value);
-  }
-});
-input.addEventListener("input", resize);
-
-document.querySelectorAll("button[data-send]").forEach((b) => {
-  b.addEventListener("click", () => {
-    const cmd = b.dataset.send;
-    if (permission === "ask" && !confirm("Rodar " + cmd + "?")) return;
-    send(cmd);
-  });
-});
-
-render();
-loadStatus();
-setInterval(loadStatus, 3000);
-input.focus();
-</script>
+<script type="module">${js}</script>
 </body>
 </html>`;
 }
@@ -1456,6 +1081,79 @@ const server = createServer(async (req, res) => {
     const data = await integrations();
     res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
     res.end(JSON.stringify(data));
+    return;
+  }
+
+  // sessões: listar (contrato §2)
+  if (url.pathname === "/api/sessions" && req.method === "GET") {
+    try {
+      const dir = await sessionDir();
+      const sessions = await listSessions(dir);
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.end(JSON.stringify({ ok: true, sessions, dir }));
+    } catch (err) {
+      res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ ok: false, error: productError(err) }));
+    }
+    return;
+  }
+
+  // sessões: carregar uma (contrato §2)
+  if (url.pathname.startsWith("/api/sessions/") && req.method === "GET") {
+    const id = decodeURIComponent(url.pathname.slice("/api/sessions/".length));
+    if (!id || id.includes("/")) {
+      res.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ ok: false, error: "id inválido" }));
+      return;
+    }
+    try {
+      const dir = await sessionDir();
+      const { meta, messages } = await loadSession(dir, id);
+      // loadSession devolve meta vazio (startedAt null) quando o arquivo não existe
+      if (!meta || meta.startedAt == null) {
+        res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: false, error: "sessão não encontrada" }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.end(JSON.stringify({ ok: true, session: meta, messages }));
+    } catch (err) {
+      res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ ok: false, error: productError(err) }));
+    }
+    return;
+  }
+
+  // sessões: bifurcar (contrato §2)
+  if (url.pathname === "/api/sessions/fork" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", async () => {
+      let id = "";
+      let name;
+      try {
+        const doc = JSON.parse(body || "{}");
+        id = String(doc.id ?? "");
+        if (typeof doc.name === "string") name = doc.name;
+      } catch {
+        id = "";
+      }
+      if (!id) {
+        res.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: false, error: "id obrigatório" }));
+        return;
+      }
+      try {
+        const dir = await sessionDir();
+        const newId = await forkSession(dir, id, name, "desktop");
+        const { meta } = await loadSession(dir, newId);
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: true, session: meta }));
+      } catch (err) {
+        res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: false, error: productError(err) }));
+      }
+    });
     return;
   }
 
