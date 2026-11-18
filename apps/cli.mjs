@@ -2129,15 +2129,23 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
       if (key === "ctrl-k" && !running) {
         sessionsOpen = !sessionsOpen;
         settingsOpen = false;
-        if (sessionsOpen) void refreshSessionsOverlay();
-        else drawInput();
+        if (sessionsOpen) {
+          // abre na hora com um "lendo"; a varredura chega depois e redesenha
+          sessionsCache = [paint("  lendo sessões…", "muted")];
+          drawInput();
+          void refreshSessionsOverlay();
+        } else drawInput();
         continue;
       }
       if (key === "ctrl-comma" && !running) {
         settingsOpen = !settingsOpen;
         sessionsOpen = false;
-        if (settingsOpen) void refreshSettingsOverlay();
-        else drawInput();
+        if (settingsOpen) {
+          // idem: mostra já, resolve o caminho das sessões em segundo plano
+          settingsCache = renderSettings(statusInfo, { sessionsDir: sessionsDirCache });
+          drawInput();
+          void refreshSettingsOverlay();
+        } else drawInput();
         continue;
       }
       if (running) {

@@ -5,6 +5,25 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.0.1] - 2026-11-18
+
+**Fechamento do desktop.** O 1.0.0 saiu com o painel de configurações no código
+e vazio na tela; este conserta e inclui as duas interfaces na suíte.
+
+- **Painel de configurações abre e funciona.** `settings.js` passou a importar
+  `./modes-data.js` — o módulo do browser não pode alcançar
+  `core/governance/modes.mjs`, que carrega uma árvore de imports do lado do
+  Node. O arquivo é gerado a partir do core e `modes-data.test.mjs` falha se
+  divergirem.
+- **Clique, não só teclado.** Os listeners de `#settings` e `#openDrawer` não
+  existiam: o painel só abria por `Ctrl+,`. Agora o mouse também abre.
+- **`npm test` passou a rodar as duas interfaces.** O glob só cobria `core/` e
+  `scripts/`; os 71 testes da CLI e os 41 do desktop nunca rodaram no CI.
+  Suíte: **789 testes, 788 passam, 1 skip**.
+- **CLI com origem e título** (A4): `/sessions` mostra de onde veio a sessão
+  (`cli`|`desktop`), deriva título da primeira mensagem quando o header não tem,
+  e `Ctrl+K`/`Ctrl+,` abrem na hora em vez de esperar a varredura.
+
 ## [1.0.0] - 2026-11-18
 
 > **Seção em preparação.** Esta entrada cobre o que já está integrado na data. Os itens

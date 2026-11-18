@@ -968,6 +968,8 @@ test("REPL: abrir as sessões fecha as configurações (um overlay por vez)", as
   await sleep(80);
   assert.match(stripAnsi(all), /configurações/);
 
+  // limpa antes: o frame anterior continua no buffer, e o que importa é o novo
+  all = "";
   input.emit("data", "\x0b"); // sessões — tem que fechar as configurações
   await sleep(2000);
   assert.doesNotMatch(stripAnsi(all), /configurações/);

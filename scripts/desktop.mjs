@@ -992,7 +992,7 @@ const server = createServer(async (req, res) => {
 
   // Modulos irmaos do app.js. Sem esta rota, o `import("./sessions.js")` do
   // app.js cai no 404 do servidor e a lista de sessoes fica vazia em silencio.
-  const MODULOS = new Set(["sessions.js", "settings.js"]);
+  const MODULOS = new Set(["sessions.js", "settings.js", "modes-data.js"]);
   const modulo = url.pathname.startsWith("/") ? url.pathname.slice(1) : "";
   if (MODULOS.has(modulo)) {
     try {

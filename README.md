@@ -10,7 +10,7 @@
 
 <br>
 
-![Tests](https://img.shields.io/badge/tests-664%20passing%20%281%20skip%29-brightgreen)
+![Tests](https://img.shields.io/badge/tests-788%20passing%20%281%20skip%29-brightgreen)
 ![Evals](https://img.shields.io/badge/evals-86%2F87%20(98.85%25)-brightgreen)
 ![Cold start](https://img.shields.io/badge/cold_start-91ms%20avg-blue)
 ![Prompt](https://img.shields.io/badge/prompt_overhead-%2B506%20of%201500-blue)
@@ -53,7 +53,7 @@ Everything below was measured on this repository, on Windows 11, Node 24.13. Rep
 | Prompt added by SelfEvoPI | **+506 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs --runs 3` |
 | Base agent prompt | 8.685 tok | — | same |
 | Evaluation suite | **29 tasks, 86/87 baseline (98.85%)** — B11 is stochastic | no regression | `node evals/gate.mjs` |
-| Unit tests | **664 passing** (1 skipped: no pi-harness server) | - | `npm test` |
+| Unit tests | **788 passing** (1 skipped: no pi-harness server) | - | `npm test` |
 | Source URLs | **33 cited sources, all 200** | all reachable | `node scripts/verify-urls.mjs` |
 | Suite cost per task | **US$ 0.00** (free tier) | — | JSONL ledger |
 | Suite latency | ~5.9 s/task average | — | ledger |
@@ -175,7 +175,7 @@ Eight isolated worktrees (`.worktrees/A1`–`A8`), each with a disjoint file sco
 
 | Gate | What it checks | Enforcement |
 |:---|:---|:---|
-| `npm test` | 664 unit tests | CI on every push |
+| `npm test` | 788 unit tests | CI on every push |
 | `npm run verify` | tests + evals A/C + source URL integrity | CI |
 | `node evals/gate.mjs` | 3 runs per task vs baseline | local, before merge |
 | `scripts/verify-urls.mjs` | 33 cited sources still reachable | CI |
@@ -336,7 +336,7 @@ A conversation, not a menu. The engine underneath is invisible — the interface
 
 ```powershell
 npm run verify                          # tests + evals A/B/C + URLs
-npm test                                # 664 unit tests
+npm test                                # 788 unit tests
 npm run gate                            # full gate (real model calls, slow)
 
 node apps/cli.mjs                       # the CLI (same as the desktop shortcut)
