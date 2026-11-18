@@ -11,7 +11,7 @@
  * Zero dependência externa. Só node: e Web APIs.
  */
 
-import { MODE_NAMES, MODES, describePermissions } from "../../core/governance/modes.mjs";
+import { MODE_NAMES, MODES, describePermissions } from "./modes-data.js";
 
 const STORAGE_KEY = "selfevopi.settings";
 
@@ -145,6 +145,104 @@ export function getSettings() {
  * @param {function} [opts.onChange] — callback(state) ao mudar
  * @returns {object} referência do módulo
  */
+/**
+ * Renderiza o painel de configuracoes (#settingsPanel).
+ *
+ * Existe porque o initSettings original so carregava estado — o painel ficava
+ * vazio na tela. Cada linha le o estado atual e chama o setter da API publica,
+ * que persiste e avisa quem escuta (onChange).
+ */
+function renderSettingsPanel(panelEl) {
+  if (!isBrowser() || !panelEl) return;
+
+  function linhaRotulo(texto) {
+    const row = _createElement("div", "settings-row");
+    const label = _createElement("span", "settings-label", texto);
+    row.append(label);
+    return row;
+  }
+
+  function linhaBotoes(texto, opcoes, atual, aoEscolher) {
+    const row = linhaRotulo(texto);
+    const box = _createElement("div", "settings-value");
+    box.style.display = "flex";
+    box.style.gap = "6px";
+    for (const op of opcoes) {
+      const b = _createElement("button", "sp-opt", op);
+      b.type = "button";
+      b.dataset.value = op;
+      if (op === atual) b.classList.add("on");
+      b.addEventListener("click", () => {
+        try {
+          aoEscolher(op);
+        } catch (err) {
+          console.warn("[settings]", err && err.message ? err.message : err);
+        }
+      });
+      box.append(b);
+    }
+    row.append(box);
+    return row;
+  }
+
+  function linhaCheck(texto, atual, aoAlternar) {
+    const row = linhaRotulo(texto);
+    const b = _createElement("button", "sp-opt", atual ? "sim" : "não");
+    b.type = "button";
+    if (atual) b.classList.add("on");
+    b.addEventListener("click", () => {
+      try {
+        aoAlternar(!atual);
+      } catch (err) {
+        console.warn("[settings]", err && err.message ? err.message : err);
+      }
+    });
+    row.append(b);
+    return row;
+  }
+
+  function linhaModelo() {
+    const row = linhaRotulo("modelo");
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "settings-value sp-model";
+    input.value = _state.model || "";
+    input.placeholder = "provedor/modelo";
+    input.addEventListener("change", () => {
+      try {
+        _api.setModel(input.value);
+      } catch (err) {
+        console.warn("[settings]", err && err.message ? err.message : err);
+      }
+    });
+    row.append(input);
+    return row;
+  }
+
+  panelEl.innerHTML = "";
+
+  const head = _createElement("div", "sp-head");
+  const titulo = document.createElement("h2");
+  titulo.textContent = "configurações";
+  const spacer = _createElement("span", "spacer");
+  const fechar = _createElement("button", "sp-close", "fechar");
+  fechar.type = "button";
+  fechar.addEventListener("click", () => panelEl.classList.remove("open"));
+  head.append(titulo, spacer, fechar);
+
+  const body = _createElement("div", "sp-body");
+  body.append(
+    linhaBotoes("modo", MODE_NAMES, _state.mode, (v) => _api.setMode(v)),
+    linhaBotoes("esforço", EFFORTS, _state.effort, (v) => _api.setEffort(v)),
+    linhaBotoes("permissão", PERMISSIONS, _state.permission, (v) => _api.setPermission(v)),
+    linhaModelo(),
+    linhaCheck("confirmar escritas", _state.confirmWrites, (v) => _api.setConfirmWrites(v)),
+    linhaCheck("mostrar dicas", _state.showTips, (v) => _api.setShowTips(v)),
+  );
+
+  panelEl.append(head, body);
+}
+
 export function initSettings(opts = {}) {
   _state = load();
 
@@ -161,6 +259,17 @@ export function initSettings(opts = {}) {
 
   if (typeof opts.onChange === "function") {
     _onChange = opts.onChange;
+  }
+
+  // O painel vem por `panel` (app.js) ou `container`; sem ele, nada a desenhar.
+  const panelEl = opts.panel || opts.container || null;
+  if (panelEl) {
+    renderSettingsPanel(panelEl);
+    // Redesenha quando o estado muda, para o painel refletir o que a barra fez.
+    _onChange = (s) => {
+      renderSettingsPanel(panelEl);
+      if (typeof opts.onChange === "function") opts.onChange(s);
+    };
   }
 
   return _api;
@@ -184,7 +293,7 @@ export function initControlBar(opts = {}) {
     return { el: null, destroy: () => {} };
   }
 
-  const el = opts.container || globalThis.document.createElement("div");
+  const el = opts.container || opts.bar || globalThis.document.createElement("div");
   el.className = "selfevopi-control-bar";
   el.setAttribute("role", "toolbar");
   el.setAttribute("aria-label", "Controles de conversa");

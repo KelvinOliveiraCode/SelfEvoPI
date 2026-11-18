@@ -473,6 +473,17 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+/* Os mesmos destinos pelo mouse. Sem estes dois listeners o botao "config"
+   existia na barra e nao fazia nada — o painel so abria pelo teclado. */
+document.getElementById("settings")?.addEventListener("click", (e) => {
+  e.preventDefault();
+  toggleSettings();
+});
+document.getElementById("openDrawer")?.addEventListener("click", (e) => {
+  e.preventDefault();
+  toggleSessions();
+});
+
 function toggleSessions() {
   document.body.classList.toggle("show-sessions");
 }
