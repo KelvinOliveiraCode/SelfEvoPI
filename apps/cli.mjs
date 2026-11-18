@@ -486,6 +486,8 @@ export function renderHelp() {
   out.push(`  ${paint("escreva", "fg")} e Enter para falar; a resposta aparece em streaming.`);
   out.push(`  ${paint("Ctrl+C", "fg")} cancela a resposta em curso e devolve a linha.`);
   out.push(`  ${paint("Ctrl+O", "fg")} abre/fecha o painel de estado (modo, permissão, modelo).`);
+  out.push(`  ${paint("Ctrl+K", "fg")} abre/fecha a lista de sessões (a mesma tecla do desktop).`);
+  out.push(`  ${paint("Ctrl+,", "fg")} abre/fecha as configurações (a mesma tecla do desktop).`);
   out.push(`  ${paint("q", "fg")} / ${paint("/quit", "fg")} / ${paint("Ctrl+D", "fg")} saem.`);
   return out.map((line) => wrapAnsi(line, WIDTH)).join("\n");
 }
@@ -1089,6 +1091,134 @@ async function runCompact({ out, pi }) {
   return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/* Sessões — origem, título derivado e leitura seletiva                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * De onde veio a sessão, segundo o campo `client` do header (contrato
+ * desktop 1.0, seção 1). Sessão antiga, sem o campo, é `cli` — é o que o
+ * contrato manda, e é o que faz sentido: o desktop é que passou a escrever
+ * esse campo depois.
+ *
+ * Valor desconhecido não vira "cli" no silêncio: devolve como está, para o
+ * diagnóstico não mentir sobre um header que veio de outro lugar.
+ */
+export function sessionOrigin(client) {
+  const raw = typeof client === "string" ? client.trim() : "";
+  if (raw === "") return "cli";
+  const low = raw.toLowerCase();
+  if (low === "desktop") return "desktop";
+  if (low === "cli") return "cli";
+  return raw;
+}
+
+/**
+ * Título da sessão: o do header, quando existe. Quando não existe, deriva da
+ * primeira mensagem do usuário — truncada, para a lista não virar parágrafo.
+ *
+ * O id cru é o último recurso, e é responsabilidade de quem chama.
+ */
+export function deriveTitle(headerTitle, firstUserText, maxLen = 50) {
+  const titulo = typeof headerTitle === "string" ? headerTitle.trim() : "";
+  if (titulo !== "") return titulo;
+
+  const texto = String(firstUserText ?? "").replace(/\s+/g, " ").trim();
+  if (texto === "") return null;
+  if (texto.length <= maxLen) return texto;
+  return texto.slice(0, maxLen - 1).trimEnd() + "…";
+}
+
+/**
+ * Lê o que a lista de sessões precisa e o `listSessions` não devolve:
+ * `client` (contrato desktop 1.0) e o primeiro texto do usuário (para o
+ * título derivado).
+ *
+ * Lê o começo de cada arquivo, não o inteiro: o header é a linha 1 e a
+ * primeira mensagem do usuário vem logo depois. Uma sessão de dezenas de
+ * megabytes não vira string na memória por causa de uma lista.
+ *
+ * @returns {Promise<Map<string, { client: string, firstUser: string|null }>>}
+ */
+export async function readSessionExtras(dir, { maxBytes = 256 * 1024 } = {}) {
+  const { readdir, open } = await import("node:fs/promises");
+  const { parseSession } = await import("../core/agent/sessions.mjs");
+
+  const out = new Map();
+  let files = [];
+  try {
+    files = (await readdir(dir)).filter((f) => f.endsWith(".jsonl"));
+  } catch {
+    return out;
+  }
+
+  for (const f of files) {
+    const full = path.join(dir, f);
+    let header = null;
+    let firstUser = null;
+
+    try {
+      const fh = await open(full, "r");
+      try {
+        const buf = Buffer.alloc(maxBytes);
+        const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
+        const { header: h, messages } = parseSession(buf.subarray(0, bytesRead).toString("utf8"));
+        header = h;
+        for (const m of messages) {
+          if (m && m.role === "user") {
+            firstUser = typeof m.content === "string"
+              ? m.content
+              : Array.isArray(m.content)
+                ? m.content.map((c) => (c && typeof c.text === "string" ? c.text : "")).join(" ")
+                : "";
+            break;
+          }
+        }
+      } finally {
+        await fh.close().catch(() => {});
+      }
+    } catch {
+      // arquivo ilegível: cai no fallback do chamador
+    }
+
+    const id = (header && header.id) || f.replace(/\.jsonl$/, "");
+    out.set(id, { client: sessionOrigin(header && header.client), firstUser });
+  }
+
+  return out;
+}
+
+/**
+ * Monta as linhas da lista de sessões. Separada do comando para que a paleta
+ * (Ctrl+K) mostre exatamente o mesmo que /sessions mostra.
+ */
+export function renderSessionsList(list, extras, limit = 12) {
+  const lines = [paint(`  ${list.length} sessão(es)`, "fg")];
+
+  // cabeçalho só quando há o que listar — coluna a mais sem tabela é ruído
+  const temDesktop = list.slice(0, limit).some((se) => (extras.get(se.id)?.client ?? "cli") === "desktop");
+  const idW = 8;
+  const originW = temDesktop ? 8 : 0;
+  const titleW = Math.max(24, WIDTH - idW - originW - 26 - 8);
+
+  for (const se of list.slice(0, limit)) {
+    const extra = extras.get(se.id);
+    const origin = extra?.client ?? "cli";
+    const title = deriveTitle(se.title, extra?.firstUser) ?? String(se.id).slice(0, 8);
+    const id = se.id ? String(se.id).slice(0, idW) : "?";
+
+    const colOrigin = temDesktop ? String(origin).padEnd(originW) + "  " : "";
+    const colTitle = fit(String(title), titleW).padEnd(titleW);
+    lines.push(`  ${id}  ${colOrigin}${colTitle}  ${se.turns} turnos  ${String(se.updatedAt || "").slice(0, 10)}`);
+  }
+
+  if (list.length > limit) {
+    lines.push(paint(`  … e mais ${list.length - limit} sessão(es)`, "muted"));
+  }
+
+  return lines;
+}
+
 async function runSessions({ out, arg, pi }) {
   const { listSessions, loadSession } = await import("../core/agent/sessions.mjs");
   const dir = await sessionDir();
@@ -1098,8 +1228,13 @@ async function runSessions({ out, arg, pi }) {
       out(paint(`  sessão "${arg}" não encontrada`, "warn"));
       return 2;
     }
-    const lines = [paint(`  sessão ${meta.id ? String(meta.id).slice(0, 8) : arg}`, "fg")];
-    lines.push(`    título:  ${meta.title || "—"}`);
+    const extras = await readSessionExtras(dir);
+    const extra = extras.get(meta.id) ?? null;
+    const idCurto = meta.id ? String(meta.id).slice(0, 8) : arg;
+    const origin = sessionOrigin(extra?.client);
+    const lines = [paint(`  sessão ${idCurto}`, "fg")];
+    lines.push(`    título:  ${deriveTitle(meta.title, extra?.firstUser) ?? "-"}`);
+    lines.push(`    origem:  ${origin}`);
     lines.push(`    turnos:  ${meta.turns}`);
     lines.push(`    tokens:  ${meta.tokens}`);
     out(lines.join("\n"));
@@ -1126,12 +1261,8 @@ async function runSessions({ out, arg, pi }) {
     out(paint("  nenhuma sessão encontrada", "muted"));
     return 0;
   }
-  const lines = [paint(`  ${list.length} sessão(ões)`, "fg")];
-  for (const se of list.slice(0, 12)) {
-    const id = se.id ? String(se.id).slice(0, 8) : "?";
-    lines.push(`  ${id}  ${String(se.title || "—").slice(0, 26).padEnd(26)}  ${se.turns} turnos  ${String(se.updatedAt || "").slice(0, 10)}`);
-  }
-  out(lines.join("\n"));
+  const extras = await readSessionExtras(dir);
+  out(renderSessionsList(list, extras).join("\n"));
   return 0;
 }
 
@@ -1375,6 +1506,30 @@ export function renderPanel(info = statusInfo, data = {}) {
   lines.push(paint("  ctrl+o fecha", "dim"));
   return lines;
 }
+
+/**
+ * Painel de configurações (Ctrl+,): o que está valendo nesta sessão.
+ *
+ * Não é um editor — é a mesma leitura que o desktop mostra em Ctrl+, vista
+ * daqui. Quem muda configuração continua mudando por comando (/model, /plan,
+ * /build, /ask); este painel só mostra o estado, para os dois lados
+ * concordarem sem o usuário adivinhar.
+ */
+export function renderSettings(info = statusInfo, { sessionsDir = null, commands = COMMANDS.length } = {}) {
+  const lines = [];
+  lines.push(paint("  configurações", "fg"));
+  lines.push(`    modelo:      ${paint(info.model || "-", "fg")}`);
+  lines.push(`    modo:        ${paint(info.mode, "bold")}`);
+  lines.push(`    permissão:   ${paint(info.permission, "fg")}`);
+  if (info.reasoning) lines.push(`    raciocínio:  ${info.reasoning}`);
+  if (info.context) lines.push(`    contexto:    ${info.context}`);
+  lines.push(`    sessões:     ${sessionsDir ?? "(não resolvido)"}`);
+  lines.push(`    comandos:    ${commands}`);
+  lines.push("");
+  lines.push(paint("  ctrl+, fecha", "dim"));
+  return lines;
+}
+
 
 export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   const settleTimeoutMs = opts.settleTimeoutMs ?? 120_000;
@@ -1798,6 +1953,11 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
   let running = false;
   let quitting = false;
   let panelOpen = false; // painel de estado (ctrl+o)
+  let sessionsOpen = false; // lista de sessões (ctrl+k)
+  let settingsOpen = false; // configurações (ctrl+,)
+  let sessionsCache = null; // linhas já montadas, para o overlay não esperar
+  let settingsCache = null;
+  let sessionsDirCache = null; // resolvido uma vez (sessionDir é varredura)
 
   const paletteWidth = () => {
     const cols = (process.stdout && process.stdout.columns) || 80;
@@ -1831,7 +1991,7 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
         ? "ctrl+o fechar · enter enviar · q sair"
         : open
           ? "↑↓ navegar  enter escolher  esc fechar  ctrl+o painel"
-          : "enter enviar · / comandos · ctrl+o painel · q sair",
+          : "enter enviar · / comandos · ctrl+o painel · ctrl+k sessões · q sair",
       "dim",
     );
 
@@ -1839,6 +1999,8 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     const belowLines = [];
     for (const pl of paletteLines) belowLines.push(pl);
     if (panelOpen) for (const pl of renderPanel(statusInfo, data)) belowLines.push(pl);
+    if (settingsOpen && settingsCache) for (const pl of settingsCache) belowLines.push(pl);
+    if (sessionsOpen && sessionsCache) for (const pl of sessionsCache) belowLines.push(pl);
     belowLines.push(statusLine);
     belowLines.push(keysLine);
 
@@ -1851,6 +2013,42 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     write("\r");
     if (col > 0) write(`\x1b[${col}C`);
   };
+
+  // ------------------------------------------------------------- overlays
+  // Os dois são montados uma vez e guardados: o overlay é redesenhado a cada
+  // tecla, e varrer a pasta de sessões a cada tecla seria trabalho jogado fora.
+  // A geração protege contra dois carregamentos se sobrepondo.
+
+  let sessionsGen = 0;
+  async function refreshSessionsOverlay() {
+    const my = ++sessionsGen;
+    try {
+      const { listSessions } = await import("../core/agent/sessions.mjs");
+      if (!sessionsDirCache) sessionsDirCache = await sessionDir();
+      const list = await listSessions(sessionsDirCache);
+      const extras = await readSessionExtras(sessionsDirCache);
+      if (my !== sessionsGen) return;
+      sessionsCache = list.length === 0
+        ? [paint("  nenhuma sessão encontrada", "muted")]
+        : renderSessionsList(list, extras, 8);
+    } catch (err) {
+      if (my !== sessionsGen) return;
+      sessionsCache = [paint(`  não consegui ler as sessões: ${err?.message ?? err}`, "warn")];
+    }
+    if (sessionsOpen) drawInput();
+  }
+
+  let settingsGen = 0;
+  async function refreshSettingsOverlay() {
+    const my = ++settingsGen;
+    if (!sessionsDirCache) {
+      try { sessionsDirCache = await sessionDir(); } catch { sessionsDirCache = null; }
+    }
+    if (my !== settingsGen) return;
+    settingsCache = renderSettings(statusInfo, { sessionsDir: sessionsDirCache });
+    if (settingsOpen) drawInput();
+  }
+
   const prompt = () => drawInput();
 
   const finishRun = async () => {
@@ -1916,6 +2114,20 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
       if (key === "ctrl-o" && !running) {
         panelOpen = !panelOpen;
         drawInput();
+        continue;
+      }
+      if (key === "ctrl-k" && !running) {
+        sessionsOpen = !sessionsOpen;
+        settingsOpen = false;
+        if (sessionsOpen) void refreshSessionsOverlay();
+        else drawInput();
+        continue;
+      }
+      if (key === "ctrl-comma" && !running) {
+        settingsOpen = !settingsOpen;
+        sessionsOpen = false;
+        if (settingsOpen) void refreshSettingsOverlay();
+        else drawInput();
         continue;
       }
       if (running) {
@@ -2047,6 +2259,14 @@ function makeKeyMap() {
       }
       if (code === 0x0f) {
         yield "ctrl-o";
+        continue;
+      }
+      if (code === 0x0b) { // Ctrl+K — a mesma tecla do desktop
+        yield "ctrl-k";
+        continue;
+      }
+      if (code === 0x1c) { // Ctrl+, não tem código ASCII próprio; 0x1C é o que
+        yield "ctrl-comma"; // a maioria dos terminais manda (Ctrl+ inclusive)
         continue;
       }
       if (code === 0x0d || code === 0x0a) {
