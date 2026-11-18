@@ -1,0 +1,466 @@
+/* ==========================================================================
+   SelfEvoPI Desktop — desktop.css
+   Língua da casa: preto absoluto, branco, muted #787878. Sem gradiente, neon,
+   glassmorphism ou animação de entrada. Responsivo 720px–1920px.
+   ========================================================================== */
+
+:root {
+  --bg: #000000;
+  --bg-2: #0d0d0d;
+  --bg-3: #1a1a1a;
+  --fg: #ffffff;
+  --muted: #787878;
+  --line: rgba(255, 255, 255, .08);
+  --line-strong: rgba(255, 255, 255, .18);
+  --ok: #3FB950;
+  --warn: #D29922;
+  --fail: #F85149;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+  --r: 8px;
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  --t: 200ms;
+  --sessions-w: 260px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 14px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --------------------------------------------------------------------------
+   Layout de duas colunas: sessões à esquerda, chat à direita
+   -------------------------------------------------------------------------- */
+.app {
+  display: grid;
+  grid-template-columns: var(--sessions-w) 1fr;
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* --------------------------------------------------------------------------
+   Lista de sessões (#sessions)
+   -------------------------------------------------------------------------- */
+#sessions {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg-2);
+  border-right: 1px solid var(--line);
+}
+
+.sessions-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.sessions-head h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.sessions-head .spacer { margin-left: auto; }
+
+.session {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color var(--t) var(--ease);
+}
+.session:hover { background: var(--bg-3); }
+.session.active {
+  background: var(--bg-3);
+  box-shadow: inset 2px 0 0 var(--fg);
+}
+.s-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.s-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --------------------------------------------------------------------------
+   Área de trabalho (header + chat + composer)
+   -------------------------------------------------------------------------- */
+.workspace {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+header {
+  flex: 0 0 auto;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+header .logo { width: 26px; height: 26px; color: var(--fg); flex: 0 0 auto; }
+header .logo svg { width: 100%; height: 100%; display: block; }
+header h1 {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  margin: 0;
+  white-space: nowrap;
+}
+header .spacer { margin-left: auto; }
+
+#status {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+#status .item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+#status b { color: var(--fg); font-weight: 500; }
+
+#chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* --------------------------------------------------------------------------
+   Mensagens (.msg / .msg.user / .msg.assistant / .msg.tool)
+   -------------------------------------------------------------------------- */
+.msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 78ch;
+}
+.msg .who {
+  font-size: 11px;
+  letter-spacing: .08em;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.msg .body { color: var(--fg); white-space: pre-wrap; word-wrap: break-word; }
+.msg .body strong { font-weight: 500; }
+.msg .body code {
+  background: var(--bg-3);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: .92em;
+  font-family: var(--mono);
+}
+.msg.user .body,
+.msg.you .body { color: var(--fg); }
+.msg.assistant .body,
+.msg.agent .body { color: var(--fg); }
+.msg.tool { max-width: none; }
+
+/* Cartão de ferramenta (quando o modelo chama uma ferramenta) */
+.tool-card {
+  margin-top: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.tool-card .tn { font-weight: 500; color: var(--fg); font-family: var(--mono); }
+.tool-card .ta {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 70ch;
+}
+.tool-card .tout {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* Raciocínio: discreto, em cinza */
+.reasoning {
+  margin: 2px 0 4px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+  white-space: pre-wrap;
+}
+.reasoning .lbl {
+  font-style: normal;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  opacity: .8;
+}
+
+/* --------------------------------------------------------------------------
+   Composer
+   -------------------------------------------------------------------------- */
+#composer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.inputwrap {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  transition: border-color var(--t) var(--ease);
+}
+.inputwrap:focus-within { border-color: var(--line-strong); }
+.inputwrap .prompt { color: var(--muted); font-size: 15px; flex: 0 0 auto; }
+textarea {
+  flex: 1 1 auto;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--fg);
+  font: 400 15px/1.5 var(--font);
+  max-height: 180px;
+  padding: 0;
+}
+textarea::placeholder { color: var(--muted); }
+#send {
+  flex: 0 0 auto;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 16px;
+  background: var(--fg);
+  color: var(--bg);
+  border: none;
+  border-radius: 6px;
+  font: 500 13px/1 var(--font);
+  cursor: pointer;
+  transition: opacity var(--t) var(--ease);
+}
+#send:hover { opacity: .85; }
+#send:disabled { opacity: .4; cursor: default; }
+
+/* --------------------------------------------------------------------------
+   Painel de configurações (#settingsPanel)
+   -------------------------------------------------------------------------- */
+#settingsPanel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: min(380px, 92vw);
+  background: var(--bg-2);
+  border-left: 1px solid var(--line);
+  transform: translateX(100%);
+  transition: transform var(--t) var(--ease);
+  display: flex;
+  flex-direction: column;
+  z-index: 60;
+}
+#settingsPanel.open { transform: translateX(0); }
+#settingsPanel .sp-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+#settingsPanel .sp-head h2 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+#settingsPanel .sp-head .spacer { margin-left: auto; }
+#settingsPanel .sp-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 16px 16px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.settings-row:last-child { border-bottom: none; }
+.settings-label { font-size: 13px; color: var(--fg); }
+.settings-row .settings-value { font-size: 12px; color: var(--muted); }
+
+/* --------------------------------------------------------------------------
+   Botões e links genéricos
+   -------------------------------------------------------------------------- */
+button { font-family: var(--font); }
+header a, .icon-btn {
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  text-decoration: none;
+  font-size: 12.5px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color var(--t) var(--ease), color var(--t) var(--ease);
+}
+header a:hover, .icon-btn:hover { background: var(--bg-3); color: var(--fg); }
+#settings {
+  min-width: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --------------------------------------------------------------------------
+   Estados: foco visível e alvos de toque
+   -------------------------------------------------------------------------- */
+:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+textarea:focus-visible { outline: none; } /* o :focus-within do inputwrap já sinaliza */
+button, .session, a, #send, .icon-btn { min-height: 40px; }
+.session { min-height: 40px; }
+
+/* --------------------------------------------------------------------------
+   Responsivo: abaixo de 900px a lista vira gaveta sobreposta (não some)
+   -------------------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  #sessions {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: min(300px, 85vw);
+    transform: translateX(-100%);
+    transition: transform var(--t) var(--ease);
+    z-index: 50;
+    border-right: 1px solid var(--line-strong);
+  }
+  #sessions.open { transform: translateX(0); }
+  .workspace { grid-column: 1; }
+  .msg { max-width: 100%; }
+}
+
+/* Larguras muito estreitas: mantém alvos utilizáveis */
+@media (max-width: 480px) {
+  header { padding: 0 12px; }
+  #chat { padding: 16px 12px 6px; }
+  #composer { padding: 8px 12px 10px; }
+}
+
+/* --------------------------------------------------------------------------
+   Movimento reduzido: respeita prefers-reduced-motion
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
+/* --------------------------------------------------------------------------
+   Aliases do CSS antigo (compatibilidade): .reason = .reasoning, .tool = .tool-card
+   A8 pode usar qualquer um dos nomes; os dois funcionam.
+   -------------------------------------------------------------------------- */
+.reason {
+  margin: 2px 0 4px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+  white-space: pre-wrap;
+}
+.reason .lbl {
+  font-style: normal;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  opacity: .8;
+}
+.tool {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.tool .sym { color: var(--muted); }
+.tool .tn { font-weight: 500; color: var(--fg); font-family: var(--mono); }
+.tool .ta { opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70ch; }
+
+/* --------------------------------------------------------------------------
+   Utilitários
+   -------------------------------------------------------------------------- */
+.empty { color: var(--muted); font-size: 13px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; flex: 0 0 auto; }
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.fail { background: var(--fail); }
+.spacer { margin-left: auto; }

@@ -1,0 +1,9 @@
+{
+  "id": "C3-router-unit-tests",
+  "group": "C",
+  "title": "Testes unitários do roteador passam",
+  "description": "Roda `node --test core/router/router.test.mjs` e exige exit code 0 em menos de 15s, garantindo que a suíte unitária do roteador não regrida.",
+  "checker": "node evals/checks/check-router-unit-tests.mjs",
+  "timeoutMs": 60000,
+  "tags": ["router", "testes", "regressao"]
+}

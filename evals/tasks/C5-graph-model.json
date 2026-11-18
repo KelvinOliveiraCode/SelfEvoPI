@@ -1,0 +1,9 @@
+{
+  "id": "C5-graph-model",
+  "group": "C",
+  "title": "validate recusa grafo inválido com o código de erro certo",
+  "description": "Regressão da orquestração: id duplicado, dependência desconhecida, ciclo e humano sem tarefa anterior são recusados com o código correto; createGraph lança GraphError; ordem topológica respeita dependsOn.",
+  "checker": "node evals/checks/check-graph-model.mjs",
+  "timeoutMs": 30000,
+  "tags": ["grafico", "regressao", "validacao"]
+}
