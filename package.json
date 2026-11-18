@@ -23,10 +23,8 @@
     "router": "node core/router/cli.mjs",
     "forge": "node core/forge/cli.mjs",
     "overhead": "node scripts/measure-selfevopi-overhead.mjs",
-    "daily": "node scripts/daily.mjs"
-  },
-  "dependencies": {
-    "jsdom": "^29.1.1",
-    "node-html-parser": "^9.0.7"
+    "daily": "node scripts/daily.mjs",
+    "desktop": "node scripts/desktop.mjs",
+    "cli": "node apps/cli.mjs"
   }
 }
