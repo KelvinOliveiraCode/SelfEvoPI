@@ -1,14 +1,48 @@
+/**
+ * apps/desktop/app.js — bootstrap, SSE e chat do desktop SelfEvoPI.
+ *
+ * Contrato: docs/design/CONTRATO-desktop-1.0.md
+ * IDs obrigatórios: #chat #composer #send #sessions #settings #settingsPanel #status
+ *
+ * Módulos irmãos (import dinâmico com degradação — se um não existir, o chat
+ * continua funcionando):
+ *   ./sessions.js  initSessions({listEl,onOpen}) · openSession(id) · newSession() · getActiveSession()
+ *   ./settings.js  initSettings(opts) · initControlBar(opts) · getSettings()
+ */
 
-const log = document.getElementById("log");
-const input = document.getElementById("input");
-const msgs = [];
+const $ = (id) => document.getElementById(id);
+
+const chatEl = $("chat");
+const inputEl = $("composer");
+const sendEl = $("send");
+const statusEl = $("status");
+const sessionsEl = $("sessions");
+const settingsPanel = $("settingsPanel");
+
+/* ------------------------------------------------------------------ */
+/* Estado                                                              */
+/* ------------------------------------------------------------------ */
+
+/** @type {Array<{role:string,text:string,tools:Array,reasoning:string,reasoningOpen?:boolean}>} */
+const messages = [];
 let streaming = false;
 let mode = "build";
 let permission = "ask";
+let effort = null;
+let settingsApi = null;
+let sessionsApi = null;
+
+/* ------------------------------------------------------------------ */
+/* Texto                                                               */
+/* ------------------------------------------------------------------ */
 
 function esc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
 }
+
+/** Markdown mínimo e seguro: negrito e código inline. */
 function md(s) {
   let h = esc(s);
   h = h.replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -16,90 +50,257 @@ function md(s) {
   return h;
 }
 
-function render() {
-  log.innerHTML = "";
-  for (const m of msgs) {
-    const wrap = document.createElement("div");
-    wrap.className = "msg " + (m.role === "you" ? "you" : "agent");
+function fmtDur(ms) {
+  if (ms == null) return "";
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(1)} s`;
+}
 
-    const who = document.createElement("div");
-    who.className = "who";
-    who.textContent = m.role === "you" ? "Você" : "SelfEvoPI";
+/* ------------------------------------------------------------------ */
+/* Cartões de ferramenta (pattern 7)                                   */
+/* ------------------------------------------------------------------ */
 
-    const body = document.createElement("div");
-    body.className = "body";
+/**
+ * Cada tool call vira um cartão: nome, entrada, duração, estado e corpo
+ * expansível. Chamadas consecutivas do MESMO nome colapsam num cartão com
+ * contador ("read ×3").
+ */
+const toolCards = new Map(); // id do cartão -> { el, bodyEl, countEl, statusEl, tool, count }
 
-    if (m.reasoning) {
-      const r = document.createElement("div");
-      r.className = "reason";
-      r.innerHTML = "<span class='lbl'>raciocínio</span><br>" + esc(m.reasoning);
-      body.appendChild(r);
-    }
+function lastToolCard() {
+  const arr = [...toolCards.values()];
+  return arr.length ? arr[arr.length - 1] : null;
+}
 
-    if (m.role === "you") {
-      const t = document.createElement("span");
-      t.textContent = m.text;
-      body.appendChild(t);
-    } else {
-      const t = document.createElement("span");
-      t.innerHTML = md(m.text);
-      body.appendChild(t);
-    }
+/** Cria (ou colapsa) um cartão de ferramenta e devolve o registro. */
+function addToolCard(call) {
+  const name = call.name || "tool";
+  const prev = lastToolCard();
 
-    for (const tool of (m.tools || [])) {
-      const line = document.createElement("div");
-      line.className = "tool";
-      line.innerHTML = "<span class='sym'>⏺</span><span class='tn'>" + esc(tool.name) +
-        "</span>" + (tool.arg ? "<span class='ta'>" + esc(tool.arg) + "</span>" : "");
-      body.appendChild(line);
-    }
-
-    if (m.role === "agent" && m === currentAgent() && streaming) {
-      const w = document.createElement("div");
-      w.className = "working on";
-      w.innerHTML = "<span class='pulse'></span><span>trabalhando<span class='dots' id='dots'></span></span>";
-      body.appendChild(w);
-    }
-
-    wrap.appendChild(who);
-    wrap.appendChild(body);
-    log.appendChild(wrap);
+  // colapsa chamadas consecutivas iguais (mesmo nome), ainda abertas
+  if (prev && prev.tool === name && prev.open) {
+    prev.count += 1;
+    prev.countEl.textContent = `×${prev.count}`;
+    prev.el.classList.add("collapsed");
+    return prev;
   }
-  animateDots();
-  log.scrollTop = log.scrollHeight;
+
+  const el = document.createElement("div");
+  el.className = "toolcard";
+
+  const head = document.createElement("div");
+  head.className = "tc-head";
+
+  const sym = document.createElement("span");
+  sym.className = "tc-sym";
+  sym.textContent = "⏺";
+
+  const nameEl = document.createElement("span");
+  nameEl.className = "tc-name";
+  nameEl.textContent = name;
+
+  const argEl = document.createElement("span");
+  argEl.className = "tc-arg";
+  argEl.textContent = call.arg || "";
+
+  const countEl = document.createElement("span");
+  countEl.className = "tc-count";
+
+  const durEl = document.createElement("span");
+  durEl.className = "tc-dur";
+
+  const statusEl = document.createElement("span");
+  statusEl.className = "tc-status running";
+  statusEl.textContent = "rodando";
+
+  head.append(sym, nameEl, argEl, countEl, durEl, statusEl);
+  el.append(head);
+
+  const bodyEl = document.createElement("div");
+  bodyEl.className = "tc-body";
+  bodyEl.style.display = "none";
+  el.append(bodyEl);
+
+  head.addEventListener("click", () => {
+    const open = bodyEl.style.display !== "none";
+    bodyEl.style.display = open ? "none" : "block";
+    el.classList.toggle("open", !open);
+  });
+
+  const card = {
+    el,
+    bodyEl,
+    countEl,
+    durEl,
+    statusEl,
+    tool: name,
+    count: 1,
+    open: true,
+    close() {
+      this.open = false;
+    },
+  };
+  toolCards.set(card, card);
+  return card;
 }
 
-let dotTimer = null;
-function animateDots() {
-  if (dotTimer) { clearInterval(dotTimer); dotTimer = null; }
-  if (!streaming) return;
-  const el = document.getElementById("dots");
-  if (!el) return;
-  let n = 0;
-  dotTimer = setInterval(() => {
-    n = (n + 1) % 4;
-    if (el.isConnected) el.textContent = ".".repeat(n);
-  }, 400);
+function closeToolCards() {
+  for (const c of toolCards.values()) c.close();
 }
+
+/** Atualiza o cartão correspondente no fim do turno. */
+function finishTool(card, { isError, durationMs }) {
+  if (!card) return;
+  card.statusEl.className = "tc-status " + (isError ? "failed" : "done");
+  card.statusEl.textContent = isError ? "falhou" : "ok";
+  if (durationMs != null) card.durEl.textContent = fmtDur(durationMs);
+}
+
+/* ------------------------------------------------------------------ */
+/* Render                                                              */
+/* ------------------------------------------------------------------ */
 
 function currentAgent() {
-  for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === "agent") return msgs[i];
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "agent") return messages[i];
   return null;
 }
 
+function scrollIfNearEnd() {
+  const near = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 80;
+  if (near) chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function makeMessageEl(m) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + (m.role === "you" ? "you" : "agent");
+
+  const who = document.createElement("div");
+  who.className = "who";
+  who.textContent = m.role === "you" ? "Você" : "SelfEvoPI";
+  wrap.appendChild(who);
+
+  const body = document.createElement("div");
+  body.className = "body";
+
+  // raciocínio: colapsado por padrão (pattern 8)
+  if (m.role === "agent") {
+    const r = document.createElement("div");
+    r.className = "reason";
+    const toggle = document.createElement("button");
+    toggle.className = "reason-toggle";
+    toggle.type = "button";
+    const bodyText = document.createElement("div");
+    bodyText.className = "reason-body";
+    bodyText.style.display = "none";
+    const sync = () => {
+      const n = (m.reasoning || "").trim().length;
+      toggle.textContent = n ? `raciocínio · ${n} caracteres` : "raciocínio";
+      toggle.disabled = !n;
+      bodyText.textContent = m.reasoning || "";
+    };
+    toggle.addEventListener("click", () => {
+      const open = bodyText.style.display !== "none";
+      bodyText.style.display = open ? "none" : "block";
+      r.classList.toggle("open", !open);
+    });
+    r.append(toggle, bodyText);
+    m._reasonEl = r;
+    m._reasonToggle = toggle;
+    m._reasonBody = bodyText;
+    m._syncReason = sync;
+    sync();
+    body.appendChild(r);
+  }
+
+  const text = document.createElement("div");
+  text.className = "text";
+  body.appendChild(text);
+  m._textEl = text;
+
+  const tools = document.createElement("div");
+  tools.className = "tools";
+  body.appendChild(tools);
+  m._toolsEl = tools;
+
+  wrap.appendChild(body);
+
+  m._textEl.innerHTML = m.role === "you" ? esc(m.text) : md(m.text);
+  m._el = wrap;
+  return wrap;
+}
+
+function render() {
+  chatEl.innerHTML = "";
+  toolCards.clear();
+  for (const m of messages) chatEl.appendChild(makeMessageEl(m));
+  // cartões de ferramentas já criados ficam dentro do body do agente
+  updateWorking();
+  updateFooter();
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+/** Atualiza só o texto do agente corrente (streaming, sem refazer a árvore). */
+function paintAgent() {
+  const a = currentAgent();
+  if (!a || !a._textEl) return;
+  a._textEl.innerHTML = md(a.text);
+  if (a._syncReason) a._syncReason();
+  scrollIfNearEnd();
+}
+
+function updateWorking() {
+  const a = currentAgent();
+  const el = document.getElementById("working");
+  if (!el) return;
+  el.style.display = streaming && a ? "flex" : "none";
+  const dot = document.getElementById("hdot");
+  if (dot) dot.className = "dot " + (streaming ? "ok" : "");
+}
+
+/* ------------------------------------------------------------------ */
+/* Rodapé de verificação (anti-"resultado confiante e errado")         */
+/* ------------------------------------------------------------------ */
+
+function updateFooter() {
+  const el = document.getElementById("verify");
+  if (!el) return;
+  const ran = [];
+  for (const c of toolCards.values()) {
+    for (let i = 0; i < c.count; i++) ran.push(c.tool);
+  }
+  if (ran.length === 0) {
+    el.textContent = "verificação: nenhuma ação executada — o texto do modelo não é evidência";
+    el.className = "verify none";
+  } else {
+    const counts = {};
+    for (const t of ran) counts[t] = (counts[t] || 0) + 1;
+    const parts = Object.entries(counts).map(([k, v]) => `${k}${v > 1 ? "×" + v : ""}`);
+    el.textContent = "verificado: " + parts.join(", ");
+    el.className = "verify ok";
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Envio                                                               */
+/* ------------------------------------------------------------------ */
+
 function resize() {
-  input.style.height = "auto";
-  input.style.height = Math.min(180, input.scrollHeight) + "px";
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(180, inputEl.scrollHeight) + "px";
 }
 
 async function send(text) {
   const msg = String(text || "").trim();
   if (!msg || streaming) return;
-  msgs.push({ role: "you", text: msg });
+
+  // se havia cartões abertos do turno anterior, fecha
+  closeToolCards();
+
+  const you = { role: "you", text: msg, tools: [] };
   const agent = { role: "agent", text: "", tools: [], reasoning: "" };
-  msgs.push(agent);
+  messages.push(you, agent);
   streaming = true;
-  input.value = "";
+  inputEl.value = "";
   resize();
   render();
 
@@ -111,27 +312,33 @@ async function send(text) {
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      if (agent.text === "" && agent.tools.length === 0) msgs.pop();
-      msgs.push({ role: "agent", text: j.error || "não consegui iniciar o turno.", tools: [] });
+      if (!agent.text && agent.tools.length === 0) messages.pop();
+      messages.push({ role: "agent", text: j.error || "não consegui iniciar o turno.", tools: [] });
       streaming = false;
       render();
     }
   } catch (e) {
-    if (agent.text === "" && agent.tools.length === 0) msgs.pop();
-    msgs.push({ role: "agent", text: "não consegui falar com o servidor.", tools: [] });
+    if (!agent.text && agent.tools.length === 0) messages.pop();
+    messages.push({ role: "agent", text: "não consegui falar com o servidor.", tools: [] });
     streaming = false;
     render();
   }
 }
 
-/* ---- SSE: texto, ferramenta, raciocínio, fim, erro ---- */
+/* ------------------------------------------------------------------ */
+/* SSE: texto, raciocínio, ferramenta, fim, erro                       */
+/* ------------------------------------------------------------------ */
+
 const es = new EventSource("/api/chat/stream");
 
 es.addEventListener("text", (e) => {
   let d = {};
   try { d = JSON.parse(e.data); } catch { return; }
   const a = currentAgent();
-  if (a && typeof d.delta === "string") { a.text += d.delta; render(); }
+  if (a && typeof d.delta === "string") {
+    a.text += d.delta;
+    paintAgent();
+  }
 });
 
 es.addEventListener("thinking", (e) => {
@@ -140,7 +347,7 @@ es.addEventListener("thinking", (e) => {
   const a = currentAgent();
   if (a && typeof d.delta === "string") {
     a.reasoning = (a.reasoning || "") + d.delta;
-    render();
+    if (a._syncReason) a._syncReason();
   }
 });
 
@@ -148,7 +355,20 @@ es.addEventListener("tool", (e) => {
   let d = {};
   try { d = JSON.parse(e.data); } catch { return; }
   const a = currentAgent();
-  if (a) { a.tools.push({ name: d.name || "tool", arg: d.arg || "" }); render(); }
+  if (!a) return;
+
+  if (d.phase === "start") {
+    a._card = addToolCard({ name: d.name, arg: d.arg });
+    a._toolsEl.appendChild(a._card.el);
+    updateFooter();
+    scrollIfNearEnd();
+  } else if (d.phase === "end") {
+    if (a._card) {
+      finishTool(a._card, { isError: d.isError, durationMs: d.durationMs });
+      a._card = null;
+      updateFooter();
+    }
+  }
 });
 
 es.addEventListener("error", (e) => {
@@ -156,139 +376,80 @@ es.addEventListener("error", (e) => {
   try { d = JSON.parse(e.data); } catch { return; }
   const a = currentAgent();
   if (a) {
-    if (a.text === "" && a.tools.length === 0) a.text = d.message || "não consegui concluir.";
-    else a.text += "\n\n" + (d.message || "não consegui concluir.");
-    render();
+    const note = d.message || "não consegui concluir.";
+    a.text += (a.text ? "\n\n" : "") + note;
+    paintAgent();
   }
 });
 
 es.addEventListener("settled", () => {
   streaming = false;
+  closeToolCards();
   render();
-  input.focus();
+  updateFooter();
+  inputEl.focus();
 });
 
-/* ---- painel de estado ---- */
+/* ------------------------------------------------------------------ */
+/* Painel de estado (#status)                                          */
+/* ------------------------------------------------------------------ */
+
 async function loadStatus() {
   try {
     const s = await (await fetch("/api/status")).json();
-    document.getElementById("model").textContent = s.model || (s.available ? "padrão" : "desligado");
-    document.getElementById("effort").textContent = s.thinkingLevel || "—";
-    const caps = Array.isArray(s.capabilities) && s.capabilities.length ? s.capabilities.join(", ") : "—";
-    document.getElementById("caps").textContent = caps;
-    const rr = document.getElementById("reasonWrap");
-    if (s.available === false) {
-      document.getElementById("reason").textContent = "desligado";
-    } else if (s.reasoning) {
-      document.getElementById("reason").textContent = "exposto";
-    } else {
-      document.getElementById("reason").textContent = "modelo não expõe";
+    const model = $("s-model");
+    const effortEl = $("s-effort");
+    const caps = $("s-caps");
+    const reason = $("s-reason");
+    if (model) model.textContent = s.model || (s.available ? "padrão" : "desligado");
+    if (effortEl) effortEl.textContent = effort ?? s.thinkingLevel ?? "—";
+    if (caps) {
+      const list = Array.isArray(s.capabilities) && s.capabilities.length ? s.capabilities.join(", ") : "—";
+      caps.textContent = list;
     }
-    document.getElementById("perm").textContent = permission;
-    const dot = document.getElementById("hdot");
-    dot.className = "dot " + (s.isStreaming || streaming ? "ok" : "");
-  } catch (e) { /* mantém o último */ }
+    if (reason) {
+      reason.textContent = s.available === false ? "desligado" : s.reasoning ? "exposto" : "modelo não expõe";
+    }
+  } catch { /* mantém o último */ }
 }
 
-/* ---- modos e permissão ---- */
-document.querySelectorAll("#modes button").forEach((b) => {
-  b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
-  b.addEventListener("click", () => {
-    mode = b.dataset.mode;
-    document.querySelectorAll("#modes button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-  });
-});
+/* ------------------------------------------------------------------ */
+/* Modos / permissão (fallback quando settings.js não existe)          */
+/* ------------------------------------------------------------------ */
 
-/* ---- drawer de skills/MCP ---- */
-const drawer = document.getElementById("drawer");
-document.getElementById("openDrawer").addEventListener("click", (e) => {
-  e.preventDefault();
-  drawer.classList.add("open");
-  loadIntegrations();
-});
-document.getElementById("closeDrawer").addEventListener("click", (e) => {
-  e.preventDefault();
-  drawer.classList.remove("open");
-});
-
-async function loadIntegrations() {
-  const body = document.getElementById("drawerBody");
-  let d;
-  try {
-    d = await (await fetch("/api/integrations")).json();
-  } catch (e) {
-    body.innerHTML = "<div class='empty'>não consegui ler as integrações.</div>";
-    return;
+function renderModes() {
+  const box = $("modes");
+  if (!box) return;
+  box.innerHTML = "";
+  for (const m of ["plan", "build", "ask"]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.mode = m;
+    b.textContent = m;
+    b.setAttribute("aria-pressed", String(m === mode));
+    b.addEventListener("click", () => {
+      mode = m;
+      renderModes();
+    });
+    box.appendChild(b);
   }
-  body.innerHTML = "";
-
-  const skills = document.createElement("section");
-  skills.innerHTML = "<h2>skills (" + (d.skills || []).length + ")</h2>";
-  if (!d.skills || d.skills.length === 0) {
-    skills.innerHTML += "<div class='empty'>nenhuma skill configurada.</div>";
-  } else {
-    for (const s of d.skills) {
-      const row = document.createElement("div");
-      row.className = "row";
-      row.innerHTML = "<span class='name'>" + esc(s.name) + "</span><span class='tag'>" + esc(s.description || "") + "</span>";
-      skills.appendChild(row);
-    }
-  }
-  body.appendChild(skills);
-
-  const mcp = document.createElement("section");
-  mcp.innerHTML = "<h2>mcp (" + (d.mcp || []).length + ")</h2>";
-  if (!d.mcp || d.mcp.length === 0) {
-    mcp.innerHTML += "<div class='empty'>nenhum servidor MCP configurado.</div>";
-  } else {
-    for (const s of d.mcp) {
-      const row = document.createElement("div");
-      row.className = "row";
-      const cls = s.status === "configurado" ? "" : " warn";
-      row.innerHTML = "<span class='name'>" + esc(s.name) + "</span><span class='tag" + cls + "'>" + esc(s.status) + " · " + esc(s.transport || "") + "</span>";
-      mcp.appendChild(row);
-    }
-  }
-  if (d.mcpErrors && d.mcpErrors.length) {
-    const h = document.createElement("h2");
-    h.textContent = "falhas";
-    h.style.marginTop = "14px";
-    mcp.appendChild(h);
-    const pre = document.createElement("pre");
-    pre.className = "log";
-    pre.textContent = d.mcpErrors.join("\n");
-    mcp.appendChild(pre);
-    const btn = document.createElement("button");
-    btn.className = "copy";
-    btn.textContent = "copiar log";
-    btn.addEventListener("click", () => navigator.clipboard?.writeText(d.mcpErrors.join("\n")));
-    mcp.appendChild(btn);
-  }
-  if (d.stderr && d.stderr.trim()) {
-    const h = document.createElement("h2");
-    h.textContent = "log do processo";
-    h.style.marginTop = "14px";
-    mcp.appendChild(h);
-    const pre = document.createElement("pre");
-    pre.className = "log";
-    pre.textContent = d.stderr;
-    mcp.appendChild(pre);
-    const btn = document.createElement("button");
-    btn.className = "copy";
-    btn.textContent = "copiar";
-    btn.addEventListener("click", () => navigator.clipboard?.writeText(d.stderr));
-    mcp.appendChild(btn);
-  }
-  body.appendChild(mcp);
 }
 
-input.addEventListener("keydown", (e) => {
+/* ------------------------------------------------------------------ */
+/* Bootstrap                                                           */
+/* ------------------------------------------------------------------ */
+
+inputEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
-    send(input.value);
+    send(inputEl.value);
   }
 });
-input.addEventListener("input", resize);
+inputEl.addEventListener("input", resize);
+
+if (sendEl) {
+  sendEl.addEventListener("click", () => send(inputEl.value));
+}
 
 document.querySelectorAll("button[data-send]").forEach((b) => {
   b.addEventListener("click", () => {
@@ -298,7 +459,87 @@ document.querySelectorAll("button[data-send]").forEach((b) => {
   });
 });
 
+/* atalhos: Ctrl+K sessões · Ctrl+, configurações · Esc fecha */
+document.addEventListener("keydown", (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    toggleSessions();
+  } else if (mod && e.key === ",") {
+    e.preventDefault();
+    toggleSettings();
+  } else if (e.key === "Escape") {
+    closeAll();
+  }
+});
+
+function toggleSessions() {
+  document.body.classList.toggle("show-sessions");
+}
+function toggleSettings() {
+  if (settingsPanel) settingsPanel.classList.toggle("open");
+  else document.body.classList.toggle("show-settings");
+}
+function closeAll() {
+  document.body.classList.remove("show-sessions", "show-settings");
+  settingsPanel?.classList.remove("open");
+  document.getElementById("drawer")?.classList.remove("open");
+}
+
+/* sessões (módulo irmão) */
+try {
+  const mod = await import("./sessions.js");
+  sessionsApi = mod;
+  if (sessionsEl && typeof mod.initSessions === "function") {
+    await mod.initSessions({
+      listEl: sessionsEl,
+      onOpen: (msgs) => {
+        // carrega o histórico da sessão escolhida na área de conversa
+        messages.length = 0;
+        for (const m of msgs || []) {
+          messages.push({
+            role: m.role === "assistant" ? "agent" : "you",
+            text: m.content ?? "",
+            tools: [],
+            reasoning: "",
+          });
+        }
+        streaming = false;
+        render();
+      },
+    });
+  }
+} catch (e) {
+  console.warn("[desktop] sessions.js ausente ou inválido:", e?.message || e);
+}
+
+/* configurações (módulo irmão de A3) */
+try {
+  const mod = await import("./settings.js");
+  settingsApi = mod;
+  if (typeof mod.initSettings === "function") mod.initSettings({ panel: settingsPanel });
+  if (typeof mod.initControlBar === "function") {
+    const bar = $("controlBar");
+    if (bar) mod.initControlBar({ bar, onChange: (s) => applySettings(s) });
+  }
+} catch (e) {
+  console.warn("[desktop] settings.js ausente — usando controles locais:", e?.message || e);
+}
+
+function applySettings(s) {
+  if (!s) return;
+  if (typeof s.mode === "string") mode = s.mode;
+  if (typeof s.effort === "string") effort = s.effort;
+  if (typeof s.permission === "string") permission = s.permission;
+  renderModes();
+  loadStatus();
+}
+
+renderModes();
 render();
 loadStatus();
 setInterval(loadStatus, 3000);
-input.focus();
+resize();
+inputEl.focus();
+
+export { send, messages };
