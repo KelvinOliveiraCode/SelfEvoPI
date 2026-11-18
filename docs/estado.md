@@ -1,7 +1,7 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-17 · **HEAD:** `f40f425` em `main` e `dev`
-> **Repositório:** `SelfEvoPI` (privado)
+> **Atualizado:** 2026-11-18 · **HEAD:** `0ab139b` em `main` e `dev`
+> **Repositórios:** `SelfEvoPI-Priv` (privado, histórico completo) e `SelfEvoPI` (público, release limpa)
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
 ---
@@ -34,13 +34,14 @@ lacunas, gera artefatos e só promove o que não causa regressão.
 
 | Métrica | Valor | Meta | Comando |
 |:---|:---|:---|:---|
-| Cold start | **443 ms** mediana (mín 383, máx 611) com cache quente · 1,0–1,8 s na 1ª execução | < 500 ms | `node scripts/measure-overhead.mjs --runs 5` |
+| Cold start, CLI SelfEvoPI | **88 ms** média (mín 75, máx 119) · 10 execuções | < 500 ms | `node apps/cli.mjs --version` |
+| Cold start, motor por baixo | **426 ms** mediana (mín 396, máx 490) · 1,0–1,8 s na 1ª execução | — | `node scripts/measure-overhead.mjs --runs 10` |
 | Prompt do PI puro | **8.680 tok** | — | idem |
 | Incremento do SelfEvoPI | **+499 tok** (memória no teto) | < 1.500 tok | `node scripts/measure-selfevopi-overhead.mjs --runs 3` |
 | `pi-subagents` (sob demanda) | +1.654 tok | — | idem |
-| Evals | **29 tarefas, 86/87 (98,85%)** na baseline — B11 é estocástico (2/3 baseline, 3/3 última execução) | sem regressão | `node evals/gate.mjs` |
-| Tokens da suíte | **~209.300** (7 tarefas com modelo) | - | idem |
-| Testes unitários | **581** (581 passam, 1 skip: integração sem servidor) | - | `npm test` |
+| Evals | **87/87 (100%)** em 3 execuções · baseline 86/87 (98,85%) | sem regressão | `node evals/gate.mjs` |
+| Tokens da suíte | **~206.500** (7 tarefas com modelo) | - | idem |
+| Testes unitários | **664** (664 passam, 1 skip: integração sem servidor) | - | `npm test` |
 | Custo | US$ 0,00 (free tier) | — | ledger |
 | Verificação de um comando | **exit 0** | — | `npm run verify` |
 | Agendamento diário | **SelfEvoPI-Daily** (07:00, Windows Task Scheduler) | — | `node scripts/schedule.mjs --status` |
