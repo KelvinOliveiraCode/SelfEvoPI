@@ -424,7 +424,15 @@ export const COMMANDS = [
   { name: "/skills", args: "", description: "o que o loop já gerou e registrou", run: runSkills },
   { name: "/model", args: "[nome]", description: "seletor de modelo, ou troca direto", run: runModel },
   { name: "/effort", args: "[off|low|medium|high]", description: "esforço de raciocínio do modelo atual", run: runEffort },
-  { name: "/mode", args: "", description: "alterna o modo (plan → build → manual → ask → goal)", run: (ctx) => runModeCycle(ctx) },
+  {
+    name: "/mode",
+    args: "[modo]",
+    description: "alterna o modo (plan → build → manual → ask → goal)",
+    run: (ctx) =>
+      String(ctx?.arg ?? "").trim() === ""
+        ? runModeCycle(ctx)
+        : runMode(String(ctx.arg).trim(), ctx),
+  },
   { name: "/clear", args: "", description: "limpa a conversa e começa de novo", run: runClear },
   { name: "/compact", args: "", description: "compacta o histórico da conversa", run: runCompact },
   { name: "/sessions", args: "[id]", description: "lista sessões ou carrega uma", run: runSessions },
@@ -1003,8 +1011,14 @@ async function runEffort({ arg, out, pi }) {
   const alvo = String(arg ?? "").trim();
 
   if (!pi) {
-    out(paint("  a conversa está desativada; não dá para consultar nem trocar o esforço", "muted"));
-    return 2;
+    // Sem sessão não há o que consultar nem trocar: mostra o conjunto padrão
+    // e diz que não consultou. Sair 0 — listar não é erro.
+    out(paint("  esforço", "fg"));
+    out(`    atual:     ${(statusInfo.reasoning || "-")}`);
+    out(`    aceitos:   ${EFFORT_FALLBACK.join(", ")}`);
+    out("");
+    out(paint("  (sem conversa ativa; não consultei o modelo)", "warn"));
+    return 0;
   }
 
   let niveis;
@@ -1522,7 +1536,11 @@ async function runGoal({ arg, out }) {
     return 2;
   }
   await refreshGoalTag();
-  out(paint(`  goal definida: ${goalState.goal.condition}`, "ok"));
+  // A condição vem do usuário e pode ter qualquer tamanho; sem teto, uma linha
+  // de 400 chars estoura as 72 colunas da TUI e desalinha o resto da tela.
+  // Trunca a linha inteira (não o argumento) para valer para qualquer prefixo.
+  const linhaGoal = `  goal definida: ${goalState.goal.condition}`;
+  out(paint(linhaGoal.length > 72 ? `${linhaGoal.slice(0, 71)}…` : linhaGoal, "ok"));
   out(paint("  (◎ /goal active — avalio ao fim de cada turno)", "muted"));
   return 0;
 }
@@ -2690,6 +2708,7 @@ async function main() {
     else if (screen === "help") frame = [renderBanner(), rule(), renderStatusLine(data), "", renderHelp()].join("\n");
     else if (screen === "banner") frame = [renderBanner(), rule(), renderStatusLine(data)].join("\n");
     else if (screen === "palette") frame = renderPaletteFrame("", 72);
+    else if (screen === "menu") frame = renderPaletteFrame("", 72);
     else if (screen === "palette-filtered") frame = renderPaletteFrame("ev", 72);
     else if (screen === "status") frame = [
       renderBanner(),
@@ -2737,7 +2756,7 @@ async function main() {
         "  " + buildStatusLine({ mode: currentMode, permission: permissionMode, model: "claude-opus-5-5", reasoning: "medium" }),
       ].join("\n");
     } else {
-      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, help, banner, palette, palette-filtered, status, panel, busy)\n`);
+      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, menu, help, banner, palette, palette-filtered, status, panel, busy)\n`);
       process.exit(2);
     }
     process.stdout.write(frame + "\n");

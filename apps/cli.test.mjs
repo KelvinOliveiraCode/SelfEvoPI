@@ -54,6 +54,13 @@ import {
   deriveTitle,
   renderSessionsList,
   readSessionExtras,
+  EFFORT_FALLBACK,
+  normalizeEffortList,
+  resolveEffort,
+  describeModeLine,
+  groupModelsByProvider,
+  flattenModelGroups,
+  renderModelPicker,
 } from "./cli.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -986,4 +993,148 @@ test("readSessionExtras: pasta inexistente devolve mapa vazio sem lançar", asyn
   const base = process.env.TEMP || process.env.TMP || ".";
   const extras = await readSessionExtras(path.join(base, "selfevopi-nao-existe-" + Date.now()));
   assert.equal(extras.size, 0);
+});
+
+/* ---------------------------------------------------------------- */
+/* /model: seletor, /effort e /mode                                 */
+/* ---------------------------------------------------------------- */
+
+test("COMMANDS inclui /effort e /mode (e /model continua lá)", () => {
+  const names = COMMANDS.map((c) => c.name);
+  for (const n of ["/model", "/effort", "/mode"]) {
+    assert.ok(names.includes(n), `falta ${n}`);
+  }
+});
+
+test("normalizeEffortList: aceita lista do motor, limpa e cai no fallback", () => {
+  assert.deepEqual(normalizeEffortList(["off", "low", "medium", "high"]), [
+    "off",
+    "low",
+    "medium",
+    "high",
+  ]);
+  // normaliza caixa e descarta lixo
+  assert.deepEqual(normalizeEffortList([" OFF ", "High", "", null, 7]), ["off", "high"]);
+  // lista vazia / nada utilizável → fallback documentado
+  assert.deepEqual(normalizeEffortList([]), [...EFFORT_FALLBACK]);
+  assert.deepEqual(normalizeEffortList(null), [...EFFORT_FALLBACK]);
+});
+
+test("resolveEffort: casa o argumento com a lista, sem caixa", () => {
+  const niveis = ["off", "low", "medium", "high"];
+  assert.equal(resolveEffort("HIGH", niveis), "high");
+  assert.equal(resolveEffort("  low ", niveis), "low");
+  assert.equal(resolveEffort("max", niveis), null); // o modelo não expõe
+  assert.equal(resolveEffort("", niveis), null);
+  // "max" só passa quando o modelo o expõe
+  assert.equal(resolveEffort("max", ["off", "max"]), "max");
+});
+
+test("describeModeLine: descreve o que o modo permite", () => {
+  const plan = describeModeLine({ name: "plan", canRead: true, canWrite: false, canExec: false, execScope: "none" });
+  assert.match(plan, /^plan: /);
+  assert.match(plan, /lê/);
+  assert.match(plan, /não escreve/);
+  assert.match(plan, /não executa/);
+
+  const build = describeModeLine({ name: "build", canRead: true, canWrite: true, canExec: true, execScope: "workspace" });
+  assert.match(build, /escreve/);
+  assert.match(build, /executa (workspace)/);
+
+  assert.equal(describeModeLine(null), null);
+});
+
+test("groupModelsByProvider + flattenModelGroups: seções e índice navegável", () => {
+  const grupos = groupModelsByProvider([
+    { provider: "kilo1", id: "a" },
+    { provider: "kilo1", id: "b" },
+    { provider: "or1", id: "c" },
+    { provider: "lixo" }, // sem id: fora
+    null,
+  ]);
+  assert.deepEqual(grupos, [
+    { provider: "kilo1", ids: ["a", "b"] },
+    { provider: "or1", ids: ["c"] },
+  ]);
+
+  const { linhas, flat } = flattenModelGroups(grupos);
+  assert.equal(flat.length, 3);
+  assert.deepEqual(flat[0], { provider: "kilo1", id: "a" });
+  // as linhas alternam cabeçalho de seção e item, com o índice certo
+  assert.equal(linhas[0].kind, "group");
+  assert.equal(linhas[1].kind, "model");
+  assert.equal(linhas[1].flatIndex, 0);
+  assert.equal(linhas[2].flatIndex, 1);
+});
+
+test("renderModelPicker: etapa de modelos agrupa por provedor e marca a seleção", () => {
+  const grupos = [
+    { provider: "kilo1", ids: ["a", "b"] },
+    { provider: "or1", ids: ["c"] },
+  ];
+  const linhas = renderModelPicker({ stage: "models", sel: 1, grupos, niveis: [], modelo: null });
+  const texto = stripAnsi(linhas.join("\n"));
+
+  assert.match(texto, /kilo1/);
+  assert.match(texto, /or1/);
+  assert.ok(texto.includes("a") && texto.includes("b") && texto.includes("c"));
+  assert.match(texto, /enter escolher/);
+  assert.match(texto, /esc cancela/);
+  // a linha 1 (segundo item) é a selecionada: tem o marcador
+  const marcada = linhas.filter((l) => l.includes("›"));
+  assert.equal(marcada.length, 1);
+});
+
+test("renderModelPicker: sem modelos configurados não quebra", () => {
+  const linhas = renderModelPicker({ stage: "models", sel: 0, grupos: [], niveis: [], modelo: null });
+  const texto = stripAnsi(linhas.join("\n"));
+  assert.match(texto, /nenhum modelo configurado/);
+});
+
+test("renderModelPicker: etapa de esforço lista só os níveis do modelo", () => {
+  const linhas = renderModelPicker({
+    stage: "effort",
+    sel: 0,
+    grupos: [],
+    niveis: ["off", "max"],
+    modelo: "or1/nemotron",
+  });
+  const texto = stripAnsi(linhas.join("\n"));
+  assert.ok(texto.includes("or1/nemotron"), "nome do modelo ausente");
+  assert.match(texto, /off/);
+  assert.match(texto, /max/);
+  assert.ok(!texto.includes("medium"), "não pode impor níveis que o modelo não expõe");
+});
+
+test("runSlash /effort com motor ausente não lança e sai 0", async () => {
+  let out = "";
+  const code = await runSlash("/effort", "", (s) => (out += s + "\n"), { pi: null });
+  assert.equal(code, 0);
+  assert.ok(out.length >= 0);
+});
+
+test("runSlash /mode sem argumento alterna o modo e volta ao início", async () => {
+  let out = "";
+  const antes = getGoalState(); // garante que o módulo carregou
+  void antes;
+  const seen = [];
+  for (let i = 0; i < 6; i++) {
+    out = "";
+    const code = await runSlash("/mode", "", (s) => (out += s + "\n"), { pi: null });
+    assert.equal(code, 0);
+    const texto = stripAnsi(out);
+    const m = texto.match(/modo:\s*(\w+)/);
+    assert.ok(m, "não mostrou o modo novo");
+    seen.push(m[1]);
+  }
+  // 5 modos no anel: o sexto volta ao primeiro
+  assert.equal(new Set(seen.slice(0, 5)).size, 5, "os cinco modos não apareceram");
+  assert.equal(seen[5], seen[0], "o anel não voltou ao início");
+});
+
+test("runSlash /mode <nome> vai direto, sem passar pelo anel", async () => {
+  let out = "";
+  const code = await runSlash("/mode", "goal", (s) => (out += s + "\n"), { pi: null });
+  assert.equal(code, 0);
+  assert.match(stripAnsi(out), /modo:\s*goal/);
 });

@@ -55,7 +55,7 @@ function writeSession(dir, { id, client, firstUser = "olá", msgs = 2 }) {
 /* BUG1: /goal <arg longo> ecoa sem teto → estoura 72 col             */
 /* ================================================================== */
 
-test.todo("BUG1 /goal ecoa argumento sem teto (deveria truncar em 72 col)", async () => {
+test("BUG1 /goal ecoa argumento sem teto (deveria truncar em 72 col)", async () => {
   const arg = "x".repeat(400); // argumento lixo longo
   let out = "";
   const code = await runSlash("/goal", arg, (s) => (out += s + "\n"), { pi: null });
@@ -72,7 +72,7 @@ test.todo("BUG1 /goal ecoa argumento sem teto (deveria truncar em 72 col)", asyn
 /* BUG2: /init cita o motor no rascunho (regra de marca)              */
 /* ================================================================== */
 
-test.todo("BUG2 /init não pode citar o motor ('PI Coding Agent') no rascunho", async () => {
+test("BUG2 /init não pode citar o motor ('PI Coding Agent') no rascunho", async () => {
   let out = "";
   await runSlash("/init", "", (s) => (out += s + "\n"), { pi: null });
   const plain = stripAnsi(out);
@@ -85,7 +85,7 @@ test.todo("BUG2 /init não pode citar o motor ('PI Coding Agent') no rascunho", 
 /* BUG3: --render menu não existe                                     */
 /* ================================================================== */
 
-test.todo("BUG3 --render menu deveria existir (a varredura o listou)", () => {
+test("BUG3 --render menu deveria existir (a varredura o listou)", () => {
   let code = 0;
   let stderr = "";
   try {
