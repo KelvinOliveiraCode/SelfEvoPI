@@ -517,8 +517,67 @@ export async function probeOpencodeMcp({ name, home, configPath, timeoutMs = 5_0
   let stderr = "";
   let erroSpawn = null;
 
+  // Buffer acumulado: servidores *-cli.exe mandam mensagens grandes (catálogo
+  // de 150KB) em múltiplos chunks stdout SEM \n entre eles (só \n no final).
+  // split(/\r?\n/) quebra o JSON em pedaços não-parseáveis. Acumular e parsear
+  // por profundidade de chaves resolve sem quebrar o caso que já funcionava
+  // (servidores newline-delimited continuam funcionando: cada linha completa
+  // é um objeto JSON que fecha antes do próximo \n).
+  let buffer = "";
+  const mensagens = []; // objetos JSON-RPC já parseados e prontos
+
+  /** Extrai objetos JSON completos do buffer, por profundidade de chaves. */
+  function drenarBuffer() {
+    let i = 0;
+    while (i < buffer.length) {
+      // Pula whitespace e newlines entre mensagens
+      while (i < buffer.length && /\s/.test(buffer[i])) i++;
+      if (i >= buffer.length) { buffer = ""; return; }
+
+      if (buffer[i] === "{") {
+        // Parse por profundidade: conta { e } respeitando strings
+        let depth = 0;
+        let inStr = false;
+        let esc = false;
+        let fim = -1;
+        for (let j = i; j < buffer.length; j++) {
+          const ch = buffer[j];
+          if (esc) { esc = false; continue; }
+          if (ch === "\\" && inStr) { esc = true; continue; }
+          if (ch === '"') { inStr = !inStr; continue; }
+          if (inStr) continue;
+          if (ch === "{") depth++;
+          else if (ch === "}") {
+            depth--;
+            if (depth === 0) { fim = j + 1; break; }
+          }
+        }
+        if (fim === -1) {
+          // Objeto ainda não fechou — buffer incompleto, espera mais dados
+          buffer = buffer.slice(i);
+          return;
+        }
+        const chunk = buffer.slice(i, fim);
+        try {
+          const msg = JSON.parse(chunk);
+          mensagens.push(msg);
+        } catch {
+          // JSON inválido (não deveria acontecer se a profundidade está certa)
+        }
+        i = fim;
+      } else {
+        // Não é início de objeto: pode ser log do servidor. Pula até \n.
+        const nl = buffer.indexOf("\n", i);
+        if (nl === -1) { buffer = buffer.slice(i); return; }
+        i = nl + 1;
+      }
+    }
+    buffer = "";
+  }
+
   child.stdout.on("data", (c) => {
-    for (const l of String(c).split(/\r?\n/)) if (l.trim() !== "") linhas.push(l.trim());
+    buffer += String(c);
+    drenarBuffer();
   });
   child.stderr.on("data", (c) => {
     if (stderr.length < 2_000) stderr += String(c).slice(0, 2_000);
@@ -532,15 +591,11 @@ export async function probeOpencodeMcp({ name, home, configPath, timeoutMs = 5_0
     new Promise((resolve) => {
       const fim = Date.now() + ms;
       const proc = () => {
-        for (const l of linhas) {
-          try {
-            const msg = JSON.parse(l);
-            if (msg && msg.id === id) {
-              resolve(msg);
-              return;
-            }
-          } catch {
-            /* linha não-JSON: servidor que fala log no stdout; segue */
+        // Varre mensagens já parseadas (fonte de verdade: buffer acumulado).
+        for (const msg of mensagens) {
+          if (msg && msg.id === id) {
+            resolve(msg);
+            return;
           }
         }
         if (Date.now() > fim) {
