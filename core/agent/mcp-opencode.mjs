@@ -1,9 +1,10 @@
 /**
- * core/agent/mcp-opencode.mjs — ponte com os MCPs declarados no OpenCode.
+ * core/agent/mcp-opencode.mjs — ponte com os MCPs declarados na config global
+ * do SelfEvoPI.
  *
  * Diferente de `core/agent/mcp.mjs` (que inventaria o que o *projeto* declara
  * em `.mcp.json` / `.pi/settings.json`), este módulo olha a configuração
- * **global do usuário**: `~/.config/opencode/opencode.jsonc`.
+ * **global do usuário**: `~/.pi/settings.json` (chave `mcpServers`).
  *
  * Três perguntas, três saídas:
  *
@@ -36,11 +37,9 @@ import path from "node:path";
 /* Constantes                                                          */
 /* ------------------------------------------------------------------ */
 
-/** Onde o OpenCode guarda a config global, na ordem em que procuramos. */
+/** Onde o SelfEvoPI guarda a config global de MCPs, na ordem em que procuramos. */
 export const OPENCODE_CONFIG_FILES = [
-  path.join(".config", "opencode", "opencode.jsonc"),
-  path.join(".config", "opencode", "opencode.json"),
-  path.join(".opencode", "opencode.jsonc"),
+  path.join(".pi", "settings.json"),
 ];
 
 /** Status possíveis. */
@@ -255,7 +254,7 @@ function resolveHome(home) {
 }
 
 /**
- * Caminho do `opencode.jsonc` que existir, ou `null`.
+ * Caminho do `.pi/settings.json` que existir, ou `null`.
  *
  * @param {{ home?: string, configPath?: string }} [opts]
  * @returns {Promise<string|null>}
@@ -291,7 +290,7 @@ export async function findOpencodeConfig({ home, configPath } = {}) {
 /**
  * Converte a entrada crua no formato público.
  *
- * `command` no OpenCode é um array (comando + argumentos) ou uma string. Nos
+ * `command` pode ser um array (comando + argumentos) ou uma string. Nos
  * dois casos a saída é `command` string e `args` array — a diferença entre
  * "não tem comando" e "tem" é o que define `status`, então ela não pode se
  * perder no caminho.
@@ -377,7 +376,7 @@ export function statusOf(server, { home } = {}) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Lê a configuração do OpenCode e devolve os servidores com status.
+ * Lê a configuração global do SelfEvoPI e devolve os servidores com status.
  *
  * Lança quando o arquivo existe mas não pode ser lido ou interpretado — e o
  * erro diz a linha. Não lança quando o arquivo simplesmente não existe: nesse
@@ -405,13 +404,15 @@ export async function listOpencodeMcp({ home, configPath } = {}) {
     const msg = String(err?.message ?? err);
     const m = /line (\d+) column (\d+)/.exec(msg);
     const onde = m ? ` (linha ${m[1]}, coluna ${m[2]})` : "";
-    throw new Error(`configuração do OpenCode inválida em ${file}${onde}: ${msg}`);
+    throw new Error(`configuração inválida em ${file}${onde}: ${msg}`);
   }
 
   const map =
-    doc && typeof doc === "object" && doc.mcp && typeof doc.mcp === "object" && doc.mcp.servers
-      ? doc.mcp.servers
-      : {};
+    doc && typeof doc === "object" && doc.mcpServers && typeof doc.mcpServers === "object"
+      ? doc.mcpServers
+      : doc && typeof doc === "object" && doc.mcp && typeof doc.mcp === "object" && doc.mcp.servers
+        ? doc.mcp.servers
+        : {};
 
   return Object.entries(map)
     .map(([name, raw2]) => {
@@ -476,7 +477,7 @@ export async function probeOpencodeMcp({ name, home, configPath, timeoutMs = 5_0
 
   const servidores = await listOpencodeMcp({ home, configPath });
   const alvo = servidores.find((s) => s.name === name);
-  if (!alvo) return { ...vazio, error: `servidor "${name}" não está na configuração do OpenCode` };
+  if (!alvo) return { ...vazio, error: `servidor "${name}" não está na configuração` };
   if (alvo.type === "remote") {
     return { ...vazio, error: `servidor "${name}" é remoto: não há processo local para sondar` };
   }

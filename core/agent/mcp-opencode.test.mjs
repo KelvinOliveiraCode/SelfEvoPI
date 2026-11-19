@@ -28,8 +28,8 @@ async function novoHome() {
   return dir;
 }
 
-async function escreverConfig(home, body, nome = "opencode.jsonc") {
-  const dir = path.join(home, ".config", "opencode");
+async function escreverConfig(home, body, nome = "settings.json") {
+  const dir = path.join(home, ".pi");
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, nome);
   await writeFile(file, body, "utf8");
@@ -139,18 +139,10 @@ test("stripTrailingCommas nao mexe em virgula dentro de string", () => {
 /* findOpencodeConfig                                                  */
 /* ------------------------------------------------------------------ */
 
-test("findOpencodeConfig acha o jsonc no home injetado", async () => {
+test("findOpencodeConfig acha o settings.json no home injetado", async () => {
   const home = await novoHome();
   const file = await escreverConfig(home, "{}");
   assert.equal(await findOpencodeConfig({ home }), file);
-});
-
-test("findOpencodeConfig prefere .jsonc a .json", async () => {
-  const home = await novoHome();
-  const jsonc = await escreverConfig(home, "{}", "opencode.jsonc");
-  await escreverConfig(home, "{}", "opencode.json");
-
-  assert.equal(await findOpencodeConfig({ home }), jsonc);
 });
 
 test("findOpencodeConfig devolve null quando nao existe nada", async () => {
@@ -160,14 +152,14 @@ test("findOpencodeConfig devolve null quando nao existe nada", async () => {
 
 test("findOpencodeConfig respeita configPath explicito", async () => {
   const home = await novoHome();
-  assert.equal(await findOpencodeConfig({ home, configPath: path.join(home, "nada.jsonc") }), null);
+  assert.equal(await findOpencodeConfig({ home, configPath: path.join(home, "nada.json") }), null);
 });
 
 /* ------------------------------------------------------------------ */
 /* listOpencodeMcp                                                     */
 /* ------------------------------------------------------------------ */
 
-test("listOpencodeMcp le JSONC com comentario e virgula sobrando", async () => {
+test("listOpencodeMcp le JSONC com comentario e virgula sobrando (mcpServers)", async () => {
   const home = await novoHome();
   const node = process.execPath;
 
@@ -176,16 +168,14 @@ test("listOpencodeMcp le JSONC com comentario e virgula sobrando", async () => {
     [
       "{",
       "  // config do usuario",
-      '  "mcp": {',
+      '  "mcpServers": {',
       "    /* servidores */",
-      '      "servers": {',
-      '        "fake": {',
-      '          "type": "local",',
-      `          "command": [${JSON.stringify(node)}, "server.mjs"],`,
-      '          "cwd": ".",',
-      '          "environment": { "PYTHONUTF8": "1" },',
-      '          "timeout": { "startup": 60000, "catalog": 120000 },',
-      "        },",
+      '      "fake": {',
+      '        "type": "local",',
+      `        "command": [${JSON.stringify(node)}, "server.mjs"],`,
+      '        "cwd": ".",',
+      '        "environment": { "PYTHONUTF8": "1" },',
+      '        "timeout": { "startup": 60000, "catalog": 120000 },',
       "      },",
       "  },",
       "}",
@@ -216,7 +206,7 @@ test("listOpencodeMcp le JSONC com comentario e virgula sobrando", async () => {
   ]);
 });
 
-test("listOpencodeMcp classifica disabled, broken e type desconhecido", async () => {
+test("listOpencodeMcp aceita formato legado mcp.servers (compatibilidade)", async () => {
   const home = await novoHome();
   const node = process.execPath;
 
@@ -225,11 +215,33 @@ test("listOpencodeMcp classifica disabled, broken e type desconhecido", async ()
     JSON.stringify({
       mcp: {
         servers: {
-          desligado: { type: "local", command: [node, "a.mjs"], disabled: true },
-          semArquivo: { type: "local", command: ["C:/nao/existe/xyz.exe"] },
-          semComando: { type: "local" },
-          alienigena: { type: "telepata", command: [node, "a.mjs"] },
+          fake: {
+            type: "local",
+            command: [node, "server.mjs"],
+          },
         },
+      },
+    })
+  );
+
+  const lista = await listOpencodeMcp({ home });
+  assert.equal(lista.length, 1);
+  assert.equal(lista[0].name, "fake");
+  assert.equal(lista[0].status, STATUS.CONFIGURED);
+});
+
+test("listOpencodeMcp classifica disabled, broken e type desconhecido", async () => {
+  const home = await novoHome();
+  const node = process.execPath;
+
+  await escreverConfig(
+    home,
+    JSON.stringify({
+      mcpServers: {
+        desligado: { type: "local", command: [node, "a.mjs"], disabled: true },
+        semArquivo: { type: "local", command: ["C:/nao/existe/xyz.exe"] },
+        semComando: { type: "local" },
+        alienigena: { type: "telepata", command: [node, "a.mjs"] },
       },
     })
   );
@@ -248,7 +260,7 @@ test("listOpencodeMcp devolve lista vazia quando nao ha arquivo", async () => {
 
 test("listOpencodeMcp acusa a linha quando o JSON e invalido", async () => {
   const home = await novoHome();
-  await escreverConfig(home, ['{', '  "mcp": {', "    oops", "  }", "}"].join("\n"));
+  await escreverConfig(home, ['{', '  "mcpServers": {', "    oops", "  }", "}"].join("\n"));
 
   await assert.rejects(() => listOpencodeMcp({ home }), (err) => {
     assert.match(err.message, /inválida/);
@@ -291,7 +303,7 @@ test("probeOpencodeMcp recusa servidor quebrado sem abrir processo", async () =>
   const home = await novoHome();
   await escreverConfig(
     home,
-    JSON.stringify({ mcp: { servers: { morto: { type: "local", command: ["C:/nao/existe/x.exe"] } } } })
+    JSON.stringify({ mcpServers: { morto: { type: "local", command: ["C:/nao/existe/x.exe"] } } })
   );
 
   const r = await probeOpencodeMcp({ name: "morto", home });
@@ -311,7 +323,7 @@ test("probeOpencodeMcp faz o handshake e devolve as ferramentas", async () => {
   await escreverConfig(
     home,
     JSON.stringify({
-      mcp: { servers: { fake: { type: "local", command: [process.execPath, script], environment: { MARKER: marker } } } },
+      mcpServers: { fake: { type: "local", command: [process.execPath, script], environment: { MARKER: marker } } },
     })
   );
 
@@ -338,7 +350,7 @@ test("probeOpencodeMcp devolve ok:false quando o servidor nao responde", async (
 
   await escreverConfig(
     home,
-    JSON.stringify({ mcp: { servers: { mudo: { type: "local", command: [process.execPath, script] } } } })
+    JSON.stringify({ mcpServers: { mudo: { type: "local", command: [process.execPath, script] } } })
   );
 
   const inicio = Date.now();
@@ -354,7 +366,7 @@ test("probeOpencodeMcp devolve ok:false para servidor remoto", async () => {
   const home = await novoHome();
   await escreverConfig(
     home,
-    JSON.stringify({ mcp: { servers: { remoto: { type: "remote", url: "https://exemplo.invalid/mcp" } } } })
+    JSON.stringify({ mcpServers: { remoto: { type: "remote", url: "https://exemplo.invalid/mcp" } } })
   );
 
   const r = await probeOpencodeMcp({ name: "remoto", home });
@@ -460,7 +472,7 @@ test("probeOpencodeMcp: tools/list em múltiplos chunks sem \\n entre eles", asy
   await escreverConfig(
     home,
     JSON.stringify({
-      mcp: { servers: { chunks: { type: "local", command: [process.execPath, script], environment: { MARKER: marker } } } },
+      mcpServers: { chunks: { type: "local", command: [process.execPath, script], environment: { MARKER: marker } } },
     })
   );
 
@@ -484,7 +496,7 @@ test("probeOpencodeMcp: linha de log no meio do stream não quebra o parse", asy
   await escreverConfig(
     home,
     JSON.stringify({
-      mcp: { servers: { log: { type: "local", command: [process.execPath, script], environment: { MARKER: marker } } } },
+      mcpServers: { log: { type: "local", command: [process.execPath, script], environment: { MARKER: marker } } },
     })
   );
 

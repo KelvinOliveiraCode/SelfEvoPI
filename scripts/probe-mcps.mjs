@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/probe-mcps.mjs — sonda de verdade nos MCPs do OpenCode.
+ * scripts/probe-mcps.mjs — sonda de verdade nos MCPs do SelfEvoPI.
  *
  * O `core/agent/mcp-opencode.mjs` sabe **listar** e sabe **sondar**. Faltava
  * alguém que rodasse isso contra a config real do usuário e dissesse, servidor
@@ -197,7 +197,7 @@ async function main() {
 
   const config = await findOpencodeConfig({});
   if (!config) {
-    process.stdout.write("não achei a configuração do OpenCode (~/.config/opencode/opencode.jsonc)\n");
+    process.stdout.write("não achei a configuração do SelfEvoPI (~/.pi/settings.json)\n");
     return 1;
   }
 
