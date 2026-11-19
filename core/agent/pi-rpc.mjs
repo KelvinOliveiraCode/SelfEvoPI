@@ -20,6 +20,7 @@
  *   pi.on("error",   (msg)   => {});   // erro bruto do modelo/provedor (texto cru)
  *   pi.on("settled", (info)  => {});   // fim da execução automática ({ aborted })
  *   await pi.prompt("pergunta");
+ *   const texto = await pi.promptAndWait("pergunta"); // texto final, sem ler cedo demais
  *   await pi.abort();                  // cancela a execução em curso
  *   await pi.close();
  *
@@ -215,6 +216,66 @@ class PiClient {
   /** Envia um prompt. A resposta descreve o aceite; o texto vem por "text". */
   prompt(message) {
     return this._rpc.prompt(message);
+  }
+
+  /**
+   * Envia um prompt e resolve com o texto final normalizado.
+   *
+   * Diferença para `prompt()`: `prompt()` resolve no ACEITE (a disposição
+   * "started"/"handled") e o texto chega depois, por eventos — quem lê o texto
+   * logo após `prompt()` resolver lê vazio. Este método assina o coletor de
+   * texto ANTES de disparar o prompt e só resolve quando o motor emite
+   * "settled", então o texto vem completo.
+   *
+   * Rejeita se o motor emitir "error" antes do settled, se o timeout estourar,
+   * ou se o `prompt()` recusar. Se a disposição for "handled" (comando de
+   * extensão / input interceptado: nenhum run começou, não haverá "settled"),
+   * resolve de imediato com o texto acumulado (normalmente vazio) em vez de
+   * pendurar até o timeout.
+   *
+   * @param {string} message
+   * @param {number} [timeoutMs=120000]
+   * @returns {Promise<string>} texto final normalizado
+   */
+  promptAndWait(message, timeoutMs = 120_000) {
+    return new Promise((resolve, reject) => {
+      let text = "";
+      let done = false;
+      let timer = null;
+      const offs = [];
+
+      const finish = (fn, arg) => {
+        if (done) return;
+        done = true;
+        for (const off of offs) {
+          try {
+            off();
+          } catch {
+            /* cancelar nunca derruba */
+          }
+        }
+        if (timer) clearTimeout(timer);
+        fn(arg);
+      };
+
+      offs.push(this.on("text", (delta) => (text += delta)));
+      offs.push(this.on("settled", () => finish(resolve, text)));
+      offs.push(this.on("error", (m) => finish(reject, m instanceof Error ? m : new Error(String(m)))));
+
+      timer = setTimeout(() => {
+        finish(reject, new Error(`promptAndWait: tempo esgotado após ${timeoutMs} ms`));
+      }, timeoutMs);
+      timer?.unref?.();
+
+      this.prompt(message)
+        .then((disposition) => {
+          // "handled": comando de extensão/input interceptado — nenhum run
+          // começou, não haverá "settled"; resolve já para não pendurar.
+          if (disposition === "handled") finish(resolve, text);
+          // "started": run começou; espera o "settled" (via onSettled acima).
+        })
+        .catch((err) => finish(reject, err));
+    });
   }
 
   /** Cancela a execução em curso (Ctrl+C), sem encerrar a sessão. */
