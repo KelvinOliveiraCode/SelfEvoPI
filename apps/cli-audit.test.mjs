@@ -147,3 +147,51 @@ test("renders existentes: status/panel/busy/palette/help ≤72 col e exit 0", ()
     }
   }
 });
+
+/* ================================================================== */
+/* A10: capLinhas fecha SGR aberto antes da reticência                */
+/* ================================================================== */
+
+/**
+ * Mede o saldo de SGR (quantos \x1b[...m abrem estilo menos quantos
+ * \x1b[0m fecham). Saldo > 0 = estilo vazando para a próxima linha.
+ * Saldo < 0 = reset a mais (inofensivo, mas registramos).
+ */
+function ansiBalance(s) {
+  const re = /\x1b\[([0-9;]*)m/g;
+  let bal = 0;
+  let m;
+  while ((m = re.exec(s))) {
+    const corpo = m[1];
+    if (corpo === "0" || corpo === "") bal = Math.max(0, bal - 1);
+    else bal++;
+  }
+  return bal;
+}
+
+test("A10 capLinhas: /plan não vaza estilo após truncar linha 100% colorida", async () => {
+  // A linha "escrita: block - o modo plan não escreve..." é inteiramente
+  // colorida (amarelo \x1b[33m ... \x1b[0m). O \x1b[0m fica depois do ponto
+  // de corte, então sem a correção a linha termina em "…" sem reset e o
+  // terminal segue amarelo. Verifica ao vivo pelo /plan (mesmo caminho que
+  // o A2 usou para achar o resíduo).
+  let out = "";
+  const code = await runSlash("/plan", "", (s) => (out += s + "\n"), { pi: null });
+  assert.equal(code, 0, "/plan não deveria falhar");
+
+  // Nenhuma linha pode terminar com estilo aberto (ansiBalance > 0).
+  const linhas = out.split("\n");
+  for (const ln of linhas) {
+    const bal = ansiBalance(ln);
+    assert.equal(bal, 0, `A10: linha termina com estilo aberto (ansiBalance=${bal}): ${JSON.stringify(ln)}`);
+  }
+
+  // A linha problemática especificamente: truncada a 72 col, terminando em
+  // "…", e com \x1b[0m antes da reticência (estilo fechado).
+  const truncada = linhas.find((ln) => stripAnsi(ln).endsWith("…"));
+  assert.ok(truncada, "A10: /plan deveria ter uma linha truncada em …");
+  assert.ok(
+    /\x1b\[0m…$/.test(truncada),
+    `A10: linha truncada deve terminar em \\x1b[0m… (estilo fechado antes da reticência): ${JSON.stringify(truncada)}`,
+  );
+});

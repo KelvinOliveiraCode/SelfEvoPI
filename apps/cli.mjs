@@ -433,14 +433,30 @@ function capLinhas(linhas, largura = 72) {
     let larguraV = 0;
     let corte = 0;
     let dentroAnsi = false;
+    let estiloAberto = false;
+    let inicioSeq = -1;
     for (let i = 0; i < texto.length && larguraV < largura - 1; i++) {
       const ch = texto[i];
-      if (ch === "\x1b") { dentroAnsi = true; continue; }
-      if (dentroAnsi) { if (ch === "m") dentroAnsi = false; continue; }
+      if (ch === "\x1b") { dentroAnsi = true; inicioSeq = i; continue; }
+      if (dentroAnsi) {
+        if (ch === "m") {
+          dentroAnsi = false;
+          // SGR: sequencia completa \x1b[...m. 0 = reset (fecha tudo),
+          // != 0 = liga um estilo (negrito, cor, etc). Uma sequencia composta
+          // como \x1b[0;33m começa com 0 e depois liga 33 — o estilo fica
+          // aberto, então só \x1b[0m puro (ou \x1b[m) fecha.
+          const seq = texto.slice(inicioSeq, i + 1);
+          const corpo = seq.slice(2, -1); // remove \x1b[ e m
+          estiloAberto = corpo !== "0" && corpo !== "";
+        }
+        continue;
+      }
       corte = i + 1;
       larguraV++;
     }
-    return `${texto.slice(0, corte)}…`;
+    // Se o corte deixou algum SGR aberto (estilo ligado, \x1b[0m ainda não
+    // veio), fecha com \x1b[0m antes da reticência para não vazar cor.
+    return `${texto.slice(0, corte)}${estiloAberto ? "\x1b[0m" : ""}…`;
   });
 }
 
