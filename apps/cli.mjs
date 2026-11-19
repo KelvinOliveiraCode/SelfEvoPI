@@ -2333,7 +2333,7 @@ function printHeader(write, data) {
  * Loop interativo (TTY, modo cru). `pi` pode ser null (conversa desativada;
  * comandos de barra seguem). `write` escreve no terminal.
  */
-export async function repl({ pi, write, input, setRaw, data = {} }) {
+export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: sessionsDirInjetado } = {}) {
   const keymap = makeKeyMap();
   let line = { buf: "", cur: 0, sel: 0, dismissed: false };
   let history = [];
@@ -2414,7 +2414,7 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     const my = ++sessionsGen;
     try {
       const { listSessions } = await import("../core/agent/sessions.mjs");
-      if (!sessionsDirCache) sessionsDirCache = await sessionDir();
+      if (!sessionsDirCache) sessionsDirCache = sessionsDirInjetado ?? await sessionDir();
       const list = await listSessions(sessionsDirCache);
       const extras = await readSessionExtras(sessionsDirCache);
       if (my !== sessionsGen) return;
