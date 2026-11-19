@@ -2,18 +2,18 @@
 /**
  * desktop.mjs — o desktop do SelfEvoPI.
  *
- * Um servidor local (127.0.0.1) que serve um painel HTML e uma API de estado.
+ * Um servidor local (127.0.0.1) que serve a conversa e uma API de estado.
  * Nasce com `node scripts/desktop.mjs` (ou pelo atalho da Área de Trabalho) e
  * abre no navegador — ou, com `--app`, numa janela sem barra de endereço
  * (Edge/Chrome em modo `--app`), 1280×820, como um programa.
  *
- * Por que um servidor local e não um HTML estático: o painel precisa mostrar o
- * estado **de agora** — evals, lacunas, execuções do grafo, últimos artefatos.
+ * Por que um servidor local e não um HTML estático: a conversa precisa falar com
+ * o motor **de agora** — sessões, streaming, estado do modelo.
  * Um arquivo aberto com file:// não consegue buscar nada.
  *
  * Segurança:
  *  - escuta só em 127.0.0.1 (nunca na rede)
- *  - ações são uma allowlist explícita; nada de "execute o que vier"
+ *  - o chat fala com o motor por uma allowlist de rotas; nada de "execute o que vier"
  *  - não lê nada fora da raiz do projeto
  *
  * Uso:
@@ -24,7 +24,7 @@
  *   --dry-run   com --app, só imprime o comando que abriria (não abre)
  *
  * Ciclo de vida: a janela fecha, o servidor continua de pé (Ctrl+C encerra).
- * A API JSON (`/api/state`, `/api/action`) é contrato e não muda.
+ * A API JSON (`/api/state`, `/api/chat`, `/api/status`, `/api/integrations`, `/api/sessions*`) é contrato e não muda.
  */
 
 import { createServer } from "node:http";
@@ -166,7 +166,7 @@ async function listDir(rel) {
   }
 }
 
-/** Coleta o estado que o painel mostra. */
+/** Coleta o estado da conversa (baseline, ledger, artefatos, grafo). */
 async function collectState() {
   const [baseline, lkg, ledger, artifacts, runs] = await Promise.all([
     readJson("evals/baseline.json"),
@@ -335,51 +335,7 @@ function parseTestsEstado(text) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Ações (allowlist)                                                   */
-/* ------------------------------------------------------------------ */
-
-const ACOES = {
-  detect: { titulo: "Detectar lacunas", args: ["core/forge/cli.mjs", "detect", "--json"] },
-  status: { titulo: "Estado do harness", args: ["core/forge/cli.mjs", "status"] },
-  evals: { titulo: "Rodar evals estruturais (A/C)", args: ["evals/run.mjs", "--group", "A"] },
-  verify: { titulo: "Verificação completa", args: ["scripts/verify-selfevopi.mjs"] },
-};
-
-/** Roda uma ação da allowlist e devolve { ok, stdout, stderr, code }. */
-async function runAction(id) {
-  const acao = ACOES[id];
-  if (!acao) return { ok: false, error: `ação desconhecida: ${id}` };
-
-  const [script, ...args] = acao.args;
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(ROOT, script), ...args], {
-      cwd: ROOT,
-      windowsHide: true,
-      env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
-    });
-    let stdout = "";
-    let stderr = "";
-    // `buf +=` dentro de arrow não escreve na variável externa: o painel mostraria
-    // sempre saída vazia. Aqui a atribuição é explícita.
-    const cap = (buf) => {
-      if (stdout.length < 200_000) stdout += buf.toString();
-    };
-    const capErr = (buf) => {
-      if (stderr.length < 200_000) stderr += buf.toString();
-    };
-    child.stdout.on("data", cap);
-    child.stderr.on("data", capErr);
-    const timer = setTimeout(() => child.kill(), 5 * 60_000);
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ ok: code === 0, code, stdout, stderr });
-    });
-    child.on("error", (err) => resolve({ ok: false, code: -1, stdout, stderr: String(err?.message ?? err) }));
-  });
-}
-
-/* ------------------------------------------------------------------ */
-/* Painel                                                              */
+/* Formatação                                                          */
 /* ------------------------------------------------------------------ */
 
 /** Data ISO -> dd/mm/aaaa. */
@@ -388,217 +344,6 @@ function fmtDate(asOf) {
   const m = String(asOf).match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : String(asOf);
 }
-
-/** Um cartão de métrica: número em 400, rótulo muted, data opcional. */
-function metricTile({ value, label, date = null, id = null, title = null }) {
-  const v = value == null || value === "" ? "—" : esc(value);
-  const d = date ? `<span class="md">${esc(date)}</span>` : "";
-  return `    <div class="metric"${id ? ` id="${id}"` : ""}${title ? ` title="${esc(title)}"` : ""}>
-      <span class="mv">${v}</span>
-      <span class="ml">${esc(label)}</span>${d}
-    </div>`;
-}
-
-function metricsStrip(m) {
-  return `  <div class="metrics">
-${metricTile({ value: m.executions, label: "execuções", id: "m-exec", title: "execuções de eval na baseline (agora)" })}
-${metricTile({ value: `${m.passes}/${m.baselineRuns}`, label: "baseline", id: "m-base", title: "passaram / total (agora)" })}
-${metricTile({ value: m.tests.value, label: "testes", date: fmtDate(m.tests.asOf), title: m.tests.source ? `fonte: ${m.tests.source}` : null })}
-${metricTile({ value: m.cold.value == null ? null : `${m.cold.value} ms`, label: "cold start", date: fmtDate(m.cold.asOf), title: m.cold.source ? `fonte: ${m.cold.source}` : null })}
-${metricTile({ value: m.tasks, label: "tarefas de eval", title: "tarefas de eval na baseline (agora)" })}
-  </div>`;
-}
-
-/** Painel antigo (métricas, execuções, artefatos, grafo). Continua acessível em /panel. */
-function panelPage(m) {
-  return `<!doctype html>
-<html lang="pt-BR">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SelfEvoPI — desktop</title>
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<style>
-  :root {
-    --bg:#000000; --bg-2:#0d0d0d; --bg-3:#1a1a1a;
-    --fg:#ffffff; --muted:#787878;
-    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.18);
-    --ok:#3FB950; --warn:#D29922; --fail:#F85149;
-    --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-    --r:8px; --ease:cubic-bezier(.22,1,.36,1); --t:200ms;
-  }
-  *{box-sizing:border-box}
-  html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--fg);
-    font:400 15.5px/1.5 var(--font);-webkit-font-smoothing:antialiased}
-  .wrap{max-width:1180px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:16px}
-
-  /* cabeçalho 56 px */
-  header{height:56px;display:flex;align-items:center;gap:12px;
-    border-bottom:1px solid var(--line)}
-  header .logo{width:32px;height:32px;color:#fff;flex:0 0 auto}
-  header .logo svg{width:100%;height:100%;display:block}
-  header h1{font-size:17px;font-weight:500;letter-spacing:-0.01em;margin:0}
-  header .host{margin-left:auto;display:inline-flex;align-items:center;gap:8px;
-    color:var(--muted);font-size:13px}
-  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto}
-  .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.fail{background:var(--fail)}
-
-  /* faixa de métricas */
-  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;
-    background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-  .metric{background:var(--bg-2);padding:14px 16px;display:flex;flex-direction:column;gap:2px}
-  .metric .mv{font-size:24px;font-weight:400;letter-spacing:-0.01em;font-variant-numeric:tabular-nums}
-  .metric .ml{font-size:13px;color:var(--muted)}
-  .metric .md{font-size:11px;color:var(--muted);opacity:.75}
-
-  section{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
-  section h2{font-size:12px;font-weight:500;margin:0 0 12px;color:var(--muted);
-    text-transform:uppercase;letter-spacing:.06em}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
-  th{font-size:12px;color:var(--muted);font-weight:400}
-  tr:last-child td{border-bottom:none}
-  td.num{font-variant-numeric:tabular-nums}
-  .cellstate{display:inline-flex;align-items:center;gap:7px}
-
-  .btns{display:flex;flex-wrap:wrap;gap:8px}
-  button{background:var(--bg-2);color:var(--fg);border:1px solid var(--line);
-    border-radius:var(--r);padding:9px 15px;font:400 13px/1 var(--font);cursor:pointer;
-    transition:background-color var(--t) var(--ease), border-color var(--t) var(--ease)}
-  button:hover{background:var(--bg-3);border-color:var(--line-strong)}
-  button:disabled{opacity:.5;cursor:wait}
-  pre{background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:12px;
-    overflow:auto;max-height:340px;font:400 12px/1.5 var(--font);margin:0;white-space:pre-wrap}
-  footer{color:var(--muted);font-size:12px;text-align:center}
-  .muted{color:var(--muted)}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <header>
-    <span class="logo">${LOGO_HEADER ?? ""}</span>
-    <h1>SelfEvoPI</h1>
-    <span class="host"><span class="dot ok"></span>127.0.0.1:${PORT}</span>
-  </header>
-
-  ${metricsStrip(m)}
-
-  <section>
-    <h2>Ações</h2>
-    <div class="btns">
-      <button data-act="status">Estado do harness</button>
-      <button data-act="detect">Detectar lacunas</button>
-      <button data-act="evals">Evals A + C</button>
-      <button data-act="verify">Verificação completa</button>
-    </div>
-    <pre id="out" style="display:none;margin-top:12px"></pre>
-  </section>
-
-  <section>
-    <h2>Evals por grupo</h2>
-    <table><thead><tr><th>Grupo</th><th>Execuções</th><th>Passaram</th><th>Taxa</th></tr></thead>
-    <tbody id="grupos"></tbody></table>
-  </section>
-
-  <section>
-    <h2>Últimas execuções</h2>
-    <table><thead><tr><th>Quando</th><th>Tarefa</th><th>Grupo</th><th>Resultado</th><th>ms</th><th>Tokens</th></tr></thead>
-    <tbody id="recent"></tbody></table>
-  </section>
-
-  <section>
-    <h2>Artefatos promovidos</h2>
-    <table><thead><tr><th>Artefato</th></tr></thead><tbody id="arts"></tbody></table>
-  </section>
-
-  <section>
-    <h2>Execuções do grafo</h2>
-    <table><thead><tr><th>Run</th><th>Estado</th><th>Progresso</th><th>Nós</th></tr></thead>
-    <tbody id="runs"></tbody></table>
-  </section>
-
-  <footer>atualiza a cada 5 s · Ctrl+C no terminal encerra o desktop</footer>
-</div>
-
-<script>
-const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-function dot(cls, text) {
-  return "<span class='cellstate'><span class='dot " + cls + "'></span>" + esc(text) + "</span>";
-}
-
-async function refresh() {
-  try {
-    const s = await (await fetch("/api/state")).json();
-
-    const b = s.baseline || {};
-    $("#m-exec").textContent = b.runs ?? 0;
-    $("#m-base").textContent = (b.passes ?? 0) + "/" + (b.runs ?? 0);
-
-    const g = b.groups || {};
-    $("#grupos").innerHTML = Object.keys(g).sort().map((k) => {
-      const x = g[k];
-      const r = x.runs ? Math.round((x.passes / x.runs) * 100) : 0;
-      const cls = r === 100 ? "ok" : r >= 90 ? "warn" : "fail";
-      return "<tr><td>" + esc(k) + "</td><td class='num'>" + x.runs + "</td><td class='num'>" + x.passes +
-        "</td><td>" + dot(cls, r + "%") + "</td></tr>";
-    }).join("") || "<tr><td colspan='4' class='muted'>sem dados de baseline</td></tr>";
-
-    const led = s.ledger || {};
-    $("#recent").innerHTML = (led.recent || []).map((r) =>
-      "<tr><td>" + esc((r.at || "").replace("T", " ").slice(0, 19)) + "</td><td>" +
-      esc(r.task) + "</td><td>" + esc(r.group) + "</td><td>" +
-      (r.ok ? dot("ok", "passou") : dot("fail", "falhou")) +
-      "</td><td class='num'>" + (r.ms || 0) + "</td><td class='num'>" + (r.tokens || 0) + "</td></tr>"
-    ).join("") || "<tr><td colspan='6' class='muted'>nenhuma execução registrada</td></tr>";
-
-    $("#arts").innerHTML = (s.artifacts || []).map((a) =>
-      "<tr><td>" + esc(a) + "</td></tr>"
-    ).join("") || "<tr><td class='muted'>nenhum artefato promovido ainda</td></tr>";
-
-    $("#runs").innerHTML = (s.runs || []).map((r) => {
-      const p = r.progress == null ? "—" : Math.round(r.progress * 100) + "%";
-      return "<tr><td>" + esc(r.runId) + "</td><td>" + esc(r.status) +
-        "</td><td class='num'>" + p + "</td><td class='num'>" + (r.done ?? 0) + "/" + (r.nodes ?? 0) + "</td></tr>";
-    }).join("") || "<tr><td colspan='4' class='muted'>nenhuma execução de grafo</td></tr>";
-  } catch (e) {
-    const foot = document.querySelector("footer");
-    if (foot) foot.textContent = "erro: " + e.message;
-  }
-}
-
-document.querySelectorAll("button[data-act]").forEach((b) => {
-  b.addEventListener("click", async () => {
-    const out = $("#out");
-    out.style.display = "block";
-    out.textContent = "rodando " + b.dataset.act + "…";
-    const buttons = document.querySelectorAll("button[data-act]");
-    buttons.forEach((x) => (x.disabled = true));
-    try {
-      const r = await (await fetch("/api/action", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: b.dataset.act }),
-      })).json();
-      out.textContent = (r.stdout || "") + (r.stderr ? "\\n[stderr]\\n" + r.stderr : "") +
-        (r.ok ? "\\n\\n[ok] concluído" : "\\n\\n[erro] falhou (exit " + r.code + ")");
-    } catch (e) {
-      out.textContent = "erro: " + e.message;
-    } finally {
-      buttons.forEach((x) => (x.disabled = false));
-      refresh();
-    }
-  });
-});
-
-refresh();
-setInterval(refresh, 5000);
-</script>
-</body>
-</html>`;
-}
-
 
 /* ------------------------------------------------------------------ */
 /* Navegador (modo --app)                                              */
@@ -668,7 +413,6 @@ function chatPage(m) {
     <span class="host"><span class="dot" id="hdot"></span><span id="host">127.0.0.1:${PORT}</span></span>
     <a href="#" id="settings">config</a>
     <a href="#" id="openDrawer">skills</a>
-    <a href="/panel">painel</a>
   </header>
 
   <div class="statusbar" id="status">
@@ -728,7 +472,7 @@ function chatPage(m) {
 
 /**
  * Modos da conversa. É um conceito do SelfEvoPI (não do motor): muda a
- * diretiva enviada com cada turno, e o painel mostra qual está ativo.
+ * diretiva enviada com cada turno, e a barra de estado mostra qual está ativo.
  */
 export const MODES = Object.freeze({
   ask: "Responda apenas com explicação, sem executar ferramentas.",
@@ -759,7 +503,7 @@ async function ensurePi() {
         piClient = c;
         // raciocínio: o cliente normalizado descarta thinking_delta; assinamos o
         // stream cru para mostrar o pensamento (discreto). Se o motor não emitir,
-        // simplesmente não chega nada — e o painel diz "não exposto".
+        // simplesmente não chega nada — e a barra diz "não exposto".
         try {
           const raw = c._rpc;
           if (raw && typeof raw.onEvent === "function") {
@@ -784,7 +528,7 @@ async function ensurePi() {
   return piPromise;
 }
 
-/** Estado do motor para o painel (modelo, effort, streaming, capacidades). */
+/** Estado do motor para a conversa (modelo, effort, streaming, capacidades). */
 async function piState() {
   try {
     const client = await ensurePi();
@@ -1020,14 +764,6 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // painel antigo (métricas, execuções, artefatos, grafo) — continua acessível
-  if (url.pathname === "/panel") {
-    const metrics = await collectMetrics();
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-    res.end(panelPage(metrics));
-    return;
-  }
-
   // favicon: não há conversor de SVG→ICO nesta máquina; serve o próprio SVG
   // (branco sobre placa preta, legível em aba clara e escura).
   if (url.pathname === "/favicon.ico" || url.pathname === "/favicon.svg") {
@@ -1080,7 +816,7 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // painel de estado (modelo, effort, capacidades, streaming)
+  // estado do motor (modelo, effort, capacidades, streaming)
   if (url.pathname === "/api/status") {
     const st = await piState();
     st.mode = currentMode;
@@ -1108,23 +844,6 @@ const server = createServer(async (req, res) => {
     res.write(": conectado\n\n");
     sseClients.add(res);
     req.on("close", () => sseClients.delete(res));
-    return;
-  }
-
-  if (url.pathname === "/api/action" && req.method === "POST") {
-    let body = "";
-    req.on("data", (c) => (body += c));
-    req.on("end", async () => {
-      let id = null;
-      try {
-        id = JSON.parse(body || "{}").id;
-      } catch {
-        /* corpo inválido */
-      }
-      const r = await runAction(id);
-      res.writeHead(r.ok ? 200 : 500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      res.end(JSON.stringify(r));
-    });
     return;
   }
 
