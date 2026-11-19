@@ -17,6 +17,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 
 import {
   SLASH_COMMANDS,
@@ -912,28 +915,44 @@ test("renderSettings: nenhuma linha passa de 72 colunas", () => {
 // ------------------------------------------------------------------ */
 
 test("REPL: ctrl+k abre a lista de sessões e fecha de novo", async () => {
-  const input = new EventEmitter();
-  input.setEncoding = () => {};
-  input.isTTY = true;
-  let all = "";
-  repl({ pi: null, write: (s) => (all += s), input, setRaw: () => {}, data: {} });
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  await sleep(20);
+  // Fixture isolada: 3 sessões fake num diretório temporário. Assim a varredura
+  // é instantânea e determinística (não lê as centenas de subpastas reais, que
+  // é o que fazia este teste flakear). Injetada via parâmetro sessionsDir.
+  const fixtureDir = await mkdtemp(path.join(tmpdir(), "selfevopi-ctrlk-"));
+  try {
+    for (let i = 0; i < 3; i++) {
+      const header = { type: "session", version: 1, id: `sess${i}`, client: "cli" };
+      const msg = { type: "message", role: "user", content: "oi" };
+      const file = path.join(fixtureDir, `${randomUUID()}.jsonl`);
+      await writeFile(file, JSON.stringify(header) + "\n" + JSON.stringify(msg) + "\n", "utf8");
+    }
 
-  all = "";
-  input.emit("data", "\x0b"); // ctrl+k
-  await sleep(2000); // a primeira abertura varre a pasta de sessões
-  const aberta = stripAnsi(all);
-  // a lista mostra "N sessão(es)" ou "nenhuma sessão encontrada" — nunca as duas
-  assert.match(aberta, /\d+ sess|nenhuma sess/, "a lista de sessões não apareceu");
+    const input = new EventEmitter();
+    input.setEncoding = () => {};
+    input.isTTY = true;
+    let all = "";
+    repl({ pi: null, write: (s) => (all += s), input, setRaw: () => {}, data: {}, sessionsDir: fixtureDir });
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    await sleep(20);
 
-  all = "";
-  input.emit("data", "\x0b"); // ctrl+k fecha
-  await sleep(80);
-  assert.doesNotMatch(stripAnsi(all), /\d+ sess|nenhuma sess/);
+    all = "";
+    input.emit("data", "\x0b"); // ctrl+k
+    await sleep(100); // com 3 sessões, a varredura é instantânea
+    const aberta = stripAnsi(all);
+    // determinístico: a fixture tem exatamente 3 sessões, então tem que aparecer
+    // "3 sessão(es)" — nunca "nenhuma", nunca outro número.
+    assert.match(aberta, /3 sess/, "a lista das 3 sessões da fixture não apareceu");
 
-  input.emit("data", "\x04");
-  await sleep(30);
+    all = "";
+    input.emit("data", "\x0b"); // ctrl+k fecha
+    await sleep(80);
+    assert.doesNotMatch(stripAnsi(all), /\d+ sess|nenhuma sess/);
+
+    input.emit("data", "\x04");
+    await sleep(30);
+  } finally {
+    await rm(fixtureDir, { recursive: true, force: true });
+  }
 });
 
 test("REPL: ctrl+, abre as configurações e fecha de novo", async () => {
