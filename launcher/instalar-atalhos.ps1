@@ -160,7 +160,25 @@ else {
     Write-Host "  icone: assets\selfevopi.ico AUSENTE - atalhos ficaram sem icone" -ForegroundColor Yellow
 }
 
+# ------------------------------------------------------------------ PATH ----
+#  Adiciona o diretorio do launcher ao PATH do usuario (sem admin), para que
+#  "selfevopi" funcione de qualquer diretorio no terminal. Idempotente: se
+#  ja estiver la, nao duplica. O usuario precisa reabrir o terminal para
+#  que a mudanca tenha efeito.
+
+$launcherDir = $PSScriptRoot
+$pathUsuario = [Environment]::GetEnvironmentVariable('Path', 'User')
+
+if ($pathUsuario -notlike "*$launcherDir*") {
+    $novoPath = "$pathUsuario;$launcherDir"
+    [Environment]::SetEnvironmentVariable('Path', $novoPath, 'User')
+    Write-Host "  PATH: adicionado $launcherDir (reabra o terminal)" -ForegroundColor Green
+} else {
+    Write-Host "  PATH: $launcherDir ja esta no PATH" -ForegroundColor DarkGray
+}
+
 Write-Host ""
 Write-Host "  pronto. dois cliques na Area de Trabalho abrem a CLI e o desktop."
 Write-Host "  os dois rodam de $Repo, entao compartilham a mesma sessao."
+Write-Host "  digite 'selfevopi' no terminal (qualquer pasta) para abrir a CLI."
 Write-Host ""

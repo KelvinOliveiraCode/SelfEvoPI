@@ -2,6 +2,34 @@
 
 Dois atalhos que abrem o SelfEvoPI e **enxergam a mesma conversa**. Nenhum dos dois tem menu próprio: a CLI tem o dela, e o desktop é o desktop.
 
+## Instalação rápida (usuário final)
+
+Abra o PowerShell e rode:
+
+```powershell
+pwsh launcher/instalar-atalhos.ps1
+```
+
+Isso faz três coisas:
+
+1. Copia os launchers `.cmd` para a Área de Trabalho
+2. Cria atalhos `.lnk` com ícone da marca
+3. Adiciona o diretório do launcher ao **PATH do usuário** — para que `selfevopi` funcione de qualquer pasta no terminal
+
+**Depois de instalar, feche e reabra o terminal** para que o PATH entre em vigor. Aí basta digitar:
+
+```
+selfevopi
+```
+
+de qualquer diretório, e a CLI abre. Para o desktop:
+
+```
+selfevopi-desktop
+```
+
+(Rodar o instalador de novo é seguro: é idempotente, não duplica PATH, preserva backups dos antigos.)
+
 | Arquivo | O que faz |
 |:---|:---|
 | `SelfEvoPI.cmd` | abre a CLI (`apps/cli.mjs`) |
