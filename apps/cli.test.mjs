@@ -982,26 +982,41 @@ test("REPL: ctrl+, abre as configurações e fecha de novo", async () => {
 });
 
 test("REPL: abrir as sessões fecha as configurações (um overlay por vez)", async () => {
-  const input = new EventEmitter();
-  input.setEncoding = () => {};
-  input.isTTY = true;
-  let all = "";
-  repl({ pi: null, write: (s) => (all += s), input, setRaw: () => {}, data: {} });
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  await sleep(20);
+  // Mesma correção do ctrl+k: fixture isolada com 3 sessões fake, injetada via
+  // sessionsDir, para não varrer as centenas de subpastas reais (que é o que
+  // fazia este teste flakear sob carga).
+  const fixtureDir = await mkdtemp(path.join(tmpdir(), "selfevopi-irmao-"));
+  try {
+    for (let i = 0; i < 3; i++) {
+      const header = { type: "session", version: 1, id: `sess${i}`, client: "cli" };
+      const msg = { type: "message", role: "user", content: "oi" };
+      const file = path.join(fixtureDir, `${randomUUID()}.jsonl`);
+      await writeFile(file, JSON.stringify(header) + "\n" + JSON.stringify(msg) + "\n", "utf8");
+    }
 
-  input.emit("data", "\x1c"); // configurações
-  await sleep(80);
-  assert.match(stripAnsi(all), /configurações/);
+    const input = new EventEmitter();
+    input.setEncoding = () => {};
+    input.isTTY = true;
+    let all = "";
+    repl({ pi: null, write: (s) => (all += s), input, setRaw: () => {}, data: {}, sessionsDir: fixtureDir });
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    await sleep(20);
 
-  // limpa antes: o frame anterior continua no buffer, e o que importa é o novo
-  all = "";
-  input.emit("data", "\x0b"); // sessões — tem que fechar as configurações
-  await sleep(2000);
-  assert.doesNotMatch(stripAnsi(all), /configurações/);
+    input.emit("data", "\x1c"); // configurações
+    await sleep(80);
+    assert.match(stripAnsi(all), /configurações/);
 
-  input.emit("data", "\x04");
-  await sleep(30);
+    // limpa antes: o frame anterior continua no buffer, e o que importa é o novo
+    all = "";
+    input.emit("data", "\x0b"); // sessões — tem que fechar as configurações
+    await sleep(100); // com 3 sessões, a varredura é instantânea
+    assert.doesNotMatch(stripAnsi(all), /configurações/);
+
+    input.emit("data", "\x04");
+    await sleep(30);
+  } finally {
+    await rm(fixtureDir, { recursive: true, force: true });
+  }
 });
 
 // ------------------------------------------------------------------ */
