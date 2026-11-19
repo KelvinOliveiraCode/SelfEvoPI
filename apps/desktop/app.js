@@ -473,19 +473,10 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-/* Os mesmos destinos pelo mouse. Sem estes dois listeners o botao "config"
-   existia na barra e nao fazia nada — o painel so abria pelo teclado. */
-document.getElementById("settings")?.addEventListener("click", (e) => {
-  e.preventDefault();
-  toggleSettings();
-});
-document.getElementById("openDrawer")?.addEventListener("click", (e) => {
-  e.preventDefault();
-  toggleSessions();
-});
-
 function toggleSessions() {
-  document.body.classList.toggle("show-sessions");
+  const panel = document.getElementById("sessionsPanel");
+  if (panel) panel.classList.toggle("open");
+  else document.body.classList.toggle("show-sessions");
 }
 function toggleSettings() {
   if (settingsPanel) settingsPanel.classList.toggle("open");
@@ -494,8 +485,19 @@ function toggleSettings() {
 function closeAll() {
   document.body.classList.remove("show-sessions", "show-settings");
   settingsPanel?.classList.remove("open");
+  document.getElementById("sessionsPanel")?.classList.remove("open");
   document.getElementById("drawer")?.classList.remove("open");
 }
+
+document.getElementById("settings")?.addEventListener("click", (e) => {
+  e.preventDefault();
+  toggleSettings();
+});
+
+document.getElementById("closeSessions")?.addEventListener("click", (e) => {
+  e.preventDefault();
+  document.getElementById("sessionsPanel")?.classList.remove("open");
+});
 
 /* sessões (módulo irmão) */
 try {

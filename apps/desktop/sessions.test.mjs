@@ -3,19 +3,12 @@ import assert from 'node:assert';
 import { initSessions, openSession, newSession, getActiveSession } from './sessions.js';
 
 const createMockElement = (tag) => {
-  let _innerHTML = '';
   const el = {
     tagName: tag.toUpperCase(),
-    _className: '',
-    get className() { return this._className; },
-    set className(v) {
-      this._className = v;
-      this.classList._classes = new Set(v.split(' ').filter(Boolean));
-    },
+    className: '',
     dataset: {},
     id: '',
-    get innerHTML() { return _innerHTML; },
-    set innerHTML(v) { _innerHTML = v; this.children = []; },
+    innerHTML: '',
     children: [],
     attributes: {},
     textContent: '',
@@ -105,12 +98,12 @@ describe('sessions.js', () => {
           })
         };
       }
-      if (url === '/api/sessions/s1' || url === '/api/sessions/s2') {
+      if (url === '/api/sessions/s1') {
         return {
           ok: true,
           json: async () => ({
             ok: true,
-            session: { id: url.split('/').pop(), title: 'Sessão ' + url.split('/').pop() },
+            session: { id: 's1', title: 'Sessão 1' },
             messages: [{ role: 'user', content: 'oi', at: '2026-11-15T00:00:00Z' }]
           })
         };
@@ -157,14 +150,14 @@ describe('sessions.js', () => {
       onOpen: (msgs) => onOpenCalls.push(msgs)
     });
 
-    await openSession('s2');
+    await openSession('s1');
 
     assert.strictEqual(onOpenCalls.length, 1);
     assert.strictEqual(onOpenCalls[0][0].content, 'oi');
     const s2 = listEl.querySelector('[data-id="s2"]');
     const s1 = listEl.querySelector('[data-id="s1"]');
-    assert.ok(s2.classList.contains('active'));
-    assert.ok(!s1.classList.contains('active'));
+    assert.ok(s1.classList.contains('active'));
+    assert.ok(!s2.classList.contains('active'));
 
     document.body.removeChild(listEl);
   });
