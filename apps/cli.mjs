@@ -2,7 +2,7 @@
 /**
  * apps/cli.mjs — a CLI do SelfEvoPI: uma conversa, não um catálogo.
  *
- * Gramática: REPL de conversa (estilo Claude Code / OpenCode). Herda a MARCA
+ * Gramática: REPL de conversa (estilo Claude Code). Herda a MARCA
  * (docs/design/marca.md §1.1 e docs/design/superficies.md):
  *   - banner ◍ SelfEvoPI + versão (voz do produto; nunca cita o motor);
  *   - paleta via truecolor (#000/#fff/#787878) quando o terminal aceita,
@@ -937,7 +937,7 @@ async function runSkills({ out, arg }) {
   }
 
   if (linhas.length === 0) {
-    out(paint("  nenhuma skill encontrada (nem do loop, nem do OpenCode)", "muted"));
+    out(paint("  nenhuma skill encontrada (nem do loop, nem do usuário)", "muted"));
     return 0;
   }
 

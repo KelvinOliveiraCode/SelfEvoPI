@@ -197,8 +197,10 @@ async function main() {
 
   const config = await findOpencodeConfig({});
   if (!config) {
-    process.stdout.write("não achei a configuração do SelfEvoPI (~/.pi/settings.json)\n");
-    return 1;
+    process.stdout.write(
+      "nenhuma config em ~/.pi/settings.json — rode /import para migrar do OpenCode\n"
+    );
+    return 0;
   }
 
   let servidores;
