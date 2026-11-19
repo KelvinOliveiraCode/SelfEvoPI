@@ -506,4 +506,159 @@ test("probeOpencodeMcp: linha de log no meio do stream não quebra o parse", asy
   assert.deepEqual(r.tools, ["ping"],
     `catálogo deveria vir mesmo com log no meio: ${JSON.stringify(r.tools)}`);
   assert.equal(r.error, null);
+  });
+
+/* ------------------------------------------------------------------ */
+/* A6: ambiente do filho (APPDATA/LOCALAPPDATA)                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Servidor que so responde se as variaveis que o uv/Python usa chegarem
+ * ao filho. E a reproducao do defeito 2 sem depender de Python instalado:
+ * o que se prova e a allowlist, nao o uv.
+ */
+const SERVIDOR_EXIGE_AMBIENTE = `
+import { appendFileSync } from "node:fs";
+const faltando = ["APPDATA", "LOCALAPPDATA"].filter((k) => !process.env[k]);
+if (faltando.length) {
+  appendFileSync(process.env.MARKER, faltando.join(","));
+  process.exit(3);
+}
+process.stdin.setEncoding("utf8");
+let buf = "";
+process.stdin.on("data", (c) => {
+  buf += c;
+  let i;
+  while ((i = buf.indexOf("\\n")) >= 0) {
+    const linha = buf.slice(0, i).trim();
+    buf = buf.slice(i + 1);
+    if (!linha) continue;
+    const msg = JSON.parse(linha);
+    if (msg.method === "initialize") {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {
+        protocolVersion: "2024-11-05", capabilities: {},
+        serverInfo: { name: "ambiente", version: "1.0.0" } } }) + "\\n");
+    }
+    if (msg.method === "tools/list") {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {
+        tools: [{ name: "pesquisar" }] } }) + "\\n");
+    }
+  }
+});
+setInterval(() => {}, 1000);
+`;
+
+test("probeOpencodeMcp passa APPDATA e LOCALAPPDATA ao filho", async () => {
+  const home = await novoHome();
+  const dir = path.join(home, "srv");
+  await mkdir(dir, { recursive: true });
+
+  const script = path.join(dir, "ambiente.mjs");
+  await writeFile(script, SERVIDOR_EXIGE_AMBIENTE, "utf8");
+  const marker = path.join(dir, "faltando.txt");
+
+  await escreverConfig(
+    home,
+    JSON.stringify({
+      mcpServers: {
+        ambiente: {
+          type: "local",
+          command: [process.execPath, script],
+          environment: { MARKER: marker },
+        },
+      },
+    })
+  );
+
+  const r = await probeOpencodeMcp({ name: "ambiente", home, timeoutMs: 5_000 });
+
+  assert.equal(r.ok, true, `ok deveria ser true, erro=${r.error}`);
+  assert.deepEqual(r.tools, ["pesquisar"]);
+  // prova o positivo: o filho nao reclamou de variavel faltando
+  assert.equal(existsSync(marker), false,
+    `o filho nao deveria ter reclamado de ambiente: ${existsSync(marker) ? readFileSync(marker, "utf8") : ""}`);
+});
+
+/* ------------------------------------------------------------------ */
+/* A6: timeout.catalog                                                 */
+/* ------------------------------------------------------------------ */
+
+/** Servidor que responde initialize na hora e segura o tools/list. */
+const SERVIDOR_CATALOGO_LENTO = `
+process.stdin.setEncoding("utf8");
+let buf = "";
+process.stdin.on("data", (c) => {
+  buf += c;
+  let i;
+  while ((i = buf.indexOf("\\n")) >= 0) {
+    const linha = buf.slice(0, i).trim();
+    buf = buf.slice(i + 1);
+    if (!linha) continue;
+    const msg = JSON.parse(linha);
+    if (msg.method === "initialize") {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {
+        protocolVersion: "2024-11-05", capabilities: {},
+        serverInfo: { name: "lento", version: "1.0.0" } } }) + "\\n");
+    }
+    if (msg.method === "tools/list") {
+      setTimeout(() => {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {
+          tools: [{ name: "tarde" }] } }) + "\\n");
+      }, 2_500);
+    }
+  }
+});
+setInterval(() => {}, 1000);
+`;
+
+test("probeOpencodeMcp espera o tools/list pelo timeout.catalog da config", async () => {
+  const home = await novoHome();
+  const dir = path.join(home, "srv");
+  await mkdir(dir, { recursive: true });
+
+  const script = path.join(dir, "lento.mjs");
+  await writeFile(script, SERVIDOR_CATALOGO_LENTO, "utf8");
+
+  await escreverConfig(
+    home,
+    JSON.stringify({
+      mcpServers: {
+        lento: {
+          type: "local",
+          command: [process.execPath, script],
+          timeout: { startup: 60_000, catalog: 60_000, execution: 60_000 },
+        },
+      },
+    })
+  );
+
+  // 2 s fixos (o teto antigo) nao dariam conta de um catalogo de 2,5 s.
+  const r = await probeOpencodeMcp({ name: "lento", home, timeoutMs: 10_000 });
+
+  assert.equal(r.ok, true, `ok deveria ser true, erro=${r.error}`);
+  assert.deepEqual(r.tools, ["tarde"],
+    `o catalogo deveria vir dentro do timeout.catalog: ${JSON.stringify(r.tools)}`);
+  assert.equal(r.error, null);
+});
+
+test("probeOpencodeMcp mantem o teto de 2 s quando a config nao declara catalog", async () => {
+  const home = await novoHome();
+  const dir = path.join(home, "srv");
+  await mkdir(dir, { recursive: true });
+
+  const script = path.join(dir, "lento2.mjs");
+  await writeFile(script, SERVIDOR_CATALOGO_LENTO, "utf8");
+
+  await escreverConfig(
+    home,
+    JSON.stringify({
+      mcpServers: { lento: { type: "local", command: [process.execPath, script] } },
+    })
+  );
+
+  const r = await probeOpencodeMcp({ name: "lento", home, timeoutMs: 10_000 });
+
+  assert.equal(r.ok, true, `initialize respondeu, entao ok segue true, erro=${r.error}`);
+  assert.deepEqual(r.tools, [],
+    `sem timeout.catalog o teto e 2 s e o catalogo de 2,5 s nao cabe: ${JSON.stringify(r.tools)}`);
 });
