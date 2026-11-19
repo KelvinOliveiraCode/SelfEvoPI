@@ -5,6 +5,95 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.1.0] - 2026-11-18
+
+**A CLI polida e as integrações com a máquina.** O 1.0 entregou o produto; o 1.1
+entrega o acabamento: comandos de estado e tema, o seletor de modelo, as skills e
+os MCPs que já existem na máquina do usuário, e o fim da "bancada de teste" no
+desktop. Tudo **sem dependência npm** — o bloco `dependencies` morto
+(`jsdom`, `node-html-parser`) saiu; o `package.json` segue sem `dependencies` e o
+`package-lock.json` com 1 entrada (medido em 2026-11-18, `npm ls --depth=0`).
+
+### Adicionado
+
+**Comandos novos.**
+
+- **`/settings`** (`core/agent/settings-view.mjs`) — visão única do estado: modo,
+  permissão, modelo, esforço, tema, MCPs conectados e skills encontradas. Cada
+  linha diz o comando que a muda.
+- **`/theme [escuro|claro|alto-contraste]`** (`core/agent/theme.mjs`) — troca a
+  paleta da TUI. Persiste. Tema muda o que a TUI usa, não o que ela é — nada de
+  cor decorativa.
+- **`/swarm [n] <tarefa>`** (`core/agent/swarm.mjs`) — orquestra `n` subagentes
+  rumo à tarefa, distribui, coleta e sintetiza. Subagente nasce de qualquer
+  provedor configurado; o principal escolhe.
+- **`/mode`** — alterna entre os 5 modos (`plan → build → manual → ask → goal`),
+  mostra o modo novo e explica em uma linha o que ele permite. `/plan`, `/build`,
+  `/ask` continuam indo direto ao modo.
+- **`/effort [off|low|medium|high]`** — esforço de raciocínio do modelo em uso;
+  aceita os níveis que o modelo realmente expõe (lê do provedor, não impõe).
+
+**`/model` interativo.** O seletor de dois estágios (provedor → modelo → esforço)
+com setas e `enter`/`esc`. Antes só listava; agora escolhe. `/model <nome>`
+direto continua funcionando (pula o seletor).
+
+**`/skills` de duas fontes.** Passa a ler o store do loop (`.pi/harness/memory`,
+skills que o SelfEvoPI gerou) **e** as skills do OpenCode
+(`~/.config/opencode/skills/*/SKILL.md` — **334** nesta máquina, 2026-11-18,
+`node --input-type=module` com `listPcSkills`). Antes só a primeira, e por isso as
+suas não apareciam. Cada resultado diz a fonte: `loop` ou `pc`.
+
+**Integrações da máquina.**
+
+- **`/mcp`** lê os servidores do OpenCode (`~/.config/opencode/opencode.jsonc`,
+  `mcp.servers`) — **29** nesta máquina (2026-11-18, `listOpencodeMcp` com o home
+  do usuário). O arquivo é **JSONC** (comentários); o módulo remove comentários
+  antes de parsear e falha com a **linha** do erro, não com "JSON inválido" seco.
+- **Sonda de handshake** (`probeOpencodeMcp`): abre o processo, escreve um
+  `initialize` JSON-RPC em stdin e espera. Se não responder, `ok:false` com o
+  motivo — um `ok:true` sem handshake seria pior que não ter sonda.
+
+### Removido
+
+- **Painel de métricas do desktop.** `/panel` agora responde **404** (medido em
+  2026-11-18: `scripts/desktop.mjs` não serve mais a rota; `app.js` cai no 404
+  do servidor). Quem baixar só tem CLI e desktop, sem bancada de teste. A
+  informação de estado continua na CLI (`/settings`) e no desktop (barra de
+  estado).
+
+### Corrigido
+
+- **`/goal` trunca em 72 col** — o argumento era ecoado sem teto. Agora respeita
+  a largura (ver `apps/cli-audit.test.mjs`, BUG1).
+- **`--render menu` existe** — a varredura listava `menu` e o render não o
+  reconhecia. Agora `node apps/cli.mjs --render menu` imprime o frame (2026-11-18).
+- **`/init` não cita o motor** — o rascunho de `AGENTS.md` não menciona
+  "PI Coding Agent" (ver `apps/cli-audit.test.mjs`, BUG2).
+- **`/mode plan` não estoura 72 col** — o texto do modo respeita a largura.
+
+### Contexto da versão
+
+Métricas **medidas em 2026-11-18** no HEAD `6935fcc` (branch `main`). Fotografia da
+data, não garantia de desempenho. Cada número tem o comando que o produziu.
+
+| Métrica | Valor medido | Comando |
+|:---|:---|:---|
+| Skills do OpenCode nesta máquina | 334 | `node --input-type=module` com `listPcSkills({})` |
+| MCPs do OpenCode nesta máquina | 29 | `listOpencodeMcp({ home })` |
+| Dependências npm | 0 (lock com 1 entrada) | `npm ls --depth=0` |
+| Largura da TUI | ≤ 72 col | `node apps/cli.mjs --render menu` |
+
+> A suíte completa (`npm test`) e o gate de URLs (`node scripts/verify-urls.mjs`)
+> são o critério de aceite desta versão; ver a seção Verificação.
+
+### Verificação
+
+```powershell
+npm test                       # suíte completa (unitários + interfaces)
+node scripts/verify-urls.mjs   # 33 URLs citadas, todas 200
+node apps/cli.mjs --render menu   # frame da paleta, ≤72 col
+```
+
 ## [1.0.1] - 2026-11-18
 
 **Fechamento do desktop.** O 1.0.0 saiu com o painel de configurações no código
