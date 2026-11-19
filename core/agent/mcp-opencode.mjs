@@ -496,11 +496,18 @@ export async function probeOpencodeMcp({ name, home, configPath, timeoutMs = 5_0
 
   let child;
   try {
-    child = spawn(expandHome(alvo.command, home), alvo.args, {
+    // No Windows, .cmd/.bat (npx.cmd, uv.cmd) exigem shell: true ou spawn
+    // responde EINVAL. .exe com caminho (node.exe em "Program Files") NAO pode
+    // receber shell: true ou o cmd.exe quebra no espaco. A regra e: so .cmd/.bat
+    // vao para o shell.
+    const cmd = expandHome(alvo.command, home);
+    const precisaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(cmd);
+    child = spawn(cmd, alvo.args, {
       cwd: alvo.cwd ? expandHome(alvo.cwd, home) : resolveHome(home),
       env,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
+      shell: precisaShell,
     });
   } catch (err) {
     return { ok: false, tools: [], error: `não consegui iniciar o processo: ${err?.message ?? err}` };

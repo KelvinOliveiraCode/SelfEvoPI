@@ -427,7 +427,20 @@ export function renderMarkdown(md) {
 function capLinhas(linhas, largura = 72) {
   return linhas.map((l) => {
     const texto = String(l);
-    return visibleWidth(texto) > largura ? `${texto.slice(0, largura - 1)}…` : texto;
+    if (visibleWidth(texto) <= largura) return texto;
+    // Fatia sem quebrar sequencias ANSI: percorre a string contando largura
+    // visivel e so entao corta, preservando o \x1b[0m no fim.
+    let larguraV = 0;
+    let corte = 0;
+    let dentroAnsi = false;
+    for (let i = 0; i < texto.length && larguraV < largura - 1; i++) {
+      const ch = texto[i];
+      if (ch === "\x1b") { dentroAnsi = true; continue; }
+      if (dentroAnsi) { if (ch === "m") dentroAnsi = false; continue; }
+      corte = i + 1;
+      larguraV++;
+    }
+    return `${texto.slice(0, corte)}…`;
   });
 }
 
@@ -456,7 +469,7 @@ async function runSettingsView({ out }) {
     permission: permissionMode,
     model: null,
     effort: null,
-    theme: seguro(() => getTheme(), null),
+    theme: getTheme(),
     mcp: mcp.length,
     skills: skills.length,
     sessions: null,
@@ -474,8 +487,13 @@ async function runTheme({ arg, out }) {
     return 0;
   }
   try {
-    const t = setTheme(nome);
-    out(paint(`  tema: ${t}`, "ok"));
+    const antes = getTheme();
+    const ok = setTheme(nome);
+    if (!ok) {
+      out(paint(`  tema "${nome}" nao existe. Disponiveis: ${listThemes().join(", ")}`, "fail"));
+      return 1;
+    }
+    out(paint(`  tema: ${antes} -> ${getTheme()}`, "ok"));
     return 0;
   } catch (err) {
     out(paint(`  ${String(err?.message || err).slice(0, 120)}`, "fail"));
@@ -504,7 +522,7 @@ async function runSwarm({ arg, out }) {
   }
   const { n, task } = parseSwarmArgs(bruto);
   const plano = planSwarm({ task, n, providers: provedores });
-  out(renderSwarm(plano).join("\n"));
+  out(renderSwarm({ plan: plano }).join("\n"));
   out(paint("  (o modelo principal executa e coleta; /swarm <n> <tarefa> ajusta n)", "muted"));
   return 0;
 }
