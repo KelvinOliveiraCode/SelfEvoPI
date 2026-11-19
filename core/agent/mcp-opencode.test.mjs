@@ -361,3 +361,137 @@ test("probeOpencodeMcp devolve ok:false para servidor remoto", async () => {
   assert.equal(r.ok, false);
   assert.match(r.error, /remoto/);
 });
+
+/* ------------------------------------------------------------------ */
+/* A10: tools/list em múltiplos chunks sem \n entre eles               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Servidor que manda tools/list em múltiplos chunks stdout SEM \n entre
+ * eles (só \n no final do último chunk). Reproduz o comportamento dos
+ * *-cli.exe (lightcraft/pdfcraft/soundcraft) que fazia o probeOpencodeMcp
+ * retornar tools=0.
+ */
+const SERVIDOR_CHUNKS = `
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.MARKER, String(process.pid));
+process.stdin.setEncoding("utf8");
+let buf = "";
+process.stdin.on("data", (c) => {
+  buf += c;
+  let i;
+  while ((i = buf.indexOf("\\n")) >= 0) {
+    const linha = buf.slice(0, i).trim();
+    buf = buf.slice(i + 1);
+    if (!linha) continue;
+    const msg = JSON.parse(linha);
+    if (msg.method === "initialize") {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {
+        protocolVersion: "2024-11-05", capabilities: {},
+        serverInfo: { name: "chunks", version: "1.0.0" } } }) + "\\n");
+    }
+    if (msg.method === "tools/list") {
+      // Monta a resposta completa e manda em pedaços SEM newline entre eles.
+      const resposta = JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {
+        tools: [
+          { name: "tool_a", description: "Ferramenta A" },
+          { name: "tool_b", description: "Ferramenta B" },
+          { name: "tool_c", description: "Ferramenta C" },
+        ],
+      } });
+      // Divide em 3 pedaços, sem newline entre eles.
+      const meio = Math.floor(resposta.length / 3);
+      process.stdout.write(resposta.slice(0, meio));
+      setTimeout(() => {
+        process.stdout.write(resposta.slice(meio, meio * 2));
+        setTimeout(() => {
+          process.stdout.write(resposta.slice(meio * 2) + "\\n");
+        }, 10);
+      }, 10);
+    }
+  }
+});
+setInterval(() => {}, 1000);
+`;
+
+/**
+ * Servidor que manda uma linha de log no meio do stream stdout, entre
+ * initialize e tools/list. Verifica que o parser não quebra.
+ */
+const SERVIDOR_LOG = `
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.MARKER, String(process.pid));
+process.stdin.setEncoding("utf8");
+let buf = "";
+process.stdin.on("data", (c) => {
+  buf += c;
+  let i;
+  while ((i = buf.indexOf("\\n")) >= 0) {
+    const linha = buf.slice(0, i).trim();
+    buf = buf.slice(i + 1);
+    if (!linha) continue;
+    const msg = JSON.parse(linha);
+    if (msg.method === "initialize") {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {
+        protocolVersion: "2024-11-05", capabilities: {},
+        serverInfo: { name: "log", version: "1.0.0" } } }) + "\\n");
+    }
+    if (msg.method === "tools/list") {
+      // Manda uma linha de log no meio do stream, depois a resposta JSON.
+      process.stdout.write("INFO: servidor iniciado\\n");
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {
+        tools: [{ name: "ping" }],
+      } }) + "\\n");
+    }
+  }
+});
+setInterval(() => {}, 1000);
+`;
+
+test("probeOpencodeMcp: tools/list em múltiplos chunks sem \\n entre eles", async () => {
+  const home = await novoHome();
+  const dir = path.join(home, "srv");
+  await mkdir(dir, { recursive: true });
+
+  const script = path.join(dir, "chunks.mjs");
+  await writeFile(script, SERVIDOR_CHUNKS, "utf8");
+  const marker = path.join(dir, "pid.txt");
+
+  await escreverConfig(
+    home,
+    JSON.stringify({
+      mcp: { servers: { chunks: { type: "local", command: [process.execPath, script], environment: { MARKER: marker } } } },
+    })
+  );
+
+  const r = await probeOpencodeMcp({ name: "chunks", home, timeoutMs: 5_000 });
+
+  assert.equal(r.ok, true, `ok deveria ser true, erro=${r.error}`);
+  assert.deepEqual(r.tools, ["tool_a", "tool_b", "tool_c"],
+    `catálogo deveria vir completo: ${JSON.stringify(r.tools)}`);
+  assert.equal(r.error, null);
+});
+
+test("probeOpencodeMcp: linha de log no meio do stream não quebra o parse", async () => {
+  const home = await novoHome();
+  const dir = path.join(home, "srv");
+  await mkdir(dir, { recursive: true });
+
+  const script = path.join(dir, "log.mjs");
+  await writeFile(script, SERVIDOR_LOG, "utf8");
+  const marker = path.join(dir, "pid.txt");
+
+  await escreverConfig(
+    home,
+    JSON.stringify({
+      mcp: { servers: { log: { type: "local", command: [process.execPath, script], environment: { MARKER: marker } } } },
+    })
+  );
+
+  const r = await probeOpencodeMcp({ name: "log", home, timeoutMs: 5_000 });
+
+  assert.equal(r.ok, true, `ok deveria ser true, erro=${r.error}`);
+  assert.deepEqual(r.tools, ["ping"],
+    `catálogo deveria vir mesmo com log no meio: ${JSON.stringify(r.tools)}`);
+  assert.equal(r.error, null);
+});

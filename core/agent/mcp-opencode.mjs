@@ -523,6 +523,7 @@ export async function probeOpencodeMcp({ name, home, configPath, timeoutMs = 5_0
   // por profundidade de chaves resolve sem quebrar o caso que já funcionava
   // (servidores newline-delimited continuam funcionando: cada linha completa
   // é um objeto JSON que fecha antes do próximo \n).
+  const MAX_BUFFER = 4 * 1024 * 1024; // 4 MB — catálogo do lightcraft ~150KB, folga 26x
   let buffer = "";
   const mensagens = []; // objetos JSON-RPC já parseados e prontos
 
@@ -577,6 +578,10 @@ export async function probeOpencodeMcp({ name, home, configPath, timeoutMs = 5_0
 
   child.stdout.on("data", (c) => {
     buffer += String(c);
+    // Teto de segurança: se o buffer passar de 4 MB sem fechar um objeto,
+    // o servidor está mal comportado (travou, saída corrompida). Descarta
+    // e segue — o probe vai reportar tools/list não respondeu.
+    if (buffer.length > MAX_BUFFER) buffer = "";
     drenarBuffer();
   });
   child.stderr.on("data", (c) => {
