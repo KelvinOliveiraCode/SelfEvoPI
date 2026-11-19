@@ -1,0 +1,9 @@
+{
+  "id": "C4-docs-present",
+  "group": "C",
+  "title": "Documentos internos mínimos existem",
+  "description": "Confere que README.md e os documentos de pesquisa/fase0 citados pelo projeto continuam no repositório, sem que ninguém remova a documentação base.",
+  "checker": "node evals/checks/check-docs-links.mjs",
+  "timeoutMs": 30000,
+  "tags": ["documentacao", "regressao"]
+}

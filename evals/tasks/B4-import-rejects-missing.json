@@ -1,0 +1,9 @@
+{
+  "id": "B4-import-rejects-missing",
+  "group": "B",
+  "title": "Importador rejeita origem sem os providers do SelfEvoPI",
+  "description": "Aponta --source para um JSONC minimo sem kilo1-or4 e exige saida codigo 2 com mensagem de erro.",
+  "checker": "node evals/checks/check-import-rejects-missing.mjs",
+  "timeoutMs": 30000,
+  "tags": ["providers", "import", "seguranca"]
+}

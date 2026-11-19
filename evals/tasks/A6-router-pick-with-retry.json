@@ -1,0 +1,9 @@
+{
+  "id": "A6-router-pick-with-retry",
+  "group": "A",
+  "title": "pickWithRetry troca de provider, exclui tentados e esgota",
+  "description": "Garante que pickWithRetry recupera em outro provider após erro retryable, nunca repete um já tentado, esgota as tentativas propagando o erro e não repete quando o erro é não-retryable.",
+  "checker": "node evals/checks/check-pick-with-retry.mjs",
+  "timeoutMs": 30000,
+  "tags": ["router", "retry", "resiliencia"]
+}

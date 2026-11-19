@@ -1,0 +1,9 @@
+{
+  "id": "A2-router-backoff",
+  "group": "A",
+  "title": "Backoff exponencial cresce e respeita o teto",
+  "description": "Garante que o backoff cresce a cada tentativa, nunca ultrapassa o teto e, sem jitter (rng=1), devolve exatamente o valor cheio.",
+  "checker": "node evals/checks/check-router-backoff.mjs",
+  "timeoutMs": 30000,
+  "tags": ["router", "retry", "backoff"]
+}

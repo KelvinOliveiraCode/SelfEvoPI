@@ -1,0 +1,9 @@
+{
+  "id": "B6-forge-generate-cli",
+  "group": "B",
+  "title": "generate-cli transforma pedido em CLI funcional",
+  "description": "Gera um CLI a partir de um pedido de artefato e prova que ele funciona: imprime JSON com ok:true quando recebe as entradas, sai 2 quando falta argumento, e o gerador recusa sobrescrever.",
+  "checker": "node evals/checks/check-generate-cli.mjs",
+  "timeoutMs": 40000,
+  "tags": ["forge", "geracao", "cli"]
+}
