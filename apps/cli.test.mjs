@@ -17,7 +17,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
@@ -1351,4 +1352,79 @@ test("runSlash /mode <nome> vai direto, sem passar pelo anel", async () => {
   const code = await runSlash("/mode", "goal", (s) => (out += s + "\n"), { pi: null });
   assert.equal(code, 0);
   assert.match(stripAnsi(out), /modo:\s*goal/);
+});
+
+/* ------------------------------------------------------------------ */
+/* /import — ligação com a CLI (preview/confirma/undo)                */
+/* ------------------------------------------------------------------ */
+
+test("/import está registrado em COMMANDS e aparece em SLASH_COMMANDS", () => {
+  const names = COMMANDS.map((c) => c.name);
+  assert.ok(names.includes("/import"), "/import não está em COMMANDS");
+  const cmd = SLASH_COMMANDS.find((c) => c.cmd.split(" ")[0] === "/import");
+  assert.ok(cmd, "/import não aparece em SLASH_COMMANDS");
+  assert.ok(cmd.cmd.startsWith("/import"), "SLASH_COMMANDS deve listar /import");
+});
+
+test("/import --status sem ledger diz 'nenhum import registrado'", async () => {
+  let out = "";
+  const home = await mkdtemp(path.join(tmpdir(), "selfevopi-import-cli-"));
+  try {
+    const code = await runSlash("/import", "--status", (s) => (out += s + "\n"), { pi: null, home });
+    assert.equal(code, 0);
+    assert.match(stripAnsi(out), /nenhum import registrado/i);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("/import --undo sem manifesto diz 'nenhum import para desfazer'", async () => {
+  let out = "";
+  const home = await mkdtemp(path.join(tmpdir(), "selfevopi-import-cli-"));
+  try {
+    const code = await runSlash("/import", "--undo", (s) => (out += s + "\n"), { pi: null, home });
+    assert.equal(code, 0);
+    assert.match(stripAnsi(out), /nenhum import para desfazer/i);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("/import (prévia) não escreve nada; importar aplica; --undo restaura", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "selfevopi-import-cli-"));
+  const out = [];
+  const sink = (s) => out.push(s + "\n");
+  try {
+    // fonte OpenCode
+    const srcDir = path.join(home, ".config", "opencode", "skills", "skill-a");
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(
+      path.join(home, ".config", "opencode", "opencode.jsonc"),
+      JSON.stringify({ mcpServers: { fake: { type: "local", command: "node", args: ["s.mjs"] } } })
+    );
+    await writeFile(
+      path.join(srcDir, "SKILL.md"),
+      "---\nname: skill-a\ndescription: teste\n---\ncorpo\n"
+    );
+
+    // 1) prévia: não escreve
+    await runSlash("/import", "", sink, { pi: null, home });
+    assert.match(stripAnsi(out.join("")), /seriam copiados/i);
+    assert.equal(existsSync(path.join(home, ".pi", "settings.json")), false, "prévia não deve escrever settings.json");
+
+    // 2) importar: aplica
+    out.length = 0;
+    await runSlash("/import", "importar", sink, { pi: null, home });
+    assert.match(stripAnsi(out.join("")), /import concluído/i);
+    assert.ok(existsSync(path.join(home, ".pi", "settings.json")), "importar deve gravar settings.json");
+    assert.ok(existsSync(path.join(home, ".pi", "skills", "skill-a", "SKILL.md")), "importar deve copiar skill");
+
+    // 3) --undo: restaura
+    out.length = 0;
+    await runSlash("/import", "--undo", sink, { pi: null, home });
+    assert.match(stripAnsi(out.join("")), /import desfeito/i);
+    assert.equal(existsSync(path.join(home, ".pi", "skills", "skill-a", "SKILL.md")), false, "undo deve apagar skill");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });

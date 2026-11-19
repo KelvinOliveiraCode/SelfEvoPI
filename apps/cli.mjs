@@ -571,6 +571,12 @@ export const COMMANDS = [
   { name: "/context", args: "", description: "quanto da janela de contexto está em uso", run: runContext },
   { name: "/mcp", args: "", description: "servidores MCP declarados", run: runMcp },
   { name: "/init", args: "", description: "gera um rascunho de AGENTS.md (pede confirmação)", run: runInit },
+  {
+    name: "/import",
+    args: "[importar|--undo|--status]",
+    description: "traz MCPs e skills para a config própria (pede confirmação)",
+    run: runImport,
+  },
   { name: "/plan", args: "", description: "modo plan: lê e propõe, não escreve", run: (ctx) => runMode("plan", ctx) },
   { name: "/build", args: "", description: "modo build: escreve e executa no workspace", run: (ctx) => runMode("build", ctx) },
   { name: "/ask", args: "", description: "modo ask: só responde, nunca toca em disco", run: (ctx) => runMode("ask", ctx) },
@@ -1248,6 +1254,7 @@ let goalTag = null; // indicador cacheado (rodapé), atualizado quando a goal mu
 const HOME = process.env.USERPROFILE || process.env.HOME || ".";
 const SESSIONS_DIR = path.join(HOME, ".pi", "agent", "sessions");
 let pendingInit = null; // rascunho de AGENTS.md aguardando confirmação
+let pendingImport = null; // plano de /import aguardando confirmação (null = nenhum)
 
 function samePath(a, b) {
   const n = (p) => String(p).replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase();
@@ -1414,6 +1421,130 @@ async function runInit({ out }) {
   out(md);
   out("");
   out(paint("  rascunho — nada foi gravado. Responda sim para gravar AGENTS.md, ou outra coisa para descartar.", "muted"));
+  return 0;
+}
+
+async function runImport({ arg, out, home: homeInjetado } = {}) {
+  const { planImport, applyImport, undoImport } = await import("../core/agent/import.mjs");
+  const a = String(arg ?? "").trim();
+  const home = homeInjetado; // undefined → import.mjs usa o home do processo
+
+  // /import --undo → desfaz o último import
+  if (a === "--undo") {
+    let r;
+    try {
+      r = await undoImport({ home });
+    } catch (err) {
+      out(paint(`  não consegui desfazer: ${err?.message ?? err}`, "fail"));
+      return 1;
+    }
+    if (!r.manifesto) {
+      out(paint("  nenhum import para desfazer.", "muted"));
+      return 0;
+    }
+    const linhas = [paint("  import desfeito", "fg")];
+    if (r.restaurado) {
+      linhas.push(`    MCPs removidos: ${r.mcpRemovidos.length ? r.mcpRemovidos.join(", ") : "(nenhum)"}`);
+    }
+    if (r.skillsRemovidas.length) {
+      linhas.push(`    skills removidas: ${r.skillsRemovidas.join(", ")}`);
+    }
+    linhas.push(paint(`    manifesto: ${r.manifesto}`, "muted"));
+    out(linhas.join("\n"));
+    return 0;
+  }
+
+  // /import --status → mostra o manifesto mais recente
+  if (a === "--status") {
+    const { readdir, readFile } = await import("node:fs/promises");
+    const ledger = path.join(home ?? HOME, ".pi", "harness", "ledger");
+    let entries = [];
+    try {
+      entries = await readdir(ledger);
+    } catch {
+      out(paint("  nenhum import registrado ainda.", "muted"));
+      return 0;
+    }
+    const manifestos = entries.filter((n) => n.startsWith("import-") && n.endsWith(".json")).sort().reverse();
+    if (manifestos.length === 0) {
+      out(paint("  nenhum import registrado ainda.", "muted"));
+      return 0;
+    }
+    const linhas = [];
+    for (const nome of manifestos.slice(0, 5)) {
+      try {
+        const m = JSON.parse(await readFile(path.join(ledger, nome), "utf8"));
+        const estado = m.desfeito ? "desfeito" : "ativo";
+        linhas.push(
+          `  ${paint(nome, "fg")} · ${estado} · ${m.quando ?? "?"} · ${(m.mcpAdicionados ?? []).length} MCPs, ${(m.skillsAdicionadas ?? []).length} skills`
+        );
+      } catch {
+        /* manifesto corrompido: pula */
+      }
+    }
+    out(linhas.join("\n"));
+    return 0;
+  }
+
+  // /import importar (ou --confirm) → aplica o plano (pendente ou novo)
+  if (a === "importar" || a === "--confirm" || a === "sim" || a === "y") {
+    let r;
+    try {
+      const plan = pendingImport ?? (await planImport({ home }));
+      r = await applyImport({ home, plan });
+    } catch (err) {
+      out(paint(`  não consegui importar: ${err?.message ?? err}`, "fail"));
+      return 1;
+    } finally {
+      pendingImport = null;
+    }
+    const linhas = [paint("  import concluído", "fg")];
+    if (r.added.mcp.length) linhas.push(`    MCPs copiados:    ${r.added.mcp.join(", ")}`);
+    if (r.added.skills.length) linhas.push(`    skills copiadas:  ${r.added.skills.join(", ")}`);
+    const mantidos = [...(r.skipped?.mcp ?? []), ...(r.skipped?.skills ?? [])];
+    if (mantidos.length) linhas.push(paint(`    mantidos (já existiam): ${mantidos.join(", ")}`, "muted"));
+    if (r.avisos && r.avisos.length) {
+      linhas.push(paint("    avisos:", "warn"));
+      for (const av of r.avisos) linhas.push(paint(`      ${av.nome}: ${av.aviso}`, "warn"));
+    }
+    if (r.backup) linhas.push(paint(`    backup: ${r.backup}`, "muted"));
+    if (r.manifesto) linhas.push(paint(`    manifesto: ${r.manifesto}`, "muted"));
+    out(linhas.join("\n"));
+    return 0;
+  }
+
+  // /import sem argumento (ou qualquer outro) → prévia (nada é escrito)
+  let plano;
+  try {
+    plano = await planImport({ home });
+  } catch (err) {
+    out(paint(`  não consegui planejar o import: ${err?.message ?? err}`, "fail"));
+    return 1;
+  }
+
+  if (!plano.origemExiste) {
+    out(paint("  não achei config do OpenCode (~/.config/opencode) — nada para importar.", "muted"));
+    return 0;
+  }
+
+  pendingImport = plano; // guarda o plano; só aplica com confirmação explícita
+
+  const linhas = [paint("  prévia do import (nada foi escrito)", "fg")];
+  linhas.push(
+    `    MCPs:   ${plano.mcpAdd.length} seriam copiados, ${plano.mcpSkip.length} já existem (mantidos)`
+  );
+  linhas.push(
+    `    skills: ${plano.skillsAdd.length} seriam copiadas, ${plano.skillsSkip.length} já existem (mantidas)`
+  );
+  if (plano.mcpAdd.length === 0 && plano.skillsAdd.length === 0) {
+    linhas.push(paint("    tudo já está importado — nada a fazer.", "muted"));
+    pendingImport = null;
+    out(linhas.join("\n"));
+    return 0;
+  }
+  out(linhas.join("\n"));
+  out("");
+  out(paint("  responda 'importar' para confirmar, ou outra coisa para cancelar.", "muted"));
   return 0;
 }
 
@@ -1734,7 +1865,7 @@ export async function runSlash(name, arg, out, ctx = {}) {
     return 2;
   }
   try {
-    return await cmd.run({ arg, out, pi: ctx.pi, onClear: ctx.onClear });
+    return await cmd.run({ arg, out, pi: ctx.pi, onClear: ctx.onClear, home: ctx.home });
   } catch (err) {
     out(paint(`  ${String(err?.message || err).slice(0, 200)}`, "fail"));
     return 2;
@@ -2575,6 +2706,28 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
       prompt();
       return;
     }
+    if (pendingImport) {
+      const ans = String(text).trim().toLowerCase();
+      if (ans === "importar" || ans === "sim" || ans === "y" || ans === "yes") {
+        const { applyImport } = await import("../core/agent/import.mjs");
+        try {
+          const r = await applyImport({ plan: pendingImport });
+          const linhas = ["  import concluído"];
+          if (r.added.mcp.length) linhas.push(`    MCPs copiados:    ${r.added.mcp.join(", ")}`);
+          if (r.added.skills.length) linhas.push(`    skills copiadas:  ${r.added.skills.join(", ")}`);
+          if (r.backup) linhas.push(`    backup: ${r.backup}`);
+          if (r.manifesto) linhas.push(`    manifesto: ${r.manifesto}`);
+          write(linhas.join("\n") + "\n");
+        } catch (err) {
+          write("  não consegui importar: " + (err?.message ?? err) + "\n");
+        }
+      } else {
+        write("  import cancelado (nada gravado).\n");
+      }
+      pendingImport = null;
+      prompt();
+      return;
+    }
     const parsed = parseInput(text);
     if (parsed.type === "quit") {
       quitting = true;
@@ -2958,6 +3111,27 @@ async function main() {
           process.stdout.write("  descartado (nada gravado).\n");
         }
         pendingInit = null;
+        return;
+      }
+      if (pendingImport) {
+        const ans = String(raw).trim().toLowerCase();
+        if (ans === "importar" || ans === "sim" || ans === "y" || ans === "yes") {
+          const { applyImport } = await import("../core/agent/import.mjs");
+          try {
+            const r = await applyImport({ plan: pendingImport });
+            const linhas = ["  import concluído"];
+            if (r.added.mcp.length) linhas.push(`    MCPs copiados:    ${r.added.mcp.join(", ")}`);
+            if (r.added.skills.length) linhas.push(`    skills copiadas:  ${r.added.skills.join(", ")}`);
+            if (r.backup) linhas.push(`    backup: ${r.backup}`);
+            if (r.manifesto) linhas.push(`    manifesto: ${r.manifesto}`);
+            process.stdout.write(linhas.join("\n") + "\n");
+          } catch (err) {
+            process.stdout.write("  não consegui importar: " + (err?.message ?? err) + "\n");
+          }
+        } else {
+          process.stdout.write("  import cancelado (nada gravado).\n");
+        }
+        pendingImport = null;
         return;
       }
       const parsed = parseInput(raw);
