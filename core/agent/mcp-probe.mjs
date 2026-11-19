@@ -33,9 +33,21 @@ import path from "node:path";
 /* Constantes                                                          */
 /* ------------------------------------------------------------------ */
 
-/** Onde o SelfEvoPI guarda a config global de MCPs, na ordem em que procuramos. */
+/**
+ * Onde procuramos a config global de MCPs, nesta ordem:
+ *
+ *  1. `~/.pi/settings.json` — o registro do SelfEvoPI (o dono, quando existe);
+ *  2. `~/.config/opencode/opencode.jsonc` — a config do proprio OpenCode,
+ *     com os 29 servidores do usuario. Fica como fallback para o modulo
+ *     funcionar na maquina onde o SelfEvoPI ainda nao escreveu o seu.
+ *
+ * As duas usam chaves diferentes (`mcpServers` e `mcp.servers`); `listOpencodeMcp`
+ * aceita as duas.
+ */
 export const OPENCODE_CONFIG_FILES = [
   path.join(".pi", "settings.json"),
+  path.join(".config", "opencode", "opencode.jsonc"),
+  path.join(".config", "opencode", "opencode.json"),
 ];
 
 /** Status possíveis. */
@@ -48,7 +60,15 @@ export const STATUS = Object.freeze({
 /** Tipos de servidor que sabemos montar. */
 const TIPOS_CONHECIDOS = new Set(["local", "remote"]);
 
-/** Variáveis que um processo filho recebe, no probe (nada de segredo do harness). */
+/**
+ * Variáveis que um processo filho recebe, no probe (nada de segredo do harness).
+ *
+ * `APPDATA`/`LOCALAPPDATA` não são luxo: o `uv` (Python) guarda as
+ * instalações em `%LOCALAPPDATA%` e, sem ela, o `searxng` morria com
+ * `[WARNING] Failed to read unmanaged installs` antes de falar MCP. Medido
+ * 2026-11-19: com a allowlist antiga, sem resposta; com `LOCALAPPDATA`,
+ * `initialize` em 4475 ms.
+ */
 const ENV_BASE = [
   "PATH",
   "Path",
@@ -65,6 +85,8 @@ const ENV_BASE = [
   "LANG",
   "LC_ALL",
   "PYTHONUTF8",
+  "APPDATA",
+  "LOCALAPPDATA",
 ];
 
 /** Protocolo MCP que o probe anuncia. */
@@ -662,7 +684,12 @@ export async function probeOpencodeMcp({ name, home, configPath, timeoutMs = 5_0
     if (restante > 300) {
       pedir({ jsonrpc: "2.0", method: "notifications/initialized" });
       pedir({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
-      const lista = await esperar(2, Math.min(2_000, restante));
+      // o servidor declara o teto do catalogo (timeout.catalog); 2 s fixos
+      // era curto para app GUI, que responde initialize e demora o catalogo.
+      // O orcamento do chamador (timeoutMs) continua sendo o limite de fora.
+      const catalogo = Number(alvo.timeout?.catalog);
+      const tetoCatalogo = Number.isFinite(catalogo) && catalogo > 0 ? catalogo : 2_000;
+      const lista = await esperar(2, Math.min(tetoCatalogo, restante));
       if (lista && Array.isArray(lista.result?.tools)) {
         ferramentas = lista.result.tools
           .map((t) => (typeof t?.name === "string" ? t.name : null))
