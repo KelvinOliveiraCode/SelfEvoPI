@@ -79,8 +79,8 @@ Data: 2026-11-19.
 ## 4. Defeito do `mcp-opencode` — encontrado e JÁ CORRIGIDO no 519ed99
 
 - **Durante** a verificação, a árvore de trabalho tinha uma versão **não commitada**
-  de `core/agent/mcp-opencode.mjs` com `shell: process.platform === "win32"` fixo.
-  Isso quebrou o teste `core/agent/mcp-opencode.test.mjs:302`
+  de `core/agent/mcp-probe.mjs` com `shell: process.platform === "win32"` fixo.
+  Isso quebrou o teste `core/agent/mcp-probe.test.mjs:302`
   (`probeOpencodeMcp faz o handshake e devolve as ferramentas`): o teste spawna
   `process.execPath` = `C:\Program Files\nodejs\node.exe`, o `cmd.exe` lia
   `C:\Program` e falhava — `pass 20 | fail 1` isolado (reprodutível 3/3).
@@ -89,7 +89,7 @@ Data: 2026-11-19.
   `const precisaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(cmd);`
   (`.exe` spawna sem shell).
 - **Reverificado no `519ed99`:**
-  - isolado: `node --test core/agent/mcp-opencode.test.mjs` → **pass 21 | fail 0** (2,3 s).
+  - isolado: `node --test core/agent/mcp-probe.test.mjs` → **pass 21 | fail 0** (2,3 s).
   - no full run a 4 vias: `probeOpencodeMcp faz o handshake...` → **✔ (659 ms)**.
 
 Data: 2026-11-19.

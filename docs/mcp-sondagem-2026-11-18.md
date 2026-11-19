@@ -3,7 +3,7 @@
 > **Data da execução:** 2026-11-19
 > **Máquina:** Windows, Node **24.13.0**
 > **Configuração:** `C:\Users\Kelvin\.config\opencode\opencode.jsonc`
-> **Ferramenta:** `scripts/probe-mcps.mjs` (usa `core/agent/mcp-opencode.mjs`)
+> **Ferramenta:** `scripts/probe-mcps.mjs` (usa `core/agent/mcp-probe.mjs`)
 > **Comando do gate:** `node scripts/probe-mcps.mjs`
 
 ---
@@ -91,7 +91,7 @@ Sondados por fora do módulo, com a mesma sequência JSON-RPC:
 
 Reproduzi o probe do módulo num arquivo isolado (`replica.mjs`, mesma sequência, mesmo ambiente mínimo, mesmo cwd): `initialize: ok em 41 ms` → `tools/list: nada em 5065 ms`. Mandando o `tools/list` **de dentro do handler de stdout** (como o `diag` faz), o catálogo chega em 33–62 ms.
 
-**Conclusão:** os servidores estão sãos; a estratégia de envio do probe (responder ao `initialize` via polling e só então escrever o `tools/list`) não funciona com eles. É defeito do `core/agent/mcp-opencode.mjs`, não do MCP. Ver §5, item 1.
+**Conclusão:** os servidores estão sãos; a estratégia de envio do probe (responder ao `initialize` via polling e só então escrever o `tools/list`) não funciona com eles. É defeito do `core/agent/mcp-probe.mjs`, não do MCP. Ver §5, item 1.
 
 ### 4.3 `microsandbox`, `n8n` — `.cmd` sem shell
 
@@ -121,16 +121,16 @@ Não têm processo local. Não são falha: o probe os marca como `remoto` e eles
 
 ---
 
-## 5. Defeitos encontrados no `core/agent/mcp-opencode.mjs`
+## 5. Defeitos encontrados no `core/agent/mcp-probe.mjs`
 
 Não corrigidos — este pacote era para sondar e relatar.
 
 | # | Onde | O que acontece | Evidência |
 |:--|:---|:---|:---|
-| 1 | `core/agent/mcp-opencode.mjs:597-608` | O `tools/list` é enviado depois do `initialize` resolvido por polling; com `lightcraft`, `pdfcraft` e `soundcraft` o catálogo nunca chega, embora chegue em 40–60 ms quando enviado do handler de stdout | §4.2 |
-| 2 | `core/agent/mcp-opencode.mjs:499` | `spawn(command, args)` sem `shell`. `.cmd` (npx.cmd) devolve `EINVAL` no Windows | §4.3 |
-| 3 | `core/agent/mcp-opencode.mjs:57` (`ENV_BASE`) | A allowlist omite `APPDATA`/`LOCALAPPDATA` e as variáveis que ferramentas `uv`/Python usam; o `searxng` morre com código 1 | §4.4 |
-| 4 | `core/agent/mcp-opencode.mjs:601` | O teto de `tools/list` é `Math.min(2_000, restante)`, fixo. A config do servidor declara `timeout.catalog: 120000` e o módulo ignora | `lightcraft`, `pdfcraft`, `soundcraft` declaram `catalog: 120000` |
+| 1 | `core/agent/mcp-probe.mjs:597-608` | O `tools/list` é enviado depois do `initialize` resolvido por polling; com `lightcraft`, `pdfcraft` e `soundcraft` o catálogo nunca chega, embora chegue em 40–60 ms quando enviado do handler de stdout | §4.2 |
+| 2 | `core/agent/mcp-probe.mjs:499` | `spawn(command, args)` sem `shell`. `.cmd` (npx.cmd) devolve `EINVAL` no Windows | §4.3 |
+| 3 | `core/agent/mcp-probe.mjs:57` (`ENV_BASE`) | A allowlist omite `APPDATA`/`LOCALAPPDATA` e as variáveis que ferramentas `uv`/Python usam; o `searxng` morre com código 1 | §4.4 |
+| 4 | `core/agent/mcp-probe.mjs:601` | O teto de `tools/list` é `Math.min(2_000, restante)`, fixo. A config do servidor declara `timeout.catalog: 120000` e o módulo ignora | `lightcraft`, `pdfcraft`, `soundcraft` declaram `catalog: 120000` |
 
 ---
 

@@ -55,8 +55,8 @@ comentários antes, e falhe com mensagem clara se não conseguir.
 | A4 | `apps/cli.mjs` | `/model` picker, `/effort`, `/mode` |
 | A8 | `core/agent/banner.mjs`, `core/agent/theme.mjs` | logo ASCII, temas |
 | A3 | `core/agent/settings-view.mjs` | `/settings` |
-| A7 | `core/agent/skills-pc.mjs` | skills do OpenCode |
-| A6 | `core/agent/mcp-opencode.mjs` | MCPs do OpenCode |
+| A7 | `core/agent/skills-user.mjs` | skills do OpenCode |
+| A6 | `core/agent/mcp-probe.mjs` | MCPs do OpenCode |
 | A9 | `core/agent/swarm.mjs` | orquestrador swarm |
 | A5 | `scripts/desktop.mjs` | remove `/panel` |
 | A2 | testes novos | — |
