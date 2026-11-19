@@ -422,7 +422,9 @@ export const COMMANDS = [
   { name: "/forge", args: "<meta>", description: "inicia um ciclo evolutivo rumo à meta", run: runForge },
   { name: "/memory", args: "<termo>", description: "busca na memória (lexical + PPMI)", run: runMemory },
   { name: "/skills", args: "", description: "o que o loop já gerou e registrou", run: runSkills },
-  { name: "/model", args: "[nome]", description: "mostra ou troca o modelo da conversa", run: runModel },
+  { name: "/model", args: "[nome]", description: "seletor de modelo, ou troca direto", run: runModel },
+  { name: "/effort", args: "[off|low|medium|high]", description: "esforço de raciocínio do modelo atual", run: runEffort },
+  { name: "/mode", args: "", description: "alterna o modo (plan → build → manual → ask → goal)", run: (ctx) => runModeCycle(ctx) },
   { name: "/clear", args: "", description: "limpa a conversa e começa de novo", run: runClear },
   { name: "/compact", args: "", description: "compacta o histórico da conversa", run: runCompact },
   { name: "/sessions", args: "[id]", description: "lista sessões ou carrega uma", run: runSessions },
@@ -837,6 +839,112 @@ async function runForge({ arg, out }) {
   return r.code;
 }
 
+/* ------------------------------------------------------------------ */
+/* Esforço (thinking) e modos — o que /effort e /mode mostram           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Níveis de esforço aceitos quando o motor não pode ser consultado.
+ *
+ * A fonte de verdade é o motor: `get_available_thinking_levels` devolve o que
+ * **aquele** modelo expõe, e modelos diferentes têm listas diferentes. Este
+ * conjunto só aparece quando não há sessão — e o chamador diz isso ao usuário
+ * em vez de fingir que consultou.
+ */
+export const EFFORT_FALLBACK = Object.freeze(["off", "low", "medium", "high"]);
+
+/** Valida a lista vinda do motor; lista vazia ou lixo cai no fallback. */
+export function normalizeEffortList(levels) {
+  const arr = Array.isArray(levels)
+    ? levels.filter((l) => typeof l === "string" && l.trim() !== "").map((l) => l.trim().toLowerCase())
+    : [];
+  return arr.length > 0 ? arr : [...EFFORT_FALLBACK];
+}
+
+/** Casa o argumento com a lista, sem caixa. Devolve o nome canônico ou null. */
+export function resolveEffort(arg, levels) {
+  const list = normalizeEffortList(levels);
+  const alvo = String(arg ?? "").trim().toLowerCase();
+  if (alvo === "") return null;
+  return list.find((l) => l === alvo) ?? null;
+}
+
+/**
+ * Uma linha do que o modo permite — a explicação que o /mode mostra junto do
+ * nome novo. Sai dos campos de `resolveMode`, não de texto decorativo.
+ */
+export function describeModeLine(m) {
+  if (!m || typeof m !== "object") return null;
+  const pode = [];
+  pode.push(m.canRead ? "lê" : "não lê");
+  pode.push(m.canWrite ? "escreve" : "não escreve");
+  pode.push(m.canExec ? "executa (" + m.execScope + ")" : "não executa");
+  return m.name + ": " + pode.join(", ");
+}
+
+/** Lista de modelos agrupada por provedor, pronta para o seletor. */
+export function groupModelsByProvider(models) {
+  const lista = Array.isArray(models) ? models : [];
+  const mapa = new Map();
+  for (const m of lista) {
+    if (!m || typeof m.provider !== "string" || typeof m.id !== "string") continue;
+    if (!mapa.has(m.provider)) mapa.set(m.provider, []);
+    mapa.get(m.provider).push(m.id);
+  }
+  return [...mapa.entries()].map(([provider, ids]) => ({ provider, ids }));
+}
+
+/** Achata os grupos numa lista navegável (índice de cada modelo). */
+export function flattenModelGroups(groups) {
+  const flat = [];
+  const linhas = [];
+  for (const g of groups) {
+    linhas.push({ kind: "group", label: g.provider });
+    for (const id of g.ids) {
+      linhas.push({ kind: "model", provider: g.provider, id, label: id, flatIndex: flat.length });
+      flat.push({ provider: g.provider, id });
+    }
+  }
+  return { linhas, flat };
+}
+
+/**
+ * Monta as linhas do seletor de modelo (etapa "models") ou de esforço
+ * (etapa "effort"). Função pura: o REPL só desenha o que ela devolve.
+ */
+export function renderModelPicker({ stage, sel, grupos, niveis, modelo }) {
+  const linhas = [];
+
+  if (stage === "effort") {
+    linhas.push(paint("  esforço — " + modelo, "fg"));
+    for (let i = 0; i < niveis.length; i++) {
+      const marcador = i === sel ? paint("›", "fg") : " ";
+      const nome = i === sel ? paint(niveis[i], "bold") : niveis[i];
+      linhas.push("    " + marcador + " " + nome);
+    }
+    linhas.push("");
+    linhas.push(paint("  ↑↓ navegar  enter escolher  esc cancela", "dim"));
+    return linhas;
+  }
+
+  linhas.push(paint("  modelo", "fg"));
+  let idx = 0;
+  for (const g of grupos) {
+    linhas.push("");
+    linhas.push(paint("  " + g.provider, "bold"));
+    for (const id of g.ids) {
+      const marcador = idx === sel ? paint("›", "fg") : " ";
+      const nome = idx === sel ? paint(id, "bold") : id;
+      linhas.push("    " + marcador + " " + nome);
+      idx += 1;
+    }
+  }
+  if (grupos.length === 0) linhas.push(paint("  nenhum modelo configurado.", "warn"));
+  linhas.push("");
+  linhas.push(paint("  ↑↓ navegar  enter escolher  esc cancela", "dim"));
+  return linhas;
+}
+
 async function runModel({ arg, out, pi }) {
   const nome = arg.trim();
   const configured = listConfiguredModels(); // [{ provider, id }] — só nomes, sem chaves
@@ -880,6 +988,67 @@ async function runModel({ arg, out, pi }) {
   }
   await pi.setModel(alvo.provider, alvo.id).catch(() => {});
   out(paint(`  modelo: ${alvo.provider}/${alvo.id}`, "ok"));
+  return 0;
+}
+
+/**
+ * /effort [nível] — mostra ou troca o esforço de raciocínio.
+ *
+ * A lista vem do motor em uso (get_available_thinking_levels), não de uma
+ * constante: modelos diferentes expõem conjuntos diferentes. Sem sessão, cai no
+ * conjunto documentado e diz que não consultou — para ninguém achar que um nível
+ * foi validado quando não foi.
+ */
+async function runEffort({ arg, out, pi }) {
+  const alvo = String(arg ?? "").trim();
+
+  if (!pi) {
+    out(paint("  a conversa está desativada; não dá para consultar nem trocar o esforço", "muted"));
+    return 2;
+  }
+
+  let niveis;
+  let doMotor = false;
+  try {
+    if (pi._rpc && typeof pi._rpc.getAvailableThinkingLevels === "function") {
+      niveis = normalizeEffortList(await pi._rpc.getAvailableThinkingLevels());
+      doMotor = true;
+    }
+  } catch {
+    doMotor = false;
+  }
+  if (!doMotor) niveis = normalizeEffortList(null);
+
+  const atual = (statusInfo.reasoning || "").toLowerCase() || null;
+
+  if (alvo === "") {
+    const lines = [paint("  esforço", "fg")];
+    lines.push(`    atual:     ${atual ?? "-"}`);
+    lines.push(`    aceitos:   ${niveis.join(", ")}`);
+    lines.push("");
+    lines.push(
+      doMotor
+        ? paint("  (lista lida do modelo em uso)", "muted")
+        : paint("  (não consegui ler do modelo; mostrando o conjunto padrão)", "warn"),
+    );
+    out(lines.join("\n"));
+    return 0;
+  }
+
+  const escolhido = resolveEffort(alvo, niveis);
+  if (!escolhido) {
+    out(paint(`  "${alvo}" não está entre os níveis deste modelo: ${niveis.join(", ")}`, "warn"));
+    return 2;
+  }
+
+  if (typeof pi._rpc?.setThinkingLevel !== "function") {
+    out(paint("  não consegui aplicar o esforço sem consultar o modelo.", "warn"));
+    return 2;
+  }
+
+  await pi._rpc.setThinkingLevel(escolhido).catch(() => null);
+  statusInfo.reasoning = escolhido;
+  out(paint(`  esforço: ${escolhido}`, "ok"));
   return 0;
 }
 
@@ -1263,6 +1432,34 @@ async function runSessions({ out, arg, pi }) {
   }
   const extras = await readSessionExtras(dir);
   out(renderSessionsList(list, extras).join("\n"));
+  return 0;
+}
+
+
+/**
+ * /mode sem argumento: anda no anel plan → build → manual → ask → goal e volta.
+ *
+ * A ordem não é minha: é a de MODE_NAMES em core/governance/modes.mjs.
+ * Com argumento, /mode <nome> vai direto (igual a /plan, /build, /ask).
+ */
+async function runModeCycle({ out }) {
+  const { MODE_NAMES, resolveMode } = await import("../core/governance/modes.mjs");
+
+  const atual = String(currentMode || "").toLowerCase();
+  const i = MODE_NAMES.findIndex((m) => m.toLowerCase() === atual);
+  const proximo = MODE_NAMES[(i + 1) % MODE_NAMES.length];
+
+  const m = resolveMode(proximo);
+  currentMode = m.name;
+  statusInfo.mode = m.name;
+
+  const linhas = [paint(`  modo: ${m.name}`, "ok")];
+  const linha = describeModeLine(m);
+  if (linha) linhas.push(`    ${linha}`);
+  linhas.push("");
+  linhas.push(paint(`  anel: ${MODE_NAMES.join(" → ")}`, "muted"));
+
+  out(linhas.join("\n"));
   return 0;
 }
 
@@ -1968,6 +2165,7 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
   let sessionsCache = null; // linhas já montadas, para o overlay não esperar
   let settingsCache = null;
   let sessionsDirCache = null; // resolvido uma vez (sessionDir é varredura)
+  let modelPicker = null; // seletor de /model: { stage, sel, grupos, flat, niveis, modelo }
 
   const paletteWidth = () => {
     const cols = (process.stdout && process.stdout.columns) || 80;
@@ -2011,6 +2209,7 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     if (panelOpen) for (const pl of renderPanel(statusInfo, data)) belowLines.push(pl);
     if (settingsOpen && settingsCache) for (const pl of settingsCache) belowLines.push(pl);
     if (sessionsOpen && sessionsCache) for (const pl of sessionsCache) belowLines.push(pl);
+    for (const pl of modelPickerRows()) belowLines.push(pl);
     belowLines.push(statusLine);
     belowLines.push(keysLine);
 
@@ -2059,6 +2258,114 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     if (settingsOpen) drawInput();
   }
 
+
+  // --------------------------------------------------------- /model picker
+  // O seletor vive no REPL, não no comando: /model sem argumento devolve o
+  // controle para cá, e as teclas (↑ ↓ enter esc) são tratadas antes do editor
+  // de linha. Com argumento, /model <nome> continua indo direto e nunca abre.
+
+  const modelPickerRows = () => {
+    if (!modelPicker) return [];
+    return renderModelPicker({
+      stage: modelPicker.stage,
+      sel: modelPicker.sel,
+      grupos: modelPicker.stage === "models" ? modelPicker.grupos : [],
+      niveis: modelPicker.stage === "effort" ? modelPicker.niveis : [],
+      modelo: modelPicker.modelo,
+    });
+  };
+
+  const startModelPicker = () => {
+    const grupos = groupModelsByProvider(listConfiguredModels());
+    const { flat } = flattenModelGroups(grupos);
+    modelPicker = { stage: "models", sel: 0, grupos, flat, niveis: [], modelo: null };
+    drawInput();
+  };
+
+  /** Fecha o seletor sem mudar nada (Esc). */
+  const cancelModelPicker = () => {
+    modelPicker = null;
+    drawInput();
+  };
+
+  /** Quantos itens a etapa atual oferece (para o wrap de ↑/↓). */
+  const modelPickerCount = () => {
+    if (!modelPicker) return 0;
+    return modelPicker.stage === "models" ? modelPicker.flat.length : modelPicker.niveis.length;
+  };
+
+  const moveModelPicker = (delta) => {
+    if (!modelPicker) return;
+    const n = modelPickerCount();
+    if (n === 0) return;
+    modelPicker.sel = (modelPicker.sel + delta + n) % n;
+    drawInput();
+  };
+
+  /**
+   * Fecha a etapa do modelo e abre a do esforço — só os níveis que aquele
+   * modelo expõe. Sem sessão (ou sem o RPC), a etapa é pulada e o seletor
+   * fecha: não faz sentido perguntar esforço sem ter onde aplicar.
+   */
+  const afterModelChosen = async () => {
+    const escolha = modelPicker?.flat?.[modelPicker.sel];
+    modelPicker = null;
+    if (!escolha) { drawInput(); return; }
+
+    if (!pi || typeof pi.setModel !== "function") {
+      drawInput();
+      return;
+    }
+
+    await pi.setModel(escolha.provider, escolha.id).catch(() => null);
+    statusInfo.model = escolha.id;
+
+    let niveis = [];
+    let doMotor = false;
+    try {
+      if (pi._rpc && typeof pi._rpc.getAvailableThinkingLevels === "function") {
+        niveis = normalizeEffortList(await pi._rpc.getAvailableThinkingLevels());
+        doMotor = true;
+      }
+    } catch {
+      doMotor = false;
+    }
+
+    if (!doMotor || niveis.length <= 1) {
+      // sem lista utilizável, não inventa pergunta: só confirma o modelo
+      write("  modelo: " + escolha.provider + "/" + escolha.id + "\n");
+      if (!doMotor) write("  (não consegui ler os níveis de esforço deste modelo)\n");
+      drawInput();
+      return;
+    }
+
+    const atual = String(statusInfo.reasoning || "").toLowerCase();
+    const i = niveis.findIndex((l) => l === atual);
+    modelPicker = {
+      stage: "effort",
+      sel: i >= 0 ? i : 0,
+      grupos: [],
+      flat: [],
+      niveis,
+      modelo: escolha.provider + "/" + escolha.id,
+    };
+    drawInput();
+  };
+
+  /** Enter na etapa de esforço: aplica e fecha. */
+  const applyEffortChoice = async () => {
+    const nivel = modelPicker?.niveis?.[modelPicker.sel];
+    modelPicker = null;
+    if (!nivel) { drawInput(); return; }
+
+    if (pi?._rpc && typeof pi._rpc.setThinkingLevel === "function") {
+      await pi._rpc.setThinkingLevel(nivel).catch(() => null);
+    }
+    statusInfo.reasoning = nivel;
+    write("  esforço: " + nivel + "\n");
+    drawInput();
+  };
+
   const prompt = () => drawInput();
 
   const finishRun = async () => {
@@ -2097,6 +2404,12 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
       return;
     }
     if (parsed.type === "slash") {
+      // /model sem argumento não lista na tela: abre o seletor aqui no REPL,
+      // onde as setas e o esc existem. Com argumento segue direto.
+      if (parsed.name === "model" && String(parsed.arg ?? "").trim() === "") {
+        startModelPicker();
+        return;
+      }
       await runSlash(parsed.name, parsed.arg, (s) => write(s + "\n"), { pi, onClear: () => write("\x1b[2J\x1b[H") });
       prompt();
       return;
@@ -2118,7 +2431,7 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     await finishRun();
   };
 
-  const onData = (chunk) => {
+  const onData = async (chunk) => {
     for (const key of keymap(chunk)) {
       if (quitting) return;
       if (key === "ctrl-o" && !running) {
@@ -2147,6 +2460,18 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
           void refreshSettingsOverlay();
         } else drawInput();
         continue;
+      }
+      // O seletor tem prioridade: enquanto ele está aberto, as setas andam
+      // na lista, enter escolhe e esc cancela — nada disso chega ao editor.
+      if (modelPicker) {
+        if (key === "up") { moveModelPicker(-1); continue; }
+        if (key === "down") { moveModelPicker(1); continue; }
+        if (key === "enter") {
+          if (modelPicker.stage === "models") await afterModelChosen();
+          else await applyEffortChoice();
+          continue;
+        }
+        if (key === "esc") { cancelModelPicker(); continue; }
       }
       if (running) {
         if (key === "ctrl-c") {
