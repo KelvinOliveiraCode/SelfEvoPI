@@ -68,7 +68,11 @@ async function sessionDir() {
     const cwd = header && typeof header.cwd === "string" ? header.cwd : null;
     if (cwd && cwd.replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase() === alvo) return sub;
   }
-  return base;
+  // Sem pasta do projeto: estado vazio honesto. NUNCA devolver a base — ela
+  // reúne sessões de TODOS os projetos, e o desktop mostraria sessões que o
+  // usuário nunca usou. Um caminho inexistente faz listSessions devolver []
+  // (nenhuma sessão ainda), que é a verdade quando o projeto não conversou.
+  return path.join(base, "__sem_sessoes_do_projeto__");
 }
 
 /** Escapa HTML para valores interpolados no servidor. */
