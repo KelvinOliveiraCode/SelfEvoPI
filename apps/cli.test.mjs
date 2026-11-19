@@ -48,7 +48,19 @@ import {
   renderThinking,
   buildStatusLine,
   renderPanel,
+  renderSettings,
   refreshStatus,
+  sessionOrigin,
+  deriveTitle,
+  renderSessionsList,
+  readSessionExtras,
+  EFFORT_FALLBACK,
+  normalizeEffortList,
+  resolveEffort,
+  describeModeLine,
+  groupModelsByProvider,
+  flattenModelGroups,
+  renderModelPicker,
 } from "./cli.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -744,4 +756,385 @@ test("REPL: ctrl+o abre e fecha o painel; ctrl+c não mata", async () => {
   // sai com ctrl+d
   input.emit("data", "\x04");
   await p;
+});
+
+/* ------------------------------------------------------------------ */
+/* Sessões — origem (client) e título derivado                         */
+/* ------------------------------------------------------------------ */
+
+test("sessionOrigin: campo ausente é cli (contrato desktop 1.0, seção 1)", () => {
+  assert.equal(sessionOrigin(undefined), "cli");
+  assert.equal(sessionOrigin(null), "cli");
+  assert.equal(sessionOrigin(""), "cli");
+  assert.equal(sessionOrigin("   "), "cli");
+});
+
+test("sessionOrigin: desktop e cli são reconhecidos sem caixa e com espaço", () => {
+  assert.equal(sessionOrigin("desktop"), "desktop");
+  assert.equal(sessionOrigin("DESKTOP"), "desktop");
+  assert.equal(sessionOrigin("  desktop  "), "desktop");
+  assert.equal(sessionOrigin("cli"), "cli");
+  assert.equal(sessionOrigin("CLI"), "cli");
+});
+
+test("sessionOrigin: valor desconhecido não vira cli no silêncio", () => {
+  assert.equal(sessionOrigin("mobile"), "mobile");
+});
+
+test("deriveTitle: título do header vence o texto da mensagem", () => {
+  assert.equal(deriveTitle("Sessão nomeada", "texto do usuario"), "Sessão nomeada");
+  assert.equal(deriveTitle("   ", "texto do usuario"), "texto do usuario");
+});
+
+test("deriveTitle: sem título, deriva da primeira mensagem e normaliza espaço", () => {
+  assert.equal(deriveTitle(null, "  calcular   o IMC  "), "calcular o IMC");
+  assert.equal(deriveTitle(null, "explicar\no codigo"), "explicar o codigo");
+});
+
+test("deriveTitle: trunca em 50 caracteres com elipse", () => {
+  const t = deriveTitle(null, "a".repeat(120));
+  assert.equal(t.length, 50);
+  assert.ok(t.endsWith("…"), "faltou a elipse: " + JSON.stringify(t));
+});
+
+test("deriveTitle: respeita o limite pedido", () => {
+  assert.equal(deriveTitle(null, "x".repeat(20), 10).length, 10);
+});
+
+test("deriveTitle: nada para derivar devolve null (quem chama cai no id)", () => {
+  assert.equal(deriveTitle(null, ""), null);
+  assert.equal(deriveTitle(null, "   "), null);
+  assert.equal(deriveTitle(null, null), null);
+  assert.equal(deriveTitle(undefined, undefined), null);
+});
+
+// ------------------------------------------------------------------ */
+/* renderSessionsList — o que a lista mostra                           */
+// ------------------------------------------------------------------ */
+
+test("renderSessionsList: coluna de origem aparece quando há desktop", () => {
+  const lista = [{ id: "aaaaaaaa-1111", title: "Do desktop", turns: 3, updatedAt: "2026-11-17T10:00:00.000Z" }];
+  const extras = new Map([["aaaaaaaa-1111", { client: "desktop", firstUser: null }]]);
+  const saida = renderSessionsList(lista, extras).join("\n");
+
+  assert.match(saida, /desktop/);
+  assert.match(saida, /aaaaaaaa/);
+  assert.match(saida, /Do desktop/);
+});
+
+test("renderSessionsList: sem desktop a coluna não aparece", () => {
+  const lista = [{ id: "bbbbbbbb-2222", title: "Do cli", turns: 1, updatedAt: "2026-11-17T10:00:00.000Z" }];
+  const extras = new Map([["bbbbbbbb-2222", { client: "cli", firstUser: null }]]);
+  const saida = renderSessionsList(lista, extras).join("\n");
+
+  assert.doesNotMatch(saida, /desktop/);
+  assert.match(saida, /bbbbbbbb/);
+});
+
+test("renderSessionsList: título derivado aparece quando o header não tem título", () => {
+  const lista = [{ id: "cccccccc-3333", title: null, turns: 1, updatedAt: "2026-11-17T10:00:00.000Z" }];
+  const extras = new Map([["cccccccc-3333", { client: "cli", firstUser: "calcular o IMC de uma pessoa" }]]);
+  const saida = renderSessionsList(lista, extras).join("\n");
+
+  assert.match(saida, /calcular o IMC/);
+});
+
+test("renderSessionsList: sem título e sem mensagem, mostra o id em vez de vazio", () => {
+  const lista = [{ id: "dddddddd-4444", title: null, turns: 0, updatedAt: "2026-11-17T10:00:00.000Z" }];
+  const extras = new Map([["dddddddd-4444", { client: "cli", firstUser: null }]]);
+  const saida = renderSessionsList(lista, extras).join("\n");
+
+  assert.match(saida, /dddddddd/);
+});
+
+test("renderSessionsList: nenhuma linha passa de 72 colunas", () => {
+  const lista = [{ id: "eeeeeeee-5555", title: "t".repeat(200), turns: 9, updatedAt: "2026-11-17T10:00:00.000Z" }];
+  const extras = new Map([["eeeeeeee-5555", { client: "desktop", firstUser: null }]]);
+  for (const linha of renderSessionsList(lista, extras)) {
+    assert.ok(visibleWidth(linha) <= WIDTH, `passou de ${WIDTH}: ${visibleWidth(linha)} — ${linha}`);
+  }
+});
+
+test("renderSessionsList: lista cheia avisa que há mais", () => {
+  const lista = Array.from({ length: 20 }, (_, i) => ({
+    id: `sessao-${i}-xxxx`,
+    title: `sessão ${i}`,
+    turns: 1,
+    updatedAt: "2026-11-17T10:00:00.000Z",
+  }));
+  const extras = new Map(lista.map((s) => [s.id, { client: "cli", firstUser: null }]));
+  const saida = renderSessionsList(lista, extras, 5).join("\n");
+
+  assert.match(saida, /e mais 15 sess/);
+});
+
+// ------------------------------------------------------------------ */
+/* renderSettings — o que o Ctrl+, mostra                             */
+// ------------------------------------------------------------------ */
+
+test("renderSettings: mostra o que está valendo nesta sessão", () => {
+  const linhas = renderSettings(
+    { mode: "plan", permission: "ask", model: "provedor/modelo", reasoning: "high" },
+    { sessionsDir: "/tmp/sessoes", commands: 20 },
+  );
+  const texto = linhas.join("\n");
+
+  assert.match(texto, /configurações/);
+  assert.match(texto, /plan/);
+  assert.match(texto, /ask/);
+  assert.match(texto, /provedor\/modelo/);
+  assert.match(texto, /high/);
+  assert.match(texto, /\/tmp\/sessoes/);
+  assert.match(texto, /20/);
+  assert.match(texto, /ctrl\+, fecha/);
+});
+
+test("renderSettings: sem diretório resolvido não inventa caminho", () => {
+  const linhas = renderSettings({ mode: "build", permission: "full access" }, { sessionsDir: null });
+  const texto = linhas.join("\n");
+
+  assert.match(texto, /não resolvido/);
+  assert.doesNotMatch(texto, /undefined/);
+});
+
+test("renderSettings: nenhuma linha passa de 72 colunas", () => {
+  const linhas = renderSettings(
+    { mode: "build", permission: "full access", model: "a".repeat(90), reasoning: "max", context: "1k / 200k" },
+    { sessionsDir: "C:\\um\\caminho\\muito\\longo\\para\\cabem\\em\\uma\\linha\\de\\sessoes", commands: 20 },
+  );
+  for (const linha of linhas) {
+    assert.ok(visibleWidth(linha) <= WIDTH, `passou de ${WIDTH}: ${visibleWidth(linha)}`);
+  }
+});
+
+// ------------------------------------------------------------------ */
+/* Atalhos novos no REPL                                               */
+// ------------------------------------------------------------------ */
+
+test("REPL: ctrl+k abre a lista de sessões e fecha de novo", async () => {
+  const input = new EventEmitter();
+  input.setEncoding = () => {};
+  input.isTTY = true;
+  let all = "";
+  repl({ pi: null, write: (s) => (all += s), input, setRaw: () => {}, data: {} });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  await sleep(20);
+
+  all = "";
+  input.emit("data", "\x0b"); // ctrl+k
+  await sleep(2000); // a primeira abertura varre a pasta de sessões
+  const aberta = stripAnsi(all);
+  // a lista mostra "N sessão(es)" ou "nenhuma sessão encontrada" — nunca as duas
+  assert.match(aberta, /\d+ sess|nenhuma sess/, "a lista de sessões não apareceu");
+
+  all = "";
+  input.emit("data", "\x0b"); // ctrl+k fecha
+  await sleep(80);
+  assert.doesNotMatch(stripAnsi(all), /\d+ sess|nenhuma sess/);
+
+  input.emit("data", "\x04");
+  await sleep(30);
+});
+
+test("REPL: ctrl+, abre as configurações e fecha de novo", async () => {
+  const input = new EventEmitter();
+  input.setEncoding = () => {};
+  input.isTTY = true;
+  let all = "";
+  repl({ pi: null, write: (s) => (all += s), input, setRaw: () => {}, data: {} });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  await sleep(20);
+
+  all = "";
+  input.emit("data", "\x1c"); // ctrl+, (0x1C é o que o terminal manda)
+  await sleep(80);
+  const aberta = stripAnsi(all);
+  assert.match(aberta, /configurações/);
+  assert.match(aberta, /permissão:/);
+  assert.match(aberta, /ctrl\+, fecha/);
+
+  all = "";
+  input.emit("data", "\x1c"); // fecha
+  await sleep(80);
+  assert.doesNotMatch(stripAnsi(all), /configurações/);
+
+  input.emit("data", "\x04");
+  await sleep(30);
+});
+
+test("REPL: abrir as sessões fecha as configurações (um overlay por vez)", async () => {
+  const input = new EventEmitter();
+  input.setEncoding = () => {};
+  input.isTTY = true;
+  let all = "";
+  repl({ pi: null, write: (s) => (all += s), input, setRaw: () => {}, data: {} });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  await sleep(20);
+
+  input.emit("data", "\x1c"); // configurações
+  await sleep(80);
+  assert.match(stripAnsi(all), /configurações/);
+
+  // limpa antes: o frame anterior continua no buffer, e o que importa é o novo
+  all = "";
+  input.emit("data", "\x0b"); // sessões — tem que fechar as configurações
+  await sleep(2000);
+  assert.doesNotMatch(stripAnsi(all), /configurações/);
+
+  input.emit("data", "\x04");
+  await sleep(30);
+});
+
+// ------------------------------------------------------------------ */
+/* readSessionExtras — leitura seletiva                                */
+// ------------------------------------------------------------------ */
+
+test("readSessionExtras: pasta inexistente devolve mapa vazio sem lançar", async () => {
+  const base = process.env.TEMP || process.env.TMP || ".";
+  const extras = await readSessionExtras(path.join(base, "selfevopi-nao-existe-" + Date.now()));
+  assert.equal(extras.size, 0);
+});
+
+/* ---------------------------------------------------------------- */
+/* /model: seletor, /effort e /mode                                 */
+/* ---------------------------------------------------------------- */
+
+test("COMMANDS inclui /effort e /mode (e /model continua lá)", () => {
+  const names = COMMANDS.map((c) => c.name);
+  for (const n of ["/model", "/effort", "/mode"]) {
+    assert.ok(names.includes(n), `falta ${n}`);
+  }
+});
+
+test("normalizeEffortList: aceita lista do motor, limpa e cai no fallback", () => {
+  assert.deepEqual(normalizeEffortList(["off", "low", "medium", "high"]), [
+    "off",
+    "low",
+    "medium",
+    "high",
+  ]);
+  // normaliza caixa e descarta lixo
+  assert.deepEqual(normalizeEffortList([" OFF ", "High", "", null, 7]), ["off", "high"]);
+  // lista vazia / nada utilizável → fallback documentado
+  assert.deepEqual(normalizeEffortList([]), [...EFFORT_FALLBACK]);
+  assert.deepEqual(normalizeEffortList(null), [...EFFORT_FALLBACK]);
+});
+
+test("resolveEffort: casa o argumento com a lista, sem caixa", () => {
+  const niveis = ["off", "low", "medium", "high"];
+  assert.equal(resolveEffort("HIGH", niveis), "high");
+  assert.equal(resolveEffort("  low ", niveis), "low");
+  assert.equal(resolveEffort("max", niveis), null); // o modelo não expõe
+  assert.equal(resolveEffort("", niveis), null);
+  // "max" só passa quando o modelo o expõe
+  assert.equal(resolveEffort("max", ["off", "max"]), "max");
+});
+
+test("describeModeLine: descreve o que o modo permite", () => {
+  const plan = describeModeLine({ name: "plan", canRead: true, canWrite: false, canExec: false, execScope: "none" });
+  assert.match(plan, /^plan: /);
+  assert.match(plan, /lê/);
+  assert.match(plan, /não escreve/);
+  assert.match(plan, /não executa/);
+
+  const build = describeModeLine({ name: "build", canRead: true, canWrite: true, canExec: true, execScope: "workspace" });
+  assert.match(build, /escreve/);
+  assert.ok(build.includes("executa (workspace)"), "escopo de execucao ausente");
+
+  assert.equal(describeModeLine(null), null);
+});
+
+test("groupModelsByProvider + flattenModelGroups: seções e índice navegável", () => {
+  const grupos = groupModelsByProvider([
+    { provider: "kilo1", id: "a" },
+    { provider: "kilo1", id: "b" },
+    { provider: "or1", id: "c" },
+    { provider: "lixo" }, // sem id: fora
+    null,
+  ]);
+  assert.deepEqual(grupos, [
+    { provider: "kilo1", ids: ["a", "b"] },
+    { provider: "or1", ids: ["c"] },
+  ]);
+
+  const { linhas, flat } = flattenModelGroups(grupos);
+  assert.equal(flat.length, 3);
+  assert.deepEqual(flat[0], { provider: "kilo1", id: "a" });
+  // as linhas alternam cabeçalho de seção e item, com o índice certo
+  assert.equal(linhas[0].kind, "group");
+  assert.equal(linhas[1].kind, "model");
+  assert.equal(linhas[1].flatIndex, 0);
+  assert.equal(linhas[2].flatIndex, 1);
+});
+
+test("renderModelPicker: etapa de modelos agrupa por provedor e marca a seleção", () => {
+  const grupos = [
+    { provider: "kilo1", ids: ["a", "b"] },
+    { provider: "or1", ids: ["c"] },
+  ];
+  const linhas = renderModelPicker({ stage: "models", sel: 1, grupos, niveis: [], modelo: null });
+  const texto = stripAnsi(linhas.join("\n"));
+
+  assert.match(texto, /kilo1/);
+  assert.match(texto, /or1/);
+  assert.ok(texto.includes("a") && texto.includes("b") && texto.includes("c"));
+  assert.match(texto, /enter escolher/);
+  assert.match(texto, /esc cancela/);
+  // a linha 1 (segundo item) é a selecionada: tem o marcador
+  const marcada = linhas.filter((l) => l.includes("›"));
+  assert.equal(marcada.length, 1);
+});
+
+test("renderModelPicker: sem modelos configurados não quebra", () => {
+  const linhas = renderModelPicker({ stage: "models", sel: 0, grupos: [], niveis: [], modelo: null });
+  const texto = stripAnsi(linhas.join("\n"));
+  assert.match(texto, /nenhum modelo configurado/);
+});
+
+test("renderModelPicker: etapa de esforço lista só os níveis do modelo", () => {
+  const linhas = renderModelPicker({
+    stage: "effort",
+    sel: 0,
+    grupos: [],
+    niveis: ["off", "max"],
+    modelo: "or1/nemotron",
+  });
+  const texto = stripAnsi(linhas.join("\n"));
+  assert.ok(texto.includes("or1/nemotron"), "nome do modelo ausente");
+  assert.match(texto, /off/);
+  assert.match(texto, /max/);
+  assert.ok(!texto.includes("medium"), "não pode impor níveis que o modelo não expõe");
+});
+
+test("runSlash /effort com motor ausente não lança e sai 0", async () => {
+  let out = "";
+  const code = await runSlash("/effort", "", (s) => (out += s + "\n"), { pi: null });
+  assert.equal(code, 0);
+  assert.ok(out.length >= 0);
+});
+
+test("runSlash /mode sem argumento alterna o modo e volta ao início", async () => {
+  let out = "";
+  const antes = getGoalState(); // garante que o módulo carregou
+  void antes;
+  const seen = [];
+  for (let i = 0; i < 6; i++) {
+    out = "";
+    const code = await runSlash("/mode", "", (s) => (out += s + "\n"), { pi: null });
+    assert.equal(code, 0);
+    const texto = stripAnsi(out);
+    const m = texto.match(/modo:\s*(\w+)/);
+    assert.ok(m, "não mostrou o modo novo");
+    seen.push(m[1]);
+  }
+  // 5 modos no anel: o sexto volta ao primeiro
+  assert.equal(new Set(seen.slice(0, 5)).size, 5, "os cinco modos não apareceram");
+  assert.equal(seen[5], seen[0], "o anel não voltou ao início");
+});
+
+test("runSlash /mode <nome> vai direto, sem passar pelo anel", async () => {
+  let out = "";
+  const code = await runSlash("/mode", "goal", (s) => (out += s + "\n"), { pi: null });
+  assert.equal(code, 0);
+  assert.match(stripAnsi(out), /modo:\s*goal/);
 });

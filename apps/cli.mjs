@@ -413,6 +413,102 @@ export function renderMarkdown(md) {
 /* Comandos de barra                                                  */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Comandos 1.1: settings, theme, swarm                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Trunca cada linha em 72 colunas.
+ *
+ * A TUI desenha em 72 e um texto mais longo desalinha o resto da tela. A
+ * saida de comando e dado do usuario ou do provedor — nao da para confiar
+ * que caiba. `stripAnsi` existe para medir sem contar as sequencias de cor.
+ */
+function capLinhas(linhas, largura = 72) {
+  return linhas.map((l) => {
+    const texto = String(l);
+    return visibleWidth(texto) > largura ? `${texto.slice(0, largura - 1)}…` : texto;
+  });
+}
+
+async function runSettingsView({ out }) {
+  const { renderSettings } = await import("../core/agent/settings-view.mjs");
+  const { getTheme } = await import("../core/agent/theme.mjs");
+  const { listOpencodeMcp } = await import("../core/agent/mcp-opencode.mjs");
+  const { listPcSkills } = await import("../core/agent/skills-pc.mjs");
+
+  // Cada fonte e opcional: se uma falhar, a visao mostra — e nao derruba.
+  const seguro = async (fn, fallback) => {
+    try {
+      return await fn();
+    } catch {
+      return fallback;
+    }
+  };
+
+  const [mcp, skills] = await Promise.all([
+    seguro(() => listOpencodeMcp({}), []),
+    seguro(() => listPcSkills({}), []),
+  ]);
+
+  const linhas = renderSettings({
+    mode: currentMode,
+    permission: permissionMode,
+    model: null,
+    effort: null,
+    theme: seguro(() => getTheme(), null),
+    mcp: mcp.length,
+    skills: skills.length,
+    sessions: null,
+  });
+  out(linhas.join("\n"));
+  return 0;
+}
+
+async function runTheme({ arg, out }) {
+  const { setTheme, getTheme, listThemes } = await import("../core/agent/theme.mjs");
+  const nome = String(arg ?? "").trim();
+  if (!nome) {
+    out(`  tema atual: ${getTheme()}`);
+    out(`  disponíveis: ${listThemes().join(", ")}`);
+    return 0;
+  }
+  try {
+    const t = setTheme(nome);
+    out(paint(`  tema: ${t}`, "ok"));
+    return 0;
+  } catch (err) {
+    out(paint(`  ${String(err?.message || err).slice(0, 120)}`, "fail"));
+    return 2;
+  }
+}
+
+async function runSwarm({ arg, out }) {
+  const { planSwarm, renderSwarm, parseSwarmArgs } = await import("../core/agent/swarm.mjs");
+  const bruto = String(arg ?? "").trim();
+  if (!bruto) {
+    out(paint("  uso: /swarm [n] <tarefa>", "muted"));
+    return 2;
+  }
+  // Provedores vem do roteador; sem nenhum, o swarm diz e para.
+  const provedores = (() => {
+    try {
+      return listConfiguredModels().map((m) => m.provider).filter((v, i, a) => a.indexOf(v) === i);
+    } catch {
+      return [];
+    }
+  })();
+  if (provedores.length === 0) {
+    out(paint("  nenhum provedor configurado — /swarm precisa de pelo menos um", "warn"));
+    return 2;
+  }
+  const { n, task } = parseSwarmArgs(bruto);
+  const plano = planSwarm({ task, n, providers: provedores });
+  out(renderSwarm(plano).join("\n"));
+  out(paint("  (o modelo principal executa e coleta; /swarm <n> <tarefa> ajusta n)", "muted"));
+  return 0;
+}
+
 // FONTE ÚNICA dos comandos de barra. A paleta e o /help leem daqui; o `run`
 // é o executor. Nada de lista duplicada.
 export const COMMANDS = [
@@ -422,7 +518,17 @@ export const COMMANDS = [
   { name: "/forge", args: "<meta>", description: "inicia um ciclo evolutivo rumo à meta", run: runForge },
   { name: "/memory", args: "<termo>", description: "busca na memória (lexical + PPMI)", run: runMemory },
   { name: "/skills", args: "", description: "o que o loop já gerou e registrou", run: runSkills },
-  { name: "/model", args: "[nome]", description: "mostra ou troca o modelo da conversa", run: runModel },
+  { name: "/model", args: "[nome]", description: "seletor de modelo, ou troca direto", run: runModel },
+  { name: "/effort", args: "[off|low|medium|high]", description: "esforço de raciocínio do modelo atual", run: runEffort },
+  {
+    name: "/mode",
+    args: "[modo]",
+    description: "alterna o modo (plan → build → manual → ask → goal)",
+    run: (ctx) =>
+      String(ctx?.arg ?? "").trim() === ""
+        ? runModeCycle(ctx)
+        : runMode(String(ctx.arg).trim(), ctx),
+  },
   { name: "/clear", args: "", description: "limpa a conversa e começa de novo", run: runClear },
   { name: "/compact", args: "", description: "compacta o histórico da conversa", run: runCompact },
   { name: "/sessions", args: "[id]", description: "lista sessões ou carrega uma", run: runSessions },
@@ -435,6 +541,9 @@ export const COMMANDS = [
   { name: "/build", args: "", description: "modo build: escreve e executa no workspace", run: (ctx) => runMode("build", ctx) },
   { name: "/ask", args: "", description: "modo ask: só responde, nunca toca em disco", run: (ctx) => runMode("ask", ctx) },
   { name: "/goal", args: "[condição|clear]", description: "define/limpa a condição de conclusão", run: runGoal },
+  { name: "/settings", args: "", description: "visão de tudo que está configurado", run: runSettingsView },
+  { name: "/theme", args: "[escuro|claro|alto-contraste]", description: "tema da interface", run: runTheme },
+  { name: "/swarm", args: "[n] <tarefa>", description: "orquestra n subagentes rumo à tarefa", run: runSwarm },
   { name: "/help", args: "", description: "mostra esta lista", run: runHelp },
 ];
 
@@ -486,6 +595,8 @@ export function renderHelp() {
   out.push(`  ${paint("escreva", "fg")} e Enter para falar; a resposta aparece em streaming.`);
   out.push(`  ${paint("Ctrl+C", "fg")} cancela a resposta em curso e devolve a linha.`);
   out.push(`  ${paint("Ctrl+O", "fg")} abre/fecha o painel de estado (modo, permissão, modelo).`);
+  out.push(`  ${paint("Ctrl+K", "fg")} abre/fecha a lista de sessões (a mesma tecla do desktop).`);
+  out.push(`  ${paint("Ctrl+,", "fg")} abre/fecha as configurações (a mesma tecla do desktop).`);
   out.push(`  ${paint("q", "fg")} / ${paint("/quit", "fg")} / ${paint("Ctrl+D", "fg")} saem.`);
   return out.map((line) => wrapAnsi(line, WIDTH)).join("\n");
 }
@@ -757,19 +868,48 @@ async function runDetect({ out }) {
   return 0;
 }
 
-async function runSkills({ out }) {
+async function runSkills({ out, arg }) {
   const { openStore } = await import("../core/memory/store.mjs");
   const store = openStore({ root: MEMORY });
   const entries = store.query({ level: "skills" }).filter((e) => !e.invalid);
-  if (entries.length === 0) {
-    out(paint("  nenhuma skill registrada ainda", "muted"));
+
+  // As skills do OpenCode (as suas) ficam em ~/.config/opencode/skills/*/SKILL.md.
+  // O /skills nasceu lendo so o store do loop, e por isso elas nao apareciam.
+  const { findPcSkills } = await import("../core/agent/skills-pc.mjs");
+  let pc = [];
+  try {
+    pc = findPcSkills({ termo: String(arg ?? "").trim() });
+  } catch {
+    pc = [];
+  }
+
+  const linhas = [];
+
+  if (entries.length > 0) {
+    linhas.push(paint(`  loop (geradas pelo SelfEvoPI): ${entries.length}`, "fg"));
+    for (const e of entries.slice(0, 15)) {
+      linhas.push(`  ${paint("●", "ok")} ${String(e.text).replace(/\s+/g, " ").slice(0, 60)}`);
+    }
+  }
+
+  if (pc.length > 0) {
+    if (linhas.length > 0) linhas.push("");
+    linhas.push(paint(`  pc (OpenCode): ${pc.length}`, "fg"));
+    for (const s of pc.slice(0, 15)) {
+      const nome = String(s.name || "").slice(0, 28).padEnd(28);
+      const desc = String(s.description || "").replace(/\s+/g, " ").slice(0, 34);
+      linhas.push(`  ${paint("○", "muted")} ${nome} ${desc}`);
+    }
+  }
+
+  if (linhas.length === 0) {
+    out(paint("  nenhuma skill encontrada (nem do loop, nem do OpenCode)", "muted"));
     return 0;
   }
-  const lines = [paint(`  ${entries.length} skill(s) registrada(s)`, "fg")];
-  for (const e of entries.slice(0, 15)) {
-    lines.push(`  ${paint("●", "ok")} ${String(e.text).replace(/\s+/g, " ").slice(0, 64)}`);
-  }
-  out(lines.join("\n"));
+
+  linhas.push("");
+  linhas.push(paint("  /skills <termo> filtra · ● loop · ○ pc", "muted"));
+  out(capLinhas(linhas).join("\n"));
   return 0;
 }
 
@@ -835,6 +975,112 @@ async function runForge({ arg, out }) {
   return r.code;
 }
 
+/* ------------------------------------------------------------------ */
+/* Esforço (thinking) e modos — o que /effort e /mode mostram           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Níveis de esforço aceitos quando o motor não pode ser consultado.
+ *
+ * A fonte de verdade é o motor: `get_available_thinking_levels` devolve o que
+ * **aquele** modelo expõe, e modelos diferentes têm listas diferentes. Este
+ * conjunto só aparece quando não há sessão — e o chamador diz isso ao usuário
+ * em vez de fingir que consultou.
+ */
+export const EFFORT_FALLBACK = Object.freeze(["off", "low", "medium", "high"]);
+
+/** Valida a lista vinda do motor; lista vazia ou lixo cai no fallback. */
+export function normalizeEffortList(levels) {
+  const arr = Array.isArray(levels)
+    ? levels.filter((l) => typeof l === "string" && l.trim() !== "").map((l) => l.trim().toLowerCase())
+    : [];
+  return arr.length > 0 ? arr : [...EFFORT_FALLBACK];
+}
+
+/** Casa o argumento com a lista, sem caixa. Devolve o nome canônico ou null. */
+export function resolveEffort(arg, levels) {
+  const list = normalizeEffortList(levels);
+  const alvo = String(arg ?? "").trim().toLowerCase();
+  if (alvo === "") return null;
+  return list.find((l) => l === alvo) ?? null;
+}
+
+/**
+ * Uma linha do que o modo permite — a explicação que o /mode mostra junto do
+ * nome novo. Sai dos campos de `resolveMode`, não de texto decorativo.
+ */
+export function describeModeLine(m) {
+  if (!m || typeof m !== "object") return null;
+  const pode = [];
+  pode.push(m.canRead ? "lê" : "não lê");
+  pode.push(m.canWrite ? "escreve" : "não escreve");
+  pode.push(m.canExec ? "executa (" + m.execScope + ")" : "não executa");
+  return m.name + ": " + pode.join(", ");
+}
+
+/** Lista de modelos agrupada por provedor, pronta para o seletor. */
+export function groupModelsByProvider(models) {
+  const lista = Array.isArray(models) ? models : [];
+  const mapa = new Map();
+  for (const m of lista) {
+    if (!m || typeof m.provider !== "string" || typeof m.id !== "string") continue;
+    if (!mapa.has(m.provider)) mapa.set(m.provider, []);
+    mapa.get(m.provider).push(m.id);
+  }
+  return [...mapa.entries()].map(([provider, ids]) => ({ provider, ids }));
+}
+
+/** Achata os grupos numa lista navegável (índice de cada modelo). */
+export function flattenModelGroups(groups) {
+  const flat = [];
+  const linhas = [];
+  for (const g of groups) {
+    linhas.push({ kind: "group", label: g.provider });
+    for (const id of g.ids) {
+      linhas.push({ kind: "model", provider: g.provider, id, label: id, flatIndex: flat.length });
+      flat.push({ provider: g.provider, id });
+    }
+  }
+  return { linhas, flat };
+}
+
+/**
+ * Monta as linhas do seletor de modelo (etapa "models") ou de esforço
+ * (etapa "effort"). Função pura: o REPL só desenha o que ela devolve.
+ */
+export function renderModelPicker({ stage, sel, grupos, niveis, modelo }) {
+  const linhas = [];
+
+  if (stage === "effort") {
+    linhas.push(paint("  esforço — " + modelo, "fg"));
+    for (let i = 0; i < niveis.length; i++) {
+      const marcador = i === sel ? paint("›", "fg") : " ";
+      const nome = i === sel ? paint(niveis[i], "bold") : niveis[i];
+      linhas.push("    " + marcador + " " + nome);
+    }
+    linhas.push("");
+    linhas.push(paint("  ↑↓ navegar  enter escolher  esc cancela", "dim"));
+    return linhas;
+  }
+
+  linhas.push(paint("  modelo", "fg"));
+  let idx = 0;
+  for (const g of grupos) {
+    linhas.push("");
+    linhas.push(paint("  " + g.provider, "bold"));
+    for (const id of g.ids) {
+      const marcador = idx === sel ? paint("›", "fg") : " ";
+      const nome = idx === sel ? paint(id, "bold") : id;
+      linhas.push("    " + marcador + " " + nome);
+      idx += 1;
+    }
+  }
+  if (grupos.length === 0) linhas.push(paint("  nenhum modelo configurado.", "warn"));
+  linhas.push("");
+  linhas.push(paint("  ↑↓ navegar  enter escolher  esc cancela", "dim"));
+  return linhas;
+}
+
 async function runModel({ arg, out, pi }) {
   const nome = arg.trim();
   const configured = listConfiguredModels(); // [{ provider, id }] — só nomes, sem chaves
@@ -878,6 +1124,73 @@ async function runModel({ arg, out, pi }) {
   }
   await pi.setModel(alvo.provider, alvo.id).catch(() => {});
   out(paint(`  modelo: ${alvo.provider}/${alvo.id}`, "ok"));
+  return 0;
+}
+
+/**
+ * /effort [nível] — mostra ou troca o esforço de raciocínio.
+ *
+ * A lista vem do motor em uso (get_available_thinking_levels), não de uma
+ * constante: modelos diferentes expõem conjuntos diferentes. Sem sessão, cai no
+ * conjunto documentado e diz que não consultou — para ninguém achar que um nível
+ * foi validado quando não foi.
+ */
+async function runEffort({ arg, out, pi }) {
+  const alvo = String(arg ?? "").trim();
+
+  if (!pi) {
+    // Sem sessão não há o que consultar nem trocar: mostra o conjunto padrão
+    // e diz que não consultou. Sair 0 — listar não é erro.
+    out(paint("  esforço", "fg"));
+    out(`    atual:     ${(statusInfo.reasoning || "-")}`);
+    out(`    aceitos:   ${EFFORT_FALLBACK.join(", ")}`);
+    out("");
+    out(paint("  (sem conversa ativa; não consultei o modelo)", "warn"));
+    return 0;
+  }
+
+  let niveis;
+  let doMotor = false;
+  try {
+    if (pi._rpc && typeof pi._rpc.getAvailableThinkingLevels === "function") {
+      niveis = normalizeEffortList(await pi._rpc.getAvailableThinkingLevels());
+      doMotor = true;
+    }
+  } catch {
+    doMotor = false;
+  }
+  if (!doMotor) niveis = normalizeEffortList(null);
+
+  const atual = (statusInfo.reasoning || "").toLowerCase() || null;
+
+  if (alvo === "") {
+    const lines = [paint("  esforço", "fg")];
+    lines.push(`    atual:     ${atual ?? "-"}`);
+    lines.push(`    aceitos:   ${niveis.join(", ")}`);
+    lines.push("");
+    lines.push(
+      doMotor
+        ? paint("  (lista lida do modelo em uso)", "muted")
+        : paint("  (não consegui ler do modelo; mostrando o conjunto padrão)", "warn"),
+    );
+    out(lines.join("\n"));
+    return 0;
+  }
+
+  const escolhido = resolveEffort(alvo, niveis);
+  if (!escolhido) {
+    out(paint(`  "${alvo}" não está entre os níveis deste modelo: ${niveis.join(", ")}`, "warn"));
+    return 2;
+  }
+
+  if (typeof pi._rpc?.setThinkingLevel !== "function") {
+    out(paint("  não consegui aplicar o esforço sem consultar o modelo.", "warn"));
+    return 2;
+  }
+
+  await pi._rpc.setThinkingLevel(escolhido).catch(() => null);
+  statusInfo.reasoning = escolhido;
+  out(paint(`  esforço: ${escolhido}`, "ok"));
   return 0;
 }
 
@@ -1089,6 +1402,134 @@ async function runCompact({ out, pi }) {
   return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/* Sessões — origem, título derivado e leitura seletiva                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * De onde veio a sessão, segundo o campo `client` do header (contrato
+ * desktop 1.0, seção 1). Sessão antiga, sem o campo, é `cli` — é o que o
+ * contrato manda, e é o que faz sentido: o desktop é que passou a escrever
+ * esse campo depois.
+ *
+ * Valor desconhecido não vira "cli" no silêncio: devolve como está, para o
+ * diagnóstico não mentir sobre um header que veio de outro lugar.
+ */
+export function sessionOrigin(client) {
+  const raw = typeof client === "string" ? client.trim() : "";
+  if (raw === "") return "cli";
+  const low = raw.toLowerCase();
+  if (low === "desktop") return "desktop";
+  if (low === "cli") return "cli";
+  return raw;
+}
+
+/**
+ * Título da sessão: o do header, quando existe. Quando não existe, deriva da
+ * primeira mensagem do usuário — truncada, para a lista não virar parágrafo.
+ *
+ * O id cru é o último recurso, e é responsabilidade de quem chama.
+ */
+export function deriveTitle(headerTitle, firstUserText, maxLen = 50) {
+  const titulo = typeof headerTitle === "string" ? headerTitle.trim() : "";
+  if (titulo !== "") return titulo;
+
+  const texto = String(firstUserText ?? "").replace(/\s+/g, " ").trim();
+  if (texto === "") return null;
+  if (texto.length <= maxLen) return texto;
+  return texto.slice(0, maxLen - 1).trimEnd() + "…";
+}
+
+/**
+ * Lê o que a lista de sessões precisa e o `listSessions` não devolve:
+ * `client` (contrato desktop 1.0) e o primeiro texto do usuário (para o
+ * título derivado).
+ *
+ * Lê o começo de cada arquivo, não o inteiro: o header é a linha 1 e a
+ * primeira mensagem do usuário vem logo depois. Uma sessão de dezenas de
+ * megabytes não vira string na memória por causa de uma lista.
+ *
+ * @returns {Promise<Map<string, { client: string, firstUser: string|null }>>}
+ */
+export async function readSessionExtras(dir, { maxBytes = 256 * 1024 } = {}) {
+  const { readdir, open } = await import("node:fs/promises");
+  const { parseSession } = await import("../core/agent/sessions.mjs");
+
+  const out = new Map();
+  let files = [];
+  try {
+    files = (await readdir(dir)).filter((f) => f.endsWith(".jsonl"));
+  } catch {
+    return out;
+  }
+
+  for (const f of files) {
+    const full = path.join(dir, f);
+    let header = null;
+    let firstUser = null;
+
+    try {
+      const fh = await open(full, "r");
+      try {
+        const buf = Buffer.alloc(maxBytes);
+        const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
+        const { header: h, messages } = parseSession(buf.subarray(0, bytesRead).toString("utf8"));
+        header = h;
+        for (const m of messages) {
+          if (m && m.role === "user") {
+            firstUser = typeof m.content === "string"
+              ? m.content
+              : Array.isArray(m.content)
+                ? m.content.map((c) => (c && typeof c.text === "string" ? c.text : "")).join(" ")
+                : "";
+            break;
+          }
+        }
+      } finally {
+        await fh.close().catch(() => {});
+      }
+    } catch {
+      // arquivo ilegível: cai no fallback do chamador
+    }
+
+    const id = (header && header.id) || f.replace(/\.jsonl$/, "");
+    out.set(id, { client: sessionOrigin(header && header.client), firstUser });
+  }
+
+  return out;
+}
+
+/**
+ * Monta as linhas da lista de sessões. Separada do comando para que a paleta
+ * (Ctrl+K) mostre exatamente o mesmo que /sessions mostra.
+ */
+export function renderSessionsList(list, extras, limit = 12) {
+  const lines = [paint(`  ${list.length} sessão(es)`, "fg")];
+
+  // cabeçalho só quando há o que listar — coluna a mais sem tabela é ruído
+  const temDesktop = list.slice(0, limit).some((se) => (extras.get(se.id)?.client ?? "cli") === "desktop");
+  const idW = 8;
+  const originW = temDesktop ? 8 : 0;
+  const titleW = Math.max(24, WIDTH - idW - originW - 26 - 8);
+
+  for (const se of list.slice(0, limit)) {
+    const extra = extras.get(se.id);
+    const origin = extra?.client ?? "cli";
+    const title = deriveTitle(se.title, extra?.firstUser) ?? String(se.id).slice(0, 8);
+    const id = se.id ? String(se.id).slice(0, idW) : "?";
+
+    const colOrigin = temDesktop ? String(origin).padEnd(originW) + "  " : "";
+    const colTitle = fit(String(title), titleW).padEnd(titleW);
+    lines.push(`  ${id}  ${colOrigin}${colTitle}  ${se.turns} turnos  ${String(se.updatedAt || "").slice(0, 10)}`);
+  }
+
+  if (list.length > limit) {
+    lines.push(paint(`  … e mais ${list.length - limit} sessão(es)`, "muted"));
+  }
+
+  return lines;
+}
+
 async function runSessions({ out, arg, pi }) {
   const { listSessions, loadSession } = await import("../core/agent/sessions.mjs");
   const dir = await sessionDir();
@@ -1098,8 +1539,13 @@ async function runSessions({ out, arg, pi }) {
       out(paint(`  sessão "${arg}" não encontrada`, "warn"));
       return 2;
     }
-    const lines = [paint(`  sessão ${meta.id ? String(meta.id).slice(0, 8) : arg}`, "fg")];
-    lines.push(`    título:  ${meta.title || "—"}`);
+    const extras = await readSessionExtras(dir);
+    const extra = extras.get(meta.id) ?? null;
+    const idCurto = meta.id ? String(meta.id).slice(0, 8) : arg;
+    const origin = sessionOrigin(extra?.client);
+    const lines = [paint(`  sessão ${idCurto}`, "fg")];
+    lines.push(`    título:  ${deriveTitle(meta.title, extra?.firstUser) ?? "-"}`);
+    lines.push(`    origem:  ${origin}`);
     lines.push(`    turnos:  ${meta.turns}`);
     lines.push(`    tokens:  ${meta.tokens}`);
     out(lines.join("\n"));
@@ -1126,12 +1572,37 @@ async function runSessions({ out, arg, pi }) {
     out(paint("  nenhuma sessão encontrada", "muted"));
     return 0;
   }
-  const lines = [paint(`  ${list.length} sessão(ões)`, "fg")];
-  for (const se of list.slice(0, 12)) {
-    const id = se.id ? String(se.id).slice(0, 8) : "?";
-    lines.push(`  ${id}  ${String(se.title || "—").slice(0, 26).padEnd(26)}  ${se.turns} turnos  ${String(se.updatedAt || "").slice(0, 10)}`);
-  }
-  out(lines.join("\n"));
+  const extras = await readSessionExtras(dir);
+  out(renderSessionsList(list, extras).join("\n"));
+  return 0;
+}
+
+
+/**
+ * /mode sem argumento: anda no anel plan → build → manual → ask → goal e volta.
+ *
+ * A ordem não é minha: é a de MODE_NAMES em core/governance/modes.mjs.
+ * Com argumento, /mode <nome> vai direto (igual a /plan, /build, /ask).
+ */
+async function runModeCycle({ out }) {
+  const { MODE_NAMES, resolveMode } = await import("../core/governance/modes.mjs");
+
+  const atual = String(currentMode || "").toLowerCase();
+  const i = MODE_NAMES.findIndex((m) => m.toLowerCase() === atual);
+  const proximo = MODE_NAMES[(i + 1) % MODE_NAMES.length];
+
+  const m = resolveMode(proximo);
+  currentMode = m.name;
+  statusInfo.mode = m.name;
+
+  const linhas = [paint(`  modo: ${m.name}`, "ok")];
+  const linha = describeModeLine(m);
+  if (linha) linhas.push(`    ${linha}`);
+  const anel = paint(`  anel: ${MODE_NAMES.join(" → ")}`, "muted");
+  linhas.push("");
+  linhas.push(anel);
+
+  out(capLinhas(linhas).join("\n"));
   return 0;
 }
 
@@ -1145,9 +1616,9 @@ async function runMode(name, { out }) {
   if (m.name === "plan") {
     const g = guardWrite({ mode: "plan", path: "exemplo.txt", workspace: ROOT });
     lines.push("");
-    lines.push(paint(`    escrita: ${g.decision} — ${g.reason}`, g.decision === "block" ? "warn" : "muted"));
+    lines.push(paint(`    escrita: ${g.decision} - ${g.reason}`, g.decision === "block" ? "warn" : "muted"));
   }
-  out(lines.join("\n"));
+  out(capLinhas(lines).join("\n"));
   return 0;
 }
 
@@ -1194,7 +1665,11 @@ async function runGoal({ arg, out }) {
     return 2;
   }
   await refreshGoalTag();
-  out(paint(`  goal definida: ${goalState.goal.condition}`, "ok"));
+  // A condição vem do usuário e pode ter qualquer tamanho; sem teto, uma linha
+  // de 400 chars estoura as 72 colunas da TUI e desalinha o resto da tela.
+  // Trunca a linha inteira (não o argumento) para valer para qualquer prefixo.
+  const linhaGoal = `  goal definida: ${goalState.goal.condition}`;
+  out(paint(linhaGoal.length > 72 ? `${linhaGoal.slice(0, 71)}…` : linhaGoal, "ok"));
   out(paint("  (◎ /goal active — avalio ao fim de cada turno)", "muted"));
   return 0;
 }
@@ -1375,6 +1850,40 @@ export function renderPanel(info = statusInfo, data = {}) {
   lines.push(paint("  ctrl+o fecha", "dim"));
   return lines;
 }
+
+/**
+ * Painel de configurações (Ctrl+,): o que está valendo nesta sessão.
+ *
+ * Não é um editor — é a mesma leitura que o desktop mostra em Ctrl+, vista
+ * daqui. Quem muda configuração continua mudando por comando (/model, /plan,
+ * /build, /ask); este painel só mostra o estado, para os dois lados
+ * concordarem sem o usuário adivinhar.
+ */
+export function renderSettings(info = statusInfo, { sessionsDir = null, commands = COMMANDS.length } = {}) {
+  // rótulo ocupa 17 colunas ("    modelo:      "); o resto é do valor, e o
+  // valor é cortado para o frame não estourar as 72 colunas com um caminho
+  // longo ou um id de modelo comprido.
+  const cut = (valor) => {
+    const plain = stripAnsi(String(valor ?? ""));
+    const max = WIDTH - 17;
+    if (max <= 1) return "…";
+    return plain.length > max ? plain.slice(0, max - 1) + "…" : plain;
+  };
+
+  const lines = [];
+  lines.push(paint("  configurações", "fg"));
+  lines.push(`    modelo:      ${paint(cut(info.model || "-"), "fg")}`);
+  lines.push(`    modo:        ${paint(cut(info.mode), "bold")}`);
+  lines.push(`    permissão:   ${paint(cut(info.permission), "fg")}`);
+  if (info.reasoning) lines.push(`    raciocínio:  ${cut(info.reasoning)}`);
+  if (info.context) lines.push(`    contexto:    ${cut(info.context)}`);
+  lines.push(`    sessões:     ${cut(sessionsDir ?? "(não resolvido)")}`);
+  lines.push(`    comandos:    ${commands}`);
+  lines.push("");
+  lines.push(paint("  ctrl+, fecha", "dim"));
+  return lines;
+}
+
 
 export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   const settleTimeoutMs = opts.settleTimeoutMs ?? 120_000;
@@ -1798,6 +2307,12 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
   let running = false;
   let quitting = false;
   let panelOpen = false; // painel de estado (ctrl+o)
+  let sessionsOpen = false; // lista de sessões (ctrl+k)
+  let settingsOpen = false; // configurações (ctrl+,)
+  let sessionsCache = null; // linhas já montadas, para o overlay não esperar
+  let settingsCache = null;
+  let sessionsDirCache = null; // resolvido uma vez (sessionDir é varredura)
+  let modelPicker = null; // seletor de /model: { stage, sel, grupos, flat, niveis, modelo }
 
   const paletteWidth = () => {
     const cols = (process.stdout && process.stdout.columns) || 80;
@@ -1831,7 +2346,7 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
         ? "ctrl+o fechar · enter enviar · q sair"
         : open
           ? "↑↓ navegar  enter escolher  esc fechar  ctrl+o painel"
-          : "enter enviar · / comandos · ctrl+o painel · q sair",
+          : "enter enviar · / comandos · ctrl+o painel · ctrl+k sessões · q sair",
       "dim",
     );
 
@@ -1839,6 +2354,9 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     const belowLines = [];
     for (const pl of paletteLines) belowLines.push(pl);
     if (panelOpen) for (const pl of renderPanel(statusInfo, data)) belowLines.push(pl);
+    if (settingsOpen && settingsCache) for (const pl of settingsCache) belowLines.push(pl);
+    if (sessionsOpen && sessionsCache) for (const pl of sessionsCache) belowLines.push(pl);
+    for (const pl of modelPickerRows()) belowLines.push(pl);
     belowLines.push(statusLine);
     belowLines.push(keysLine);
 
@@ -1851,6 +2369,150 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     write("\r");
     if (col > 0) write(`\x1b[${col}C`);
   };
+
+  // ------------------------------------------------------------- overlays
+  // Os dois são montados uma vez e guardados: o overlay é redesenhado a cada
+  // tecla, e varrer a pasta de sessões a cada tecla seria trabalho jogado fora.
+  // A geração protege contra dois carregamentos se sobrepondo.
+
+  let sessionsGen = 0;
+  async function refreshSessionsOverlay() {
+    const my = ++sessionsGen;
+    try {
+      const { listSessions } = await import("../core/agent/sessions.mjs");
+      if (!sessionsDirCache) sessionsDirCache = await sessionDir();
+      const list = await listSessions(sessionsDirCache);
+      const extras = await readSessionExtras(sessionsDirCache);
+      if (my !== sessionsGen) return;
+      sessionsCache = list.length === 0
+        ? [paint("  nenhuma sessão encontrada", "muted")]
+        : renderSessionsList(list, extras, 8);
+    } catch (err) {
+      if (my !== sessionsGen) return;
+      sessionsCache = [paint(`  não consegui ler as sessões: ${err?.message ?? err}`, "warn")];
+    }
+    if (sessionsOpen) drawInput();
+  }
+
+  let settingsGen = 0;
+  async function refreshSettingsOverlay() {
+    const my = ++settingsGen;
+    if (!sessionsDirCache) {
+      try { sessionsDirCache = await sessionDir(); } catch { sessionsDirCache = null; }
+    }
+    if (my !== settingsGen) return;
+    settingsCache = renderSettings(statusInfo, { sessionsDir: sessionsDirCache });
+    if (settingsOpen) drawInput();
+  }
+
+
+  // --------------------------------------------------------- /model picker
+  // O seletor vive no REPL, não no comando: /model sem argumento devolve o
+  // controle para cá, e as teclas (↑ ↓ enter esc) são tratadas antes do editor
+  // de linha. Com argumento, /model <nome> continua indo direto e nunca abre.
+
+  const modelPickerRows = () => {
+    if (!modelPicker) return [];
+    return renderModelPicker({
+      stage: modelPicker.stage,
+      sel: modelPicker.sel,
+      grupos: modelPicker.stage === "models" ? modelPicker.grupos : [],
+      niveis: modelPicker.stage === "effort" ? modelPicker.niveis : [],
+      modelo: modelPicker.modelo,
+    });
+  };
+
+  const startModelPicker = () => {
+    const grupos = groupModelsByProvider(listConfiguredModels());
+    const { flat } = flattenModelGroups(grupos);
+    modelPicker = { stage: "models", sel: 0, grupos, flat, niveis: [], modelo: null };
+    drawInput();
+  };
+
+  /** Fecha o seletor sem mudar nada (Esc). */
+  const cancelModelPicker = () => {
+    modelPicker = null;
+    drawInput();
+  };
+
+  /** Quantos itens a etapa atual oferece (para o wrap de ↑/↓). */
+  const modelPickerCount = () => {
+    if (!modelPicker) return 0;
+    return modelPicker.stage === "models" ? modelPicker.flat.length : modelPicker.niveis.length;
+  };
+
+  const moveModelPicker = (delta) => {
+    if (!modelPicker) return;
+    const n = modelPickerCount();
+    if (n === 0) return;
+    modelPicker.sel = (modelPicker.sel + delta + n) % n;
+    drawInput();
+  };
+
+  /**
+   * Fecha a etapa do modelo e abre a do esforço — só os níveis que aquele
+   * modelo expõe. Sem sessão (ou sem o RPC), a etapa é pulada e o seletor
+   * fecha: não faz sentido perguntar esforço sem ter onde aplicar.
+   */
+  const afterModelChosen = async () => {
+    const escolha = modelPicker?.flat?.[modelPicker.sel];
+    modelPicker = null;
+    if (!escolha) { drawInput(); return; }
+
+    if (!pi || typeof pi.setModel !== "function") {
+      drawInput();
+      return;
+    }
+
+    await pi.setModel(escolha.provider, escolha.id).catch(() => null);
+    statusInfo.model = escolha.id;
+
+    let niveis = [];
+    let doMotor = false;
+    try {
+      if (pi._rpc && typeof pi._rpc.getAvailableThinkingLevels === "function") {
+        niveis = normalizeEffortList(await pi._rpc.getAvailableThinkingLevels());
+        doMotor = true;
+      }
+    } catch {
+      doMotor = false;
+    }
+
+    if (!doMotor || niveis.length <= 1) {
+      // sem lista utilizável, não inventa pergunta: só confirma o modelo
+      write("  modelo: " + escolha.provider + "/" + escolha.id + "\n");
+      if (!doMotor) write("  (não consegui ler os níveis de esforço deste modelo)\n");
+      drawInput();
+      return;
+    }
+
+    const atual = String(statusInfo.reasoning || "").toLowerCase();
+    const i = niveis.findIndex((l) => l === atual);
+    modelPicker = {
+      stage: "effort",
+      sel: i >= 0 ? i : 0,
+      grupos: [],
+      flat: [],
+      niveis,
+      modelo: escolha.provider + "/" + escolha.id,
+    };
+    drawInput();
+  };
+
+  /** Enter na etapa de esforço: aplica e fecha. */
+  const applyEffortChoice = async () => {
+    const nivel = modelPicker?.niveis?.[modelPicker.sel];
+    modelPicker = null;
+    if (!nivel) { drawInput(); return; }
+
+    if (pi?._rpc && typeof pi._rpc.setThinkingLevel === "function") {
+      await pi._rpc.setThinkingLevel(nivel).catch(() => null);
+    }
+    statusInfo.reasoning = nivel;
+    write("  esforço: " + nivel + "\n");
+    drawInput();
+  };
+
   const prompt = () => drawInput();
 
   const finishRun = async () => {
@@ -1889,6 +2551,12 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
       return;
     }
     if (parsed.type === "slash") {
+      // /model sem argumento não lista na tela: abre o seletor aqui no REPL,
+      // onde as setas e o esc existem. Com argumento segue direto.
+      if (parsed.name === "model" && String(parsed.arg ?? "").trim() === "") {
+        startModelPicker();
+        return;
+      }
       await runSlash(parsed.name, parsed.arg, (s) => write(s + "\n"), { pi, onClear: () => write("\x1b[2J\x1b[H") });
       prompt();
       return;
@@ -1910,13 +2578,47 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     await finishRun();
   };
 
-  const onData = (chunk) => {
+  const onData = async (chunk) => {
     for (const key of keymap(chunk)) {
       if (quitting) return;
       if (key === "ctrl-o" && !running) {
         panelOpen = !panelOpen;
         drawInput();
         continue;
+      }
+      if (key === "ctrl-k" && !running) {
+        sessionsOpen = !sessionsOpen;
+        settingsOpen = false;
+        if (sessionsOpen) {
+          // abre na hora com um "lendo"; a varredura chega depois e redesenha
+          sessionsCache = [paint("  lendo sessões…", "muted")];
+          drawInput();
+          void refreshSessionsOverlay();
+        } else drawInput();
+        continue;
+      }
+      if (key === "ctrl-comma" && !running) {
+        settingsOpen = !settingsOpen;
+        sessionsOpen = false;
+        if (settingsOpen) {
+          // idem: mostra já, resolve o caminho das sessões em segundo plano
+          settingsCache = renderSettings(statusInfo, { sessionsDir: sessionsDirCache });
+          drawInput();
+          void refreshSettingsOverlay();
+        } else drawInput();
+        continue;
+      }
+      // O seletor tem prioridade: enquanto ele está aberto, as setas andam
+      // na lista, enter escolhe e esc cancela — nada disso chega ao editor.
+      if (modelPicker) {
+        if (key === "up") { moveModelPicker(-1); continue; }
+        if (key === "down") { moveModelPicker(1); continue; }
+        if (key === "enter") {
+          if (modelPicker.stage === "models") await afterModelChosen();
+          else await applyEffortChoice();
+          continue;
+        }
+        if (key === "esc") { cancelModelPicker(); continue; }
       }
       if (running) {
         if (key === "ctrl-c") {
@@ -2049,6 +2751,14 @@ function makeKeyMap() {
         yield "ctrl-o";
         continue;
       }
+      if (code === 0x0b) { // Ctrl+K — a mesma tecla do desktop
+        yield "ctrl-k";
+        continue;
+      }
+      if (code === 0x1c) { // Ctrl+, não tem código ASCII próprio; 0x1C é o que
+        yield "ctrl-comma"; // a maioria dos terminais manda (Ctrl+ inclusive)
+        continue;
+      }
       if (code === 0x0d || code === 0x0a) {
         yield "enter";
         continue;
@@ -2127,6 +2837,7 @@ async function main() {
     else if (screen === "help") frame = [renderBanner(), rule(), renderStatusLine(data), "", renderHelp()].join("\n");
     else if (screen === "banner") frame = [renderBanner(), rule(), renderStatusLine(data)].join("\n");
     else if (screen === "palette") frame = renderPaletteFrame("", 72);
+    else if (screen === "menu") frame = renderPaletteFrame("", 72);
     else if (screen === "palette-filtered") frame = renderPaletteFrame("ev", 72);
     else if (screen === "status") frame = [
       renderBanner(),
@@ -2174,7 +2885,7 @@ async function main() {
         "  " + buildStatusLine({ mode: currentMode, permission: permissionMode, model: "claude-opus-5-5", reasoning: "medium" }),
       ].join("\n");
     } else {
-      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, help, banner, palette, palette-filtered, status, panel, busy)\n`);
+      process.stderr.write(`erro: --render não reconhece "${screen || ""}" (use: conversation, menu, help, banner, palette, palette-filtered, status, panel, busy)\n`);
       process.exit(2);
     }
     process.stdout.write(frame + "\n");

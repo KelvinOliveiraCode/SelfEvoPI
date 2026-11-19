@@ -5,7 +5,100 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [0.5.0] - 2026-11-17
+## [1.0.1] - 2026-11-18
+
+**Fechamento do desktop.** O 1.0.0 saiu com o painel de configurações no código
+e vazio na tela; este conserta e inclui as duas interfaces na suíte.
+
+- **Painel de configurações abre e funciona.** `settings.js` passou a importar
+  `./modes-data.js` — o módulo do browser não pode alcançar
+  `core/governance/modes.mjs`, que carrega uma árvore de imports do lado do
+  Node. O arquivo é gerado a partir do core e `modes-data.test.mjs` falha se
+  divergirem.
+- **Clique, não só teclado.** Os listeners de `#settings` e `#openDrawer` não
+  existiam: o painel só abria por `Ctrl+,`. Agora o mouse também abre.
+- **`npm test` passou a rodar as duas interfaces.** O glob só cobria `core/` e
+  `scripts/`; os 71 testes da CLI e os 41 do desktop nunca rodaram no CI.
+  Suíte: **789 testes, 788 passam, 1 skip**.
+- **CLI com origem e título** (A4): `/sessions` mostra de onde veio a sessão
+  (`cli`|`desktop`), deriva título da primeira mensagem quando o header não tem,
+  e `Ctrl+K`/`Ctrl+,` abrem na hora em vez de esperar a varredura.
+
+## [1.0.0] - 2026-11-18
+
+> **Seção em preparação.** Esta entrada cobre o que já está integrado na data. Os itens
+> marcados como *reservado* são preenchidos quando o respectivo subagente confirmar a
+> integração (ver nota no fim da seção).
+
+A versão 1.0.0 é o primeiro lançamento do SelfEvoPI como produto completo: CLI e desktop
+conversando com o mesmo backend, menu de configurações, sessões compartilhadas e
+interface responsiva. O `package.json` deixou de ter dependências npm — o bloco
+`dependencies` morto (jsdom, node-html-parser) foi removido e o lock ficou com 1 entrada.
+
+### Adicionado
+
+**Menu de configurações no desktop.** `apps/desktop/settings.js` traz dois pontos de
+controle, como no Claude Code Desktop: uma **linha de controle** abaixo do composer
+(modo + modelo + permissão) e um **painel de preferências** (`Ctrl+,`) para o que não muda
+a cada turno (modo `plan`/`build`/`manual`/`ask`/`goal`, modelo, esforço de raciocínio,
+permissão, confirmar escritas, dicas). Persiste em `localStorage` sob
+`selfevopi.settings`; não cria arquivo no disco. Zero dependência externa.
+
+**Módulo de sessões do desktop.** `apps/desktop/sessions.js` lista, abre e cria sessões
+(`newSession`), com o par título/turnos-tokens por linha e o estado ativo destacado.
+
+**Campo `client` no header da sessão.** `core/agent/sessions.mjs` passa a expor `client`
+(`cli` | `desktop`) em `listSessions` e `loadSession`. O header antigo, que não tinha o
+campo, conta como `cli` — retrocompatível.
+
+**Interface responsiva.** `apps/desktop/desktop.css` reorganiza a conversa em duas colunas
+no desktop e vira uma **gaveta sobreposta** abaixo de 900px (a lista de sessões não some,
+vira overlay); há ajuste para telas abaixo de 480px e respeito a
+`prefers-reduced-motion`.
+
+**Sem dependências npm.** O bloco `dependencies` morto (jsdom, node-html-parser) foi
+removido; o `package-lock.json` ficou com 1 entrada. O projeto segue 100% Node puro.
+
+### Reservado (a confirmar)
+
+- **Sessões compartilhadas entre CLI e desktop** — a sessão criada no desktop deve
+  aparecer no `/sessions` da CLI e vice-versa. *(Reservado: depende das rotas
+  `GET /api/sessions` / `POST /api/sessions/fork` que o A8 está integrando em
+  `scripts/desktop.mjs`.)*
+- **Dois executáveis** — `SelfEvoPI.cmd` (CLI) e `SelfEvoPI-Desktop.cmd` (desktop).
+  *(Reservado: A6 está produzindo os dois executáveis; só documentar quando integrado.)*
+
+### Contexto da versão
+
+Métricas **medidas em 2026-11-18** no HEAD `ee74ed9` (branch `main`). Fotografia da
+data, não garantia de desempenho. Cada número tem o comando que o produziu.
+
+| Métrica | Valor medido | Comando |
+|:---|:---|:---|
+| Testes unitários | 665 (664 passam, 1 skip) | `npm test` |
+| Integridade das URLs | ok=33, fail=0 | `node scripts/verify-urls.mjs` |
+| Módulos de produção | 65 | `Get-ChildItem -Recurse -Filter *.mjs` (apps+core+scripts, excl. testes) |
+| Linhas de produção | 18.869 | idem |
+| Arquivos de teste | 56 | `*.test.mjs` |
+| Linhas de teste | 10.458 | idem |
+| Cold start, CLI | 91 ms média (mín 82, máx 98) · 7 execuções | `node apps/cli.mjs --version` |
+| Incremento do SelfEvoPI | +506 tok (memória no teto) | `node scripts/measure-selfevopi-overhead.mjs --runs 3` |
+| Orçamento de prompt | 1.500 tok | — |
+
+O orçamento de prompt é requisito, não aspiração: o limite é 1.500 tokens de acréscimo, e
+a medição acima mantém o projeto dentro dele (506 de 1500).
+
+### Verificação
+
+```powershell
+npm test                       # 665 testes (664 passam, 1 skip)
+node scripts/verify-urls.mjs   # 33 URLs citadas, todas 200
+```
+
+<!-- Os itens "Reservado" acima serão preenchidos quando A6 (executáveis) e A8 (rotas de
+     sessão) confirmarem a integração. Não documentar SelfEvoPI-Desktop.cmd antes disso. -->
+
+[0.5.0]: #050---2026-11-17
 
 Primeira versão em que o SelfEvoPI fecha o ciclo completo: detectar uma lacuna,
 descrever o que falta, gerar o código, verificar, e só então promover — ou

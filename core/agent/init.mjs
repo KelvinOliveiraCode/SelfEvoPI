@@ -64,7 +64,7 @@ const DEFAULT_CONVENTIONS = [
 
 const DEFAULT_NAME = "SelfEvoPI";
 const DEFAULT_DESCRIPTION =
-  "harness de agente de código, leve e auto-evolutivo, construído sobre o PI Coding Agent";
+  "agente de codigo auto-evolutivo: detecta a lacuna, escreve o artefato, testa no sandbox e so promove o que nao causa regressao";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */

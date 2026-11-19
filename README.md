@@ -10,11 +10,11 @@
 
 <br>
 
-![Tests](https://img.shields.io/badge/tests-664%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-788%20passing%20%281%20skip%29-brightgreen)
 ![Evals](https://img.shields.io/badge/evals-86%2F87%20(98.85%25)-brightgreen)
-![Cold start](https://img.shields.io/badge/cold_start-443ms%20warm-blue)
-![Prompt](https://img.shields.io/badge/prompt_overhead-%2B499%20of%201500-blue)
-![License](https://img.shields.io/badge/license-TBD-lightgrey)
+![Cold start](https://img.shields.io/badge/cold_start-91ms%20avg-blue)
+![Prompt](https://img.shields.io/badge/prompt_overhead-%2B506%20of%201500-blue)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 </div>
 
@@ -28,7 +28,7 @@ It starts from the [PI Coding Agent](https://github.com/earendil-works/pi) as it
 
 The result is not "a harness for pi". It is an agent with its own CLI, its own desktop app, its own brand, and its own name — and the engine underneath is an implementation detail you never have to see.
 
-The whole thing is **~22k lines of production Node ESM** across **160 modules** (53 of them test files, ~27k lines with tests), with **664 passing unit tests** (1 skipped) and **29 evaluation tasks**. Cold start is **99 ms** measured on `node apps/cli.mjs --version` (7 runs, warm cache). The prompt it adds to the engine is **499 tokens** at the ceiling, against a hard budget of 1,500.
+The whole thing is **~19k lines of production Node ESM** across **65 modules** (56 of them test files, ~10k lines with tests), with **664 passing unit tests** (1 skipped) and **29 evaluation tasks**. Cold start is **91 ms** average on `node apps/cli.mjs --version` (7 runs, warm cache). The prompt it adds to the engine is **506 tokens** at the ceiling, against a hard budget of 1,500.
 
 ## Why it exists
 
@@ -48,16 +48,17 @@ Everything below was measured on this repository, on Windows 11, Node 24.13. Rep
 
 | Metric | Value | Budget | How |
 |:---|:---|:---|:---|
-| Cold start, SelfEvoPI CLI | **88 ms** avg (min 75, max 119) · 10 runs | < 500 ms | `node apps/cli.mjs --version` |
+| Cold start, SelfEvoPI CLI | **91 ms** avg (min 82, max 98) · 7 runs | < 500 ms | `node apps/cli.mjs --version` |
 | Cold start, the engine underneath | **473 ms** median · 1.012–1.806 s cold cache | — | `scripts/measure-overhead.mjs` |
-| Prompt added by SelfEvoPI | **+499 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs` |
-| Base agent prompt | 8.683 tok | — | same |
-| Evaluation suite | **29 tasks, 86/87 baseline (98.85%)** — B11 is stochastic (2/3 baseline, 3/3 last run) | no regression | `node evals/gate.mjs` |
-| Unit tests | **664 passing** (1 skipped: no pi-harness server) | - | `npm test` |
+| Prompt added by SelfEvoPI | **+506 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs --runs 3` |
+| Base agent prompt | 8.685 tok | — | same |
+| Evaluation suite | **29 tasks, 86/87 baseline (98.85%)** — B11 is stochastic | no regression | `node evals/gate.mjs` |
+| Unit tests | **788 passing** (1 skipped: no pi-harness server) | - | `npm test` |
+| Source URLs | **33 cited sources, all 200** | all reachable | `node scripts/verify-urls.mjs` |
 | Suite cost per task | **US$ 0.00** (free tier) | — | JSONL ledger |
 | Suite latency | ~5.9 s/task average | — | ledger |
-| Codebase | **160 modules** · ~22.0k lines of production code | — | — |
-| Test code | **53 files** · ~9.8k lines | — | — |
+| Codebase | **65 modules** · ~18.9k lines of production code | — | — |
+| Test code | **56 files** · ~10.5k lines | — | — |
 
 ### What the prompt budget actually buys
 
@@ -174,7 +175,7 @@ Eight isolated worktrees (`.worktrees/A1`–`A8`), each with a disjoint file sco
 
 | Gate | What it checks | Enforcement |
 |:---|:---|:---|
-| `npm test` | 664 unit tests | CI on every push |
+| `npm test` | 788 unit tests | CI on every push |
 | `npm run verify` | tests + evals A/C + source URL integrity | CI |
 | `node evals/gate.mjs` | 3 runs per task vs baseline | local, before merge |
 | `scripts/verify-urls.mjs` | 33 cited sources still reachable | CI |
@@ -275,10 +276,14 @@ npm run verify
 
 Two shortcuts on the Desktop, both carrying the brand icon:
 
-- **`SelfEvoPI`** — opens the CLI: a keyboard-driven terminal interface. Type `/` at any time and the command palette opens with every command, filtering as you type.
-- **`SelfEvoPI-Painel`** — opens the desktop app: a native window without an address bar into the conversation, backed by the server on `127.0.0.1:7777`.
+- **`SelfEvoPI`** (`launcher/SelfEvoPI.cmd`) — opens the CLI: a keyboard-driven terminal interface. Type `/` at any time and the command palette opens with every command, filtering as you type.
+- **`SelfEvoPI-Painel`** (`launcher/SelfEvoPI-Painel.cmd`) — opens the desktop app: a native window without an address bar into the conversation, backed by the server on `127.0.0.1:7777`.
 
 The launcher sources live in `launcher/`, and the shortcuts point at them. Earlier copies are kept in `launcher/antigos/`.
+
+> **A caminho (1.0):** dois executáveis nomeados pela marca — `SelfEvoPI.cmd` (CLI) e
+> `SelfEvoPI-Desktop.cmd` (desktop). Enquanto o segundo não é integrado, o desktop abre
+> pelo `SelfEvoPI-Painel.cmd`.
 
 ### The CLI
 
@@ -331,7 +336,7 @@ A conversation, not a menu. The engine underneath is invisible — the interface
 
 ```powershell
 npm run verify                          # tests + evals A/B/C + URLs
-npm test                                # 664 unit tests
+npm test                                # 788 unit tests
 npm run gate                            # full gate (real model calls, slow)
 
 node apps/cli.mjs                       # the CLI (same as the desktop shortcut)
@@ -368,17 +373,17 @@ $ node cli.mjs --peso 70 --altura 1.75
 {"imc":22.86,"classificacao":"Peso normal"}
 ```
 
-## The local panel
+## The desktop app
 
-A single Node process (`scripts/desktop.mjs`) serves a dashboard on `127.0.0.1` and exposes a small JSON API:
+A single Node process (`scripts/desktop.mjs`) serves the desktop UI on `127.0.0.1` and exposes a small JSON API. The interface is a conversation, not a dashboard:
 
-- evaluation rate by group, with per-run detail
-- recent executions from the JSONL ledger
-- promoted artifacts
-- graph runs with checkpoint progress
-- actions behind an explicit allowlist
+- **settings menu** (`apps/desktop/settings.js`) — a control bar below the composer (mode, model, permission) and a preferences panel (`Ctrl+,`) for what does not change per turn: mode (`plan`/`build`/`manual`/`ask`/`goal`), model, reasoning effort, permission, confirm-writes, tips. Persists in `localStorage` under `selfevopi.settings`; no file on disk.
+- **sessions** (`apps/desktop/sessions.js`) — list, open and start sessions from the sidebar, with title and turns/tokens per row.
+- **responsive** (`apps/desktop/desktop.css`) — two columns on desktop, the session list becomes an overlay drawer below 900px (it does not disappear), an extra breakpoint below 480px, and `prefers-reduced-motion` is respected.
 
-It binds to loopback only, reads nothing outside the repository, and executes nothing that is not on the allowlist.
+The server binds to loopback only, reads nothing outside the repository, and executes nothing that is not on the allowlist. The older metrics panel (`scripts/desktop.mjs`) is still available for evaluation rates, recent executions, promoted artifacts and graph runs.
+
+> **Sessions carry a `client` field** (`cli` | `desktop`) in their header (`core/agent/sessions.mjs`), so a session created on one surface can be listed and opened from the other. Headers written before this field count as `cli`.
 
 ## Documentation
 
