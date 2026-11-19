@@ -1039,7 +1039,7 @@ test("describeModeLine: descreve o que o modo permite", () => {
 
   const build = describeModeLine({ name: "build", canRead: true, canWrite: true, canExec: true, execScope: "workspace" });
   assert.match(build, /escreve/);
-  assert.match(build, /executa (workspace)/);
+  assert.ok(build.includes("executa (workspace)"), "escopo de execucao ausente");
 
   assert.equal(describeModeLine(null), null);
 });
