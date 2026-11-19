@@ -295,7 +295,7 @@ test("applyImport com origem ausente não escreve nada", async () => {
 /* undoImport                                                          */
 /* ------------------------------------------------------------------ */
 
-test("undoImport restaura o backup e apaga as skills criadas", async () => {
+test("undoImport remove só as chaves que o import adicionou, preservando o resto", async () => {
   const home = await novoHome();
   // alvo preexistente com mcp antigo
   await escreverAlvoSettings(home, { mcpServers: { antigo: { command: "node" } } });
@@ -307,21 +307,24 @@ test("undoImport restaura o backup e apaga as skills criadas", async () => {
   await escreverFonteSkill(home, "skill-nova", SKILL_A);
 
   // importa
-  const imp = await applyImport({ home });
-  // sanity: settings agora tem antigo + novo; skill-nova existe
-  let settings = JSON.parse(await readFile(path.join(home, TARGET_SETTINGS_SUBDIR), "utf8"));
-  assert.ok(settings.mcpServers.antigo && settings.mcpServers.novo);
-  assert.ok(existsSync(path.join(home, TARGET_SKILLS_SUBDIR, "skill-nova", "SKILL.md")));
+  await applyImport({ home });
+  // usuário adiciona OUTRO mcp depois do import (via /settings, por exemplo)
+  const settingsPath = path.join(home, TARGET_SETTINGS_SUBDIR);
+  const settingsDepois = JSON.parse(await readFile(settingsPath, "utf8"));
+  settingsDepois.mcpServers.usuario_post = { command: "python" };
+  await writeFile(settingsPath, JSON.stringify(settingsDepois, null, 2), "utf8");
 
   // desfaz
   const undo = await undoImport({ home });
   assert.equal(undo.restaurado, true);
+  assert.deepEqual(undo.mcpRemovidos, ["novo"]);
   assert.deepEqual(undo.skillsRemovidas, ["skill-nova"]);
 
-  // settings restaurado: só 'antigo', sem 'novo'
-  settings = JSON.parse(await readFile(path.join(home, TARGET_SETTINGS_SUBDIR), "utf8"));
-  assert.ok(settings.mcpServers.antigo);
-  assert.ok(!settings.mcpServers.novo, "novo foi removido pelo undo");
+  // settings: 'antigo' e 'usuario_post' preservados; 'novo' removido
+  const settings = JSON.parse(await readFile(settingsPath, "utf8"));
+  assert.ok(settings.mcpServers.antigo, "antigo preservado");
+  assert.ok(settings.mcpServers.usuario_post, "mcp do usuário pós-import preservado");
+  assert.ok(!settings.mcpServers.novo, "novo removido pelo undo");
   // skill apagada
   assert.equal(existsSync(path.join(home, TARGET_SKILLS_SUBDIR, "skill-nova", "SKILL.md")), false);
 });
@@ -330,6 +333,7 @@ test("undoImport sem manifesto não faz nada", async () => {
   const home = await novoHome();
   const undo = await undoImport({ home });
   assert.equal(undo.restaurado, false);
+  assert.deepEqual(undo.mcpRemovidos, []);
   assert.deepEqual(undo.skillsRemovidas, []);
   assert.equal(undo.manifesto, null);
 });
@@ -348,7 +352,132 @@ test("undoImport só reverte o manifesto mais recente não desfeito", async () =
   const undo = await undoImport({ home });
   // reverteu o mais recente; ambos os manifestos existem
   assert.ok(undo.manifesto);
-  assert.equal(undo.restaurado, true);
+  // pode não ter restaurado nada (2º import não adicionou mcp novo), mas não falhou
+  assert.equal(typeof undo.restaurado, "boolean");
+});
+
+test("undoImport não restaura o .bak inteiro (preserva o que o usuário fez)", async () => {
+  const home = await novoHome();
+  // alvo preexistente
+  await escreverAlvoSettings(home, { mcpServers: { antigo: { command: "node" } } });
+  await escreverFonteMcp(
+    home,
+    JSON.stringify({ mcpServers: { novo: { type: "local", command: "node" } } })
+  );
+
+  await applyImport({ home });
+
+  // usuário modifica o settings.json depois do import (não via import)
+  const settingsPath = path.join(home, TARGET_SETTINGS_SUBDIR);
+  const s = JSON.parse(await readFile(settingsPath, "utf8"));
+  s.mcpServers.antigo = { command: "node", args: ["--modificado"] }; // mudou o antigo
+  await writeFile(settingsPath, JSON.stringify(s, null, 2), "utf8");
+
+  await undoImport({ home });
+
+  // 'antigo' deve estar com a modificação do usuário, não com o valor do .bak
+  const final = JSON.parse(await readFile(settingsPath, "utf8"));
+  assert.deepEqual(final.mcpServers.antigo.args, ["--modificado"],
+    "undo não deve restaurar o .bak (que tinha o valor antigo sem --modificado)");
+});
+
+/* ------------------------------------------------------------------ */
+/* Skill: diretório é a chave (não o name: do frontmatter)             */
+/* ------------------------------------------------------------------ */
+
+test("skill com name: divergente do diretório — a chave é o diretório", async () => {
+  const home = await novoHome();
+  // diretório "pasta-a" com name: "nome-b" no frontmatter
+  await escreverFonteSkill(home, "pasta-a", `---
+name: nome-b
+description: skill com nome divergente
+---
+
+corpo
+`);
+
+  const src = await scanSource({ home });
+  assert.equal(src.skills.length, 1);
+  assert.equal(src.skills[0].nome, "pasta-a", "chave = diretório");
+  assert.equal(src.skills[0].name, "nome-b", "name do frontmatter preservado");
+
+  // importa e confirma que o diretório no alvo é "pasta-a" (não "nome-b")
+  await applyImport({ home });
+  assert.ok(existsSync(path.join(home, TARGET_SKILLS_SUBDIR, "pasta-a", "SKILL.md")),
+    "skill gravada no diretório 'pasta-a', não 'nome-b'");
+  assert.equal(existsSync(path.join(home, TARGET_SKILLS_SUBDIR, "nome-b")), false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Caminho relativo vs absoluto                                        */
+/* ------------------------------------------------------------------ */
+
+test("command relativo resolve contra cwd e grava absoluto", async () => {
+  const home = await novoHome();
+  // fonte com command relativo "server.mjs" e cwd "."
+  await escreverFonteMcp(
+    home,
+    JSON.stringify({
+      mcpServers: {
+        relativo: { type: "local", command: "server.mjs", cwd: "." },
+      },
+    })
+  );
+  // cria o server.mjs no cwd (que é o home)
+  await writeFile(path.join(home, "server.mjs"), "// fake server", "utf8");
+
+  await applyImport({ home });
+
+  const settings = JSON.parse(await readFile(path.join(home, TARGET_SETTINGS_SUBDIR), "utf8"));
+  // command resolvido para absoluto
+  assert.ok(path.isAbsolute(settings.mcpServers.relativo.command),
+    `command deveria ser absoluto, veio: ${settings.mcpServers.relativo.command}`);
+  // cwd resolvido para absoluto
+  assert.ok(path.isAbsolute(settings.mcpServers.relativo.cwd),
+    `cwd deveria ser absoluto, veio: ${settings.mcpServers.relativo.cwd}`);
+});
+
+test("command relativo sem cwd e sem arquivo → importa com aviso", async () => {
+  const home = await novoHome();
+  // command "nao-existe.mjs" sem cwd — não resolve, não existe
+  await escreverFonteMcp(
+    home,
+    JSON.stringify({
+      mcpServers: {
+        quebrado: { type: "local", command: "nao-existe.mjs" },
+      },
+    })
+  );
+
+  const resultado = await applyImport({ home });
+
+  // importou mesmo assim
+  assert.deepEqual(resultado.added.mcp, ["quebrado"]);
+  // mas registrou aviso
+  assert.ok(resultado.avisos.length > 0, "deveria ter aviso");
+  assert.equal(resultado.avisos[0].nome, "quebrado");
+  assert.match(resultado.avisos[0].aviso, /não encontrado/);
+});
+
+test("command ~ expande para home", async () => {
+  const home = await novoHome();
+  // command "~/server.mjs" — expande para home/server.mjs
+  await escreverFonteMcp(
+    home,
+    JSON.stringify({
+      mcpServers: {
+        tilde: { type: "local", command: "~/server.mjs" },
+      },
+    })
+  );
+  // cria o arquivo no home
+  await writeFile(path.join(home, "server.mjs"), "// fake", "utf8");
+
+  await applyImport({ home });
+
+  const settings = JSON.parse(await readFile(path.join(home, TARGET_SETTINGS_SUBDIR), "utf8"));
+  assert.ok(settings.mcpServers.tilde.command.includes(home),
+    `command deveria expandir ~ para ${home}, veio: ${settings.mcpServers.tilde.command}`);
 });
 
 /* ------------------------------------------------------------------ */

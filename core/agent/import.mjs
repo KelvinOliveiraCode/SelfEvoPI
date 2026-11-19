@@ -226,7 +226,12 @@ async function scanSkillsSource(base) {
     const fm = extractFrontmatter(raw);
     const meta = fm ? parseFrontmatter(fm) : {};
     skills.push({
-      nome, // nome do diretório = chave de colisão no alvo
+      // CHAVE ÚNICA = nome do diretório (não o `name:` do frontmatter).
+      // É o que o rollback apaga, o que o listPcSkills varre, e o que decide
+      // colisão no alvo. O `name:` do frontmatter pode divergir do diretório
+      // (usuário renomeou a pasta, ou copiou skill de outro lugar) — a
+      // identidade da skill para o SelfEvoPI é o diretório.
+      nome,
       name: meta.name ? String(meta.name).trim() : nome,
       description: meta.description ? String(meta.description).trim() : "",
       sourcePath: skillPath,
@@ -353,9 +358,12 @@ export async function applyImport({ home, plan } = {}) {
   const mapa = mapaDeServidores(doc);
 
   const mcpAdicionados = [];
+  const avisos = []; // caminho não resolveu, ou command relativo sem cwd
   for (const s of plano.mcpAdd) {
     if (mapa[s.name]) continue; // já existe (segurança extra): mantém
-    mapa[s.name] = formatarServidorParaSettings(s);
+    const { entry, aviso } = resolverCaminhoServidor(s, base);
+    if (aviso) avisos.push({ nome: s.name, aviso });
+    mapa[s.name] = entry;
     mcpAdicionados.push(s.name);
   }
 
@@ -387,6 +395,7 @@ export async function applyImport({ home, plan } = {}) {
     backup,
     mcpAdicionados,
     skillsAdicionadas,
+    avisos, // caminhos que não resolveram, ou command relativo sem cwd
     desfeito: false,
   };
 
@@ -398,6 +407,7 @@ export async function applyImport({ home, plan } = {}) {
   return {
     added: { mcp: mcpAdicionados, skills: skillsAdicionadas },
     skipped: { mcp: plano.mcpSkip.map((s) => s.name), skills: plano.skillsSkip.map((s) => s.nome) },
+    avisos,
     backup,
     manifest: manifestPath,
   };
@@ -417,31 +427,97 @@ function formatarServidorParaSettings(s) {
   return entry;
 }
 
+/**
+ * Resolve o `command` do servidor antes de gravar no settings.json.
+ *
+ * O OpenCode pode declarar `command` relativo (ex: `"server.mjs"`) ou com `~`
+ * (ex: `"~/bin/server"`). Se o SelfEvoPI gravar isso cru, o `statusOf` do
+ * probe pode devolver `broken` (não acha o executável) e o usuário vê
+ * "configurado" no import e "quebrado" no probe.
+ *
+ * Resolução:
+ *  - `~` no início → expande contra o home.
+ *  - caminho relativo com barra/backslash ou começando com `.` → resolve contra
+ *    o `cwd` do entry, se houver; senão contra o home.
+ *  - comando sem barra (ex: `node`, `npx`, `python`) → é comando do PATH, não
+ *    caminho de arquivo; não resolve (seria errado transformar `node` em
+ *    `/home/node`). Passa direto.
+ *  - se depois de resolver o arquivo não existe, devolve `aviso` (não falha —
+ *    importa com aviso, o usuário decide o que fazer).
+ *
+ * @param {object} s servidor normalizado
+ * @param {string} home home do usuário (para expandir ~ e resolver relativos)
+ * @returns {{ entry: object, aviso: string|null }}
+ */
+function resolverCaminhoServidor(s, home) {
+  const entry = formatarServidorParaSettings(s);
+  const base = home ?? resolveHome();
+  let aviso = null;
+
+  if (!entry.command || typeof entry.command !== "string") {
+    return { entry, aviso: "sem command" };
+  }
+
+  let cmd = entry.command;
+
+  // expande ~ no início
+  if (cmd === "~" || cmd.startsWith("~/") || cmd.startsWith("~\\")) {
+    cmd = path.join(base, cmd.slice(2));
+  } else if (!path.isAbsolute(cmd) && !/^[A-Za-z]:[\\/]/.test(cmd)) {
+    // só resolve como caminho se tem barra/backslash, começa com ponto,
+    // ou tem extensão de arquivo (ex: "server.mjs", "script.py")
+    // (senão é comando do PATH, ex: "node", "npx", "python")
+    const temExtensao = /\.[a-z0-9]+$/i.test(cmd);
+    if (cmd.includes("/") || cmd.includes("\\") || cmd.startsWith(".") || temExtensao) {
+      const cwdBase = entry.cwd ? path.resolve(entry.cwd) : base;
+      cmd = path.resolve(cwdBase, cmd);
+    }
+  }
+
+  // se cwd é relativo, resolve contra home
+  if (entry.cwd && !path.isAbsolute(entry.cwd) && !/^[A-Za-z]:[\\/]/.test(entry.cwd)) {
+    entry.cwd = path.resolve(base, entry.cwd);
+  }
+
+  entry.command = cmd;
+
+  // se não existe e não é comando do PATH, avisa
+  const ehComandoPath = !cmd.includes("/") && !cmd.includes("\\") && !path.isAbsolute(cmd);
+  if (!ehComandoPath && !presente(cmd)) {
+    return { entry, aviso: `command não encontrado: ${cmd}` };
+  }
+
+  return { entry, aviso };
+}
+
 /* ------------------------------------------------------------------ */
 /* undoImport — restaura o manifesto mais recente                      */
 /* ------------------------------------------------------------------ */
 
 /**
- * Reverte o import mais recente: restaura o settings.json a partir do backup
- * e apaga os diretórios de skill listados no manifesto. Marca o manifesto
- * como desfeito (não apaga, para auditoria).
+ * Reverte o import mais recente: remove do settings.json atual APENAS as chaves
+ * que o import adicionou (mcpAdicionados), preservando qualquer coisa que o
+ * usuário tenha feito depois do import; apaga os diretórios de skill listados
+ * (skillsAdicionadas); marca o manifesto como desfeito (não apaga, para
+ * auditoria). O .bak fica para auditoria, mas NÃO é o caminho de rollback —
+ * restaurar o .bak inteiro apagaria o que o usuário fez entre import e undo.
  *
  * @param {{ home?: string }} [opts]
- * @returns {Promise<{ restaurado: boolean, skillsRemovidas: string[], manifesto: string|null }>}
+ * @returns {Promise<{ restaurado: boolean, mcpRemovidos: string[], skillsRemovidas: string[], manifesto: string|null }>}
  */
 export async function undoImport({ home } = {}) {
   const base = resolveHome(home);
   const ledgerDir = path.join(base, LEDGER_SUBDIR);
 
   if (!presente(ledgerDir)) {
-    return { restaurado: false, skillsRemovidas: [], manifesto: null };
+    return { restaurado: false, mcpRemovidos: [], skillsRemovidas: [], manifesto: null };
   }
 
   let entries;
   try {
     entries = await readdir(ledgerDir);
   } catch {
-    return { restaurado: false, skillsRemovidas: [], manifesto: null };
+    return { restaurado: false, mcpRemovidos: [], skillsRemovidas: [], manifesto: null };
   }
 
   // manifesto mais recente que ainda não foi desfeito
@@ -467,17 +543,39 @@ export async function undoImport({ home } = {}) {
   }
 
   if (!alvo) {
-    return { restaurado: false, skillsRemovidas: [], manifesto: null };
+    return { restaurado: false, mcpRemovidos: [], skillsRemovidas: [], manifesto: null };
   }
 
-  // restaura settings.json do backup
+  // --- rollback seletivo dos MCPs: remove só as chaves que o import adicionou ---
   let restaurado = false;
-  if (alvo.backup && presente(alvo.backup)) {
-    await copyFile(alvo.backup, path.join(base, TARGET_SETTINGS_SUBDIR));
-    restaurado = true;
+  const mcpRemovidos = [];
+  const settingsPath = path.join(base, TARGET_SETTINGS_SUBDIR);
+  if (Array.isArray(alvo.mcpAdicionados) && alvo.mcpAdicionados.length > 0 && presente(settingsPath)) {
+    const parsed = await lerJson(settingsPath);
+    if (parsed.ok && parsed.value && typeof parsed.value === "object") {
+      const doc = parsed.value;
+      const mapa = mapaDeServidores(doc);
+      let mexeu = false;
+      for (const nome of alvo.mcpAdicionados) {
+        if (mapa[nome]) {
+          delete mapa[nome];
+          mcpRemovidos.push(nome);
+          mexeu = true;
+        }
+      }
+      if (mexeu) {
+        const novoDoc = { ...doc, mcpServers: mapa };
+        const stamp = carimbo();
+        await mkdir(path.dirname(settingsPath), { recursive: true });
+        const tmpPath = `${settingsPath}.tmp-${stamp}`;
+        await writeFile(tmpPath, JSON.stringify(novoDoc, null, 2) + "\n", "utf8");
+        await rename(tmpPath, settingsPath);
+        restaurado = true;
+      }
+    }
   }
 
-  // apaga skills criadas
+  // apaga skills criadas (diretório é a chave única)
   const skillsRemovidas = [];
   const skillsTargetDir = path.join(base, TARGET_SKILLS_SUBDIR);
   for (const nome of alvo.skillsAdicionadas ?? []) {
@@ -493,7 +591,7 @@ export async function undoImport({ home } = {}) {
   alvo.desfeitoEm = new Date().toISOString();
   await writeFile(alvoPath, JSON.stringify(alvo, null, 2) + "\n", "utf8");
 
-  return { restaurado, skillsRemovidas, manifesto: alvoPath };
+  return { restaurado, mcpRemovidos, skillsRemovidas, manifesto: alvoPath };
 }
 
 export default {
