@@ -2553,7 +2553,7 @@ export async function repl({ pi, write, input, setRaw, data = {} }) {
     if (parsed.type === "slash") {
       // /model sem argumento não lista na tela: abre o seletor aqui no REPL,
       // onde as setas e o esc existem. Com argumento segue direto.
-      if (parsed.name === "model" && String(parsed.arg ?? "").trim() === "") {
+      if (parsed.name === "/model" && String(parsed.arg ?? "").trim() === "") {
         startModelPicker();
         return;
       }
