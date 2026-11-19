@@ -498,7 +498,7 @@ test("settings.json gerado pelo import é legível por listOpencodeMcp", async (
   await applyImport({ home });
 
   // listOpencodeMcp lê ~/.pi/settings.json (passo 1b) — tem que enxergar o servidor importado
-  const { listOpencodeMcp } = await import("./mcp-opencode.mjs");
+  const { listOpencodeMcp } = await import("./mcp-probe.mjs");
   const servidores = await listOpencodeMcp({ home });
   assert.equal(servidores.length, 1);
   assert.equal(servidores[0].name, "fake");
