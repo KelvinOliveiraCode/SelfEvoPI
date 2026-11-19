@@ -34,20 +34,17 @@ import path from "node:path";
 /* ------------------------------------------------------------------ */
 
 /**
- * Onde procuramos a config global de MCPs, nesta ordem:
+ * Onde procuramos a config global de MCPs. Só a config do próprio SelfEvoPI
+ * (`~/.pi/settings.json`); o harness é agnóstico e não lê a config de outro
+ * produto em runtime. Quem já tem MCPs em outro lugar usa o `/import` para
+ * trazê-los para `~/.pi/settings.json` (importação explícita, uma vez).
  *
- *  1. `~/.pi/settings.json` — o registro do SelfEvoPI (o dono, quando existe);
- *  2. `~/.config/opencode/opencode.jsonc` — a config do proprio OpenCode,
- *     com os 29 servidores do usuario. Fica como fallback para o modulo
- *     funcionar na maquina onde o SelfEvoPI ainda nao escreveu o seu.
- *
- * As duas usam chaves diferentes (`mcpServers` e `mcp.servers`); `listOpencodeMcp`
- * aceita as duas.
+ * O formato aceito é `mcpServers` (nativo do SelfEvoPI); `listOpencodeMcp`
+ * mantém compatibilidade com o formato aninhado `mcp.servers` para não quebrar
+ * configs legadas que já estejam em `~/.pi/settings.json`.
  */
 export const OPENCODE_CONFIG_FILES = [
   path.join(".pi", "settings.json"),
-  path.join(".config", "opencode", "opencode.jsonc"),
-  path.join(".config", "opencode", "opencode.json"),
 ];
 
 /** Status possíveis. */
