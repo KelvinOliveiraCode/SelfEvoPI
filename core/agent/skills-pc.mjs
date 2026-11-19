@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * skills-pc — reconhecimento das skills do PC (OpenCode) para o SelfEvoPI.
+ * skills-pc — reconhecimento das skills do próprio SelfEvoPI.
  *
- * O `/skills` do SelfEvoPI hoje lê `.pi/harness/memory/skills.jsonl` — as skills que
- * o loop evolutivo gerou. As skills que já existem na máquina (OpenCode) ficam em
- * `~/.config/opencode/skills/<nome>/SKILL.md` e não apareciam. Este módulo as lista.
+ * O `/skills` lê `.pi/harness/memory/skills.jsonl` — as skills que o loop
+ * evolutivo gerou. Este módulo lista as skills instaladas pelo usuário em
+ * `~/.pi/skills/<nome>/SKILL.md` (padrão agentskills.io), que antes não
+ * apareciam porque o diretório não existia.
  *
  * Sem dependência (só `node:`). Determinístico. Tolerante: skill com frontmatter
  * quebrado é listada com `error`, não derruba a varredura.
@@ -14,7 +15,6 @@
  *   ---
  *   name: accessible-html
  *   description: HTML acessivel em artefatos de design web.
- *   compatibility: opencode
  *   ---
  *
  * `home` é injetável para o teste usar diretório temporário (nunca leia
@@ -24,8 +24,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-/** Diretório padrão das skills do OpenCode, relativo ao home. */
-export const DEFAULT_SKILLS_SUBDIR = join(".config", "opencode", "skills");
+/** Diretório padrão das skills do SelfEvoPI, relativo ao home. */
+export const DEFAULT_SKILLS_SUBDIR = join(".pi", "skills");
 
 /** Resolve o diretório de skills a partir do home (injetável). */
 export function skillsDir(home) {

@@ -14,7 +14,7 @@ import {
 
 /* --------------------------- helpers de teste --------------------------- */
 
-/** Cria um home temporário com a estrutura ~/.config/opencode/skills/<nome>/SKILL.md */
+/** Cria um home temporário com a estrutura ~/.pi/skills/<nome>/SKILL.md */
 function makeHome(skills) {
   const home = mkdtempSync(join(tmpdir(), "selfevopi-pcskills-"));
   const base = join(home, DEFAULT_SKILLS_SUBDIR);
@@ -29,7 +29,6 @@ function makeHome(skills) {
 const SKILL_OK = `---
 name: accessible-html
 description: HTML acessivel em artefatos de design web.
-compatibility: opencode
 ---
 
 # Corpo
@@ -38,7 +37,6 @@ compatibility: opencode
 const SKILL_MULTILINE = `---
 name: ai-film-studio
 description: |
-compatibility: opencode
 ---
 
 # Corpo
@@ -46,7 +44,6 @@ compatibility: opencode
 
 const SKILL_SEM_NAME = `---
 description: so descricao, sem nome.
-compatibility: opencode
 ---
 `;
 
@@ -185,10 +182,10 @@ test("findPcSkills sem termo lista tudo", () => {
 /* ------------------------------ parser ---------------------------------- */
 
 test("parseFrontmatter lê chave: valor e chave: | (bloco)", () => {
-  const fm = parseFrontmatter("name: x\ndescription: |\n  linha 1\n  linha 2\ncompatibility: opencode");
+  const fm = parseFrontmatter("name: x\ndescription: |\n  linha 1\n  linha 2\nversion: 1");
   assert.equal(fm.name, "x");
   assert.match(fm.description, /linha 1/);
-  assert.equal(fm.compatibility, "opencode");
+  assert.equal(fm.version, "1");
 });
 
 test("normalizeForSearch remove acento e caixa", () => {
