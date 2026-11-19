@@ -5,6 +5,64 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.1.1] - 2026-11-19
+
+**Agnosticismo e robustez.** O 1.1.0 amarrou o harness ao OpenCode; o 1.1.1 tira
+essa amarra: as integrações passam a ler a config do **PI** (`~/.pi/`), não a de
+outro harness. E conserta o que a auditoria de 1.1 achou: linha colorida
+truncada vazando estilo, probe de MCP estourando memória, e a leitura do texto
+final do modelo cedo demais.
+
+### Adicionado
+
+**Agnosticismo (passo 1).** As integrações da máquina deixam de apontar para a
+config do OpenCode e passam a ler a do PI:
+
+- **Skills** (`core/agent/skills-pc.mjs`) leem `~/.pi/skills` (antes
+  `~/.config/opencode/skills`). O parser de frontmatter não depende mais de
+  `compatibility: opencode`.
+- **MCP global** (`core/agent/mcp-opencode.mjs`) lê `~/.pi/settings.json`, chave
+  `mcpServers` — com **compatibilidade legada** `mcp.servers` para não quebrar
+  quem já tinha a config antiga. O `probe-mcps.mjs` aponta para `~/.pi/`.
+
+**`PiClient.promptAndWait`** (`core/agent/pi-rpc.mjs`) — novo método que devolve o
+texto final sem ler cedo demais. Útil quando o chamador quer o resultado
+completo, não um delta parcial.
+
+### Corrigido
+
+- **`capLinhas` fecha SGR aberto antes da reticência.** Uma linha 100% colorida
+  (ex.: `/plan 'escrita: block - …'` em amarelo) terminava em `…` sem
+  `\x1b[0m`: o corte preservava o que atravessava mas não fechava o estilo, e o
+  terminal seguia colorido nas linhas seguintes. Agora rastreia `estiloAberto`
+  (liga em SGR ≠ 0, desliga em SGR 0) e anexa `\x1b[0m` antes da reticência
+  quando o corte deixa estilo aberto. Teste de regressão em
+  `apps/cli-audit.test.mjs`: `ansiBalance(linha) === 0` e linha truncada termina
+  em `\x1b[0m…`.
+- **`tools/list` em chunks.** O `probeOpencodeMcp` acumula o buffer e faz parse
+  por **profundidade de chaves**, com **teto de 4 MB** (`MAX_BUFFER`). Se um
+  servidor mandar `{` e nunca fechar, o buffer é descartado em vez de crescer
+  até estourar a memória. O teto de tempo do probe continua protegendo contra
+  processo que não responde. Teste `SERVIDOR_CHUNKS` manda o `tools/list` em 3
+  pedaços `stdout` sem newline entre eles (só no final) e verifica o catálogo
+  completo.
+
+### Contexto da versão
+
+Métricas **medidas em 2026-11-19** no HEAD `2da6468` (branch `main`). Fotografia
+da data, não garantia de desempenho. Cada número tem o comando que o produziu.
+
+| Métrica | Valor medido | Comando |
+|:---|:---|:---|
+| Testes unitários | 937 (936 passam, 1 skip) | `npm test` |
+| Mudanças desde 1.1.0 | 5 itens (skills ~/.pi, MCP ~/.pi, capLinhas, tools/list, promptAndWait) | `git log --oneline v1.1.0..HEAD` |
+
+### Verificação
+
+```powershell
+npm test                       # 937 testes (936 passam, 1 skip)
+```
+
 ## [1.1.0] - 2026-11-18
 
 **A CLI polida e as integrações com a máquina.** O 1.0 entregou o produto; o 1.1
