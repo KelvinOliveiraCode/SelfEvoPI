@@ -1,0 +1,14 @@
+{
+  "id": "D4-refatora-preservando",
+  "group": "D",
+  "title": "PI refatora slugify extraindo semAcentos sem mudar comportamento",
+  "description": "Refatoração com verificação por comportamento: o modelo recebe slugify.mjs funcionando e precisa extrair a remoção de acentos para uma função exportada semAcentos, mantendo slugify com exatamente as mesmas saídas.",
+  "prompt": "O arquivo slugify.mjs funciona. Refatore-o extraindo a remoção de acentos para uma função auxiliar exportada chamada semAcentos, preservando EXATAMENTE o comportamento de slugify (mesmas saídas para as mesmas entradas). Mantenha a exportação slugify e não crie outros arquivos.",
+  "fixture": "D4-refatora",
+  "profile": "worker",
+  "fallbackProfile": "orchestrator",
+  "checker": "node evals/checks/check-d4-refatora.mjs",
+  "timeoutMs": 180000,
+  "checkerTimeoutMs": 30000,
+  "tags": ["modelo-real", "refatoracao", "grupo-d"]
+}

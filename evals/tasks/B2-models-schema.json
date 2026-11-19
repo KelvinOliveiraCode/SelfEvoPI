@@ -1,0 +1,9 @@
+{
+  "id": "B2-models-schema",
+  "group": "B",
+  "title": "models.json do PI segue o schema esperado",
+  "description": "Valida o ~/.pi/agent/models.json: providers com baseUrl, api, apiKey e modelos com id e contextWindow > 0.",
+  "checker": "node evals/checks/check-models-schema.mjs",
+  "timeoutMs": 30000,
+  "tags": ["providers", "schema"]
+}
