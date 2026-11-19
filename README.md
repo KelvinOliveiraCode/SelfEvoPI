@@ -10,7 +10,7 @@
 
 <br>
 
-![Tests](https://img.shields.io/badge/tests-936%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-958%20passing-brightgreen)
 ![Evals](https://img.shields.io/badge/evals-86%2F87%20(98.85%25)-brightgreen)
 ![Cold start](https://img.shields.io/badge/cold_start-91ms%20avg-blue)
 ![Prompt](https://img.shields.io/badge/prompt_overhead-%2B506%20of%201500-blue)
@@ -28,7 +28,7 @@ It starts from the [PI Coding Agent](https://github.com/earendil-works/pi) as it
 
 The result is not "a harness for pi". It is an agent with its own CLI, its own desktop app, its own brand, and its own name — and the engine underneath is an implementation detail you never have to see.
 
-The whole thing is **~19k lines of production Node ESM** across **65 modules** (56 of them test files, ~10k lines with tests), with **936 passing unit tests** and **29 evaluation tasks**. Cold start is **91 ms** average on `node apps/cli.mjs --version` (7 runs, warm cache). The prompt it adds to the engine is **506 tokens** at the ceiling, against a hard budget of 1,500.
+The whole thing is **~19k lines of production Node ESM** across **65 modules** (56 of them test files, ~10k lines with tests), with **958 passing unit tests** and **29 evaluation tasks**. Cold start is **91 ms** average on `node apps/cli.mjs --version` (7 runs, warm cache). The prompt it adds to the engine is **506 tokens** at the ceiling, against a hard budget of 1,500.
 
 ## Why it exists
 
@@ -53,12 +53,14 @@ Everything below was measured on this repository, on Windows 11, Node 24.13. Rep
 | Prompt added by SelfEvoPI | **+506 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs --runs 3` |
 | Base agent prompt | 8.685 tok | — | same |
 | Evaluation suite | **29 tasks, 86/87 baseline (98.85%)** — B11 is stochastic | no regression | `node evals/gate.mjs` |
-| Unit tests | **936 passing** | - | `node --test core/agent/*.test.mjs apps/*.test.mjs apps/desktop/*.test.mjs` |
+| Unit tests | **447** (445 passing, 2 pending) | - | `node --test core/agent/*.test.mjs apps/*.test.mjs apps/desktop/*.test.mjs` |
 | Source URLs | **33 cited sources, all 200** | all reachable | `node scripts/verify-urls.mjs` |
 | Suite cost per task | **US$ 0.00** (free tier) | — | JSONL ledger |
 | Suite latency | ~5.9 s/task average | — | ledger |
 | Codebase | **65 modules** · ~18.9k lines of production code | — | — |
 | Test code | **56 files** · ~10.5k lines | — | — |
+
+> **Test-count scope note.** The two test rows above carry different numbers on purpose: `npm test` (958) runs every suite — `core/router`, `core/forge`, `core/memory`, `core/graph`, `core/governance`, `core/sandbox`, `core/agent`, `apps`, `apps/desktop`, `scripts/refine-loop` — while the "Unit tests" row (447) runs only `core/agent` + `apps` + `apps/desktop`. The 2 "pending" tests in both are self-labeled `PENDENTE` placeholders in `apps/desktop/session-api.test.mjs` (no session fixture yet), not regressions.
 
 ### What the prompt budget actually buys
 
@@ -175,7 +177,7 @@ Eight isolated worktrees (`.worktrees/A1`–`A8`), each with a disjoint file sco
 
 | Gate | What it checks | Enforcement |
 |:---|:---|:---|
-| `npm test` | 936 unit tests | CI on every push |
+| `npm test` | 958 unit tests (955 passing, 2 pending) | CI on every push |
 | `npm run verify` | tests + evals A/C + source URL integrity | CI |
 | `node evals/gate.mjs` | 3 runs per task vs baseline | local, before merge |
 | `scripts/verify-urls.mjs` | 33 cited sources still reachable | CI |
@@ -336,7 +338,7 @@ A conversation, not a menu. The engine underneath is invisible — the interface
 
 ```powershell
 npm run verify                          # tests + evals A/B/C + URLs
-npm test                                # 936 unit tests
+npm test                                # 958 unit tests
 npm run gate                            # full gate (real model calls, slow)
 
 node apps/cli.mjs                       # the CLI (same as the desktop shortcut)
