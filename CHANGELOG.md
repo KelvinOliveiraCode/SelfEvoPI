@@ -25,6 +25,19 @@ config do OpenCode e passam a ler a do PI:
   `mcpServers` — com **compatibilidade legada** `mcp.servers` para não quebrar
   quem já tinha a config antiga. O `probe-mcps.mjs` aponta para `~/.pi/`.
 
+**`/import` — migração reversível para `~/.pi/` (passo 2 do agnosticismo).**
+`core/agent/import.mjs` migra os MCPs e skills do OpenCode para `~/.pi/` uma vez,
+com backup, manifesto e rollback. Cinco funções: `scanSource`, `scanTarget`,
+`planImport`, `applyImport`, `undoImport`.
+
+- **Merge, não overwrite** — "o que já existe vence": nome que já está no
+  `~/.pi/settings.json` ou em `~/.pi/skills` não é sobrescrito.
+- **Escrita atômica** no `settings.json`, com **backup** `.bak-<timestamp>`.
+- **Manifesto** do que foi criado em `~/.pi/harness/ledger/import-<timestamp>.json`.
+- **Rollback seletivo** (`undoImport`): remove só as chaves que o import adicionou,
+  preservando o resto da config.
+- 21 testes (`core/agent/import.test.mjs`).
+
 **`PiClient.promptAndWait`** (`core/agent/pi-rpc.mjs`) — novo método que devolve o
 texto final sem ler cedo demais. Útil quando o chamador quer o resultado
 completo, não um delta parcial.
@@ -49,18 +62,18 @@ completo, não um delta parcial.
 
 ### Contexto da versão
 
-Métricas **medidas em 2026-11-19** no HEAD `2da6468` (branch `main`). Fotografia
+Métricas **medidas em 2026-11-19** no HEAD `5a84a18` (branch `main`). Fotografia
 da data, não garantia de desempenho. Cada número tem o comando que o produziu.
 
 | Métrica | Valor medido | Comando |
 |:---|:---|:---|
-| Testes unitários | 937 (936 passam, 1 skip) | `npm test` |
-| Mudanças desde 1.1.0 | 5 itens (skills ~/.pi, MCP ~/.pi, capLinhas, tools/list, promptAndWait) | `git log --oneline v1.1.0..HEAD` |
+| Testes unitários | 958 (957 passam, 1 skip) | `npm test` |
+| Mudanças desde 1.1.0 | 6 itens (skills ~/.pi, MCP ~/.pi, capLinhas, tools/list, promptAndWait, /import) | `git log --oneline v1.1.0..HEAD` |
 
 ### Verificação
 
 ```powershell
-npm test                       # 937 testes (936 passam, 1 skip)
+npm test                       # 958 testes (957 passam, 1 skip)
 ```
 
 ## [1.1.0] - 2026-11-18
