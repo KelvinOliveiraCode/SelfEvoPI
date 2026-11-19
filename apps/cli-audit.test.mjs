@@ -107,7 +107,11 @@ test("GARGALO4 readSessionExtras: listar N sessões pequenas deve ser barato", a
   const dir = await tempDir();
   try {
     const N = 40;
-    for (let i = 0; i < N; i++) writeSession(dir, { id: "s" + i, client: i % 2 ? "desktop" : "cli", firstUser: "oi " + i });
+    // garante que todos os arquivos foram gravados antes de ler (evita corrida
+    // que fazia extras.size < N de forma intermitente sob carga).
+    await Promise.all(
+      Array.from({ length: N }, (_, i) => writeSession(dir, { id: "s" + i, client: i % 2 ? "desktop" : "cli", firstUser: "oi " + i })),
+    );
     const t0 = performance.now();
     const extras = await readSessionExtras(dir);
     const ms = performance.now() - t0;
