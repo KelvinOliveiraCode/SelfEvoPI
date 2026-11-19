@@ -1,0 +1,9 @@
+{
+  "id": "A1-router-reviewer",
+  "group": "A",
+  "title": "Reviewer nunca reusa o provider do autor",
+  "description": "O roteador precisa garantir separação de provider entre quem implementa e quem revisa. Verifica perfis, 20 sorteios e exclusão explícita.",
+  "checker": "node evals/checks/check-router-reviewer.mjs",
+  "timeoutMs": 30000,
+  "tags": ["router", "review", "governanca"]
+}

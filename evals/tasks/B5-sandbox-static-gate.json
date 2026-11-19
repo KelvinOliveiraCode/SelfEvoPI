@@ -1,0 +1,9 @@
+{
+  "id": "B5-sandbox-static-gate",
+  "group": "B",
+  "title": "gate estático bloqueia código perigoso e respeita allow",
+  "description": "Valida o analisador estático: código limpo passa; segredo embutido, child_process, rede e eval bloqueiam; um override allow desliga a regra; leitura de env comum é aviso.",
+  "checker": "node evals/checks/check-static-gate.mjs",
+  "timeoutMs": 30000,
+  "tags": ["sandbox", "seguranca", "analise"]
+}

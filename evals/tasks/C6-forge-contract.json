@@ -1,0 +1,9 @@
+{
+  "id": "C6-forge-contract",
+  "group": "C",
+  "title": "contrato do Forge só promove artefato com teste aprovado",
+  "description": "Regressão da promoção: pedido exige goal/kind/proibições/testes; resultado só é promovido com todos os testes passando, sem violações e sem usar nada proibido.",
+  "checker": "node evals/checks/check-forge-contract.mjs",
+  "timeoutMs": 30000,
+  "tags": ["forge", "regressao", "promocao"]
+}

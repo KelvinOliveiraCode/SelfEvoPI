@@ -1,0 +1,9 @@
+{
+  "id": "A3-circuit-breaker",
+  "group": "A",
+  "title": "Circuit abre no limiar de falhas e fecha com success",
+  "description": "Garante que o circuit breaker inicia fechado, abre ao atingir o limiar de falhas bloqueando allow() e volta a fechar em success().",
+  "checker": "node evals/checks/check-circuit-breaker.mjs",
+  "timeoutMs": 30000,
+  "tags": ["router", "circuit-breaker", "resiliencia"]
+}

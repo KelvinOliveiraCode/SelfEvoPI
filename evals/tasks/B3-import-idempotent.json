@@ -1,0 +1,9 @@
+{
+  "id": "B3-import-idempotent",
+  "group": "B",
+  "title": "Importador e idempotente (dry-run determinístico)",
+  "description": "Roda scripts/import-providers.mjs em dry-run duas vezes e exige saidas byte a byte identicas.",
+  "checker": "node evals/checks/check-import-idempotent.mjs",
+  "timeoutMs": 30000,
+  "tags": ["providers", "import", "idempotencia"]
+}
