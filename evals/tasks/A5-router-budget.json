@@ -1,0 +1,9 @@
+{
+  "id": "A5-router-budget",
+  "group": "A",
+  "title": "createBudget nunca deixa gastar acima do teto",
+  "description": "Testa o teto de tokens/custo: spend dentro do limite, estouro com onExceeded único, remaining clampado em 0 e reset.",
+  "checker": "node evals/checks/check-budget.mjs",
+  "timeoutMs": 30000,
+  "tags": ["router", "budget", "custo"]
+}

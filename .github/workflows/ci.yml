@@ -1,0 +1,50 @@
+# SelfEvoPI — integração contínua
+#
+# O que roda aqui é só o que **não precisa de chave de API**:
+#   - os testes unitários (rede, disco e sandbox, tudo local)
+#   - os evals dos grupos A, B e C (B1-B8 são estruturais, zero token;
+#     B9/B10/B11 passaram para o grupo D)
+#   - o gate de URLs citadas na pesquisa
+#
+# Ficam de fora, por precisarem de credencial que não vai para o repositório:
+#   - o grupo D (D1-D4 + B9/B10/B11 chamam modelo real: ~32.298 tokens medidos)
+#   - o `evals/gate.mjs` completo
+#
+# Rodar o gate inteiro continua sendo comando local: `npm run gate`.
+
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: testes + evals estruturais (A/B/C)
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: dependências
+        run: npm ci --no-audit --no-fund
+
+      # `npm run verify` e exatamente o que o CI faz: testes, evals A/B/C e URLs.
+      # Rodar o mesmo comando local e na esteira evita "passa na minha maquina".
+      - name: verificação completa (testes + evals A/B/C + URLs)
+        run: npm run verify
+
+      # O grupo D NÃO entra: D1-D4 + B9/B10/B11 chamam modelo real (~32.298 tokens
+      # medidos) e as chaves vivem fora do repositório. O gate completo também
+      # fica de fora, pelo mesmo motivo.
