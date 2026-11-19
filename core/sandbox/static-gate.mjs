@@ -229,7 +229,7 @@ const RAW_RULES = [
   {
     id: "credential-store",
     severity: BLOCK,
-    title: "Credenciais do OpenCode/PI e arquivos de segredo",
+    title: "Credenciais de outros agentes e arquivos de segredo",
     why: "auth.json, .pi/auth, credentials.json, *.pem guardam chaves de API.",
     test: (raw) =>
       /(?:^|[\\/"'\s])(?:\.pi|opencode)[\\/](?:auth|agent|credentials|keys?)(?:[\\/.]|$)/i.test(raw) ||

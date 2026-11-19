@@ -164,6 +164,70 @@ test("createPiClient: on() devolve cancelador que remove o callback", async () =
   assert.equal(n, 1);
 });
 
+test("promptAndWait: texto vem completo (nao le cedo demais)", async () => {
+  const fake = makeFakeRpc();
+  const pi = await createPiClient({ client: fake });
+
+  const wait = pi.promptAndWait("responda", 5000);
+  // O motor responde "started" no prompt() e só depois emite os deltas.
+  // Emula esse atraso: dispara os deltas no próximo tick.
+  await Promise.resolve();
+  fake.emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Ola " } });
+  fake.emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "mundo" } });
+  fake.emit({ type: "agent_settled", aborted: false });
+
+  assert.equal(await wait, "Ola mundo");
+});
+
+test("promptAndWait: o caso 'li cedo demais' — leitura imediata da vazio, promptAndWait devolve texto", async () => {
+  const fake = makeFakeRpc();
+  const pi = await createPiClient({ client: fake });
+
+  // script ingênuo: lê o texto logo após prompt() resolver (antes dos deltas).
+  await pi.prompt("responda");
+  let naive = "";
+  pi.on("text", (d) => (naive += d));
+  assert.equal(naive, ""); // ainda não chegou nenhum delta — texto vazio
+
+  // ...mas os deltas chegam depois, e o promptAndWait os captura:
+  const wait = pi.promptAndWait("responda", 5000);
+  await Promise.resolve();
+  fake.emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "tarde " } });
+  fake.emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "demais" } });
+  fake.emit({ type: "agent_settled", aborted: false });
+
+  assert.equal(naive, "tarde demais"); // o listener ingênuo também vê os deltas — mas só depois
+  assert.equal(await wait, "tarde demais");
+});
+
+test("promptAndWait: rejeita se o motor emitir erro antes do settled", async () => {
+  const fake = makeFakeRpc();
+  const pi = await createPiClient({ client: fake });
+
+  const wait = pi.promptAndWait("x", 5000);
+  await Promise.resolve();
+  fake.emit({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "401 Invalid bearer token" } });
+
+  await assert.rejects(wait, /401/);
+});
+
+test("promptAndWait: disposicao 'handled' resolve de imediato (sem pendurar)", async () => {
+  const fake = makeFakeRpc();
+  fake.prompt = async (m) => (fake.calls.push(["prompt", m]), "handled"); // comando de extensão
+  const pi = await createPiClient({ client: fake });
+
+  const text = await pi.promptAndWait("qualquer", 5000);
+  assert.equal(text, ""); // nenhum run começou, nenhum settled viria
+});
+
+test("promptAndWait: timeout rejeita", async () => {
+  const fake = makeFakeRpc();
+  const pi = await createPiClient({ client: fake });
+
+  // prompt dispara, mas nenhum settled chega dentro do timeout curto
+  await assert.rejects(pi.promptAndWait("x", 30), /tempo esgotado/);
+});
+
 test("findEngine: forceAbsent / SELFEOPI_FORCE_NO_ENGINE diz ausente", () => {
   assert.equal(findEngine({ forceAbsent: true }).available, false);
   const prev = process.env.SELFEOPI_FORCE_NO_ENGINE;
