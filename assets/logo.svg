@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="SelfEvoPI">
+  <title>SelfEvoPI</title>
+  <g fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" color="#111111">
+    <!-- Anel aberto: o ciclo evolutivo (detecta, gera, valida, promove) -->
+    <path d="M204.4 51.6 A108 108 0 1 1 146.7 21.6"/>
+    <!-- Glifo π abstrato: barra, perna fixa (núcleo) e perna que se curva (adaptação) -->
+    <path d="M78 96 H178"/>
+    <path d="M104 96 V176"/>
+    <path d="M154 96 V150 Q154 172 178 172"/>
+  </g>
+  <!-- Nó promovido: a variação que passou no gate e fecha o ciclo -->
+  <circle cx="204.4" cy="51.6" r="11" fill="currentColor" color="#111111"/>
+</svg>

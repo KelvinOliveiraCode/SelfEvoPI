@@ -1,0 +1,511 @@
+/**
+ * selfevopi-forge-loop — o loop evolutivo ponta a ponta (o coração do SelfEvoPI).
+ *
+ * Amarra: detecta lacuna -> escolhe kind -> gera -> verifica FORA do sandbox
+ * -> gate -> promove ou reverte.
+ *
+ * Todas as peças são injetáveis (deps) com defaults reais importados dos
+ * módulos vizinhos. Nada de modelo real é chamado aqui: o `runEvals` real é
+ * injetado pelo CLI; o default é um stub neutro que permite dry-run.
+ *
+ * Paradas honestas (docs/fase2/forge.md):
+ *  - "needs-human" : o artefato pede rede/credencial/escrita fora do workspace.
+ *  - "rejected"    : o gate de promoção reprova (regressão, delta de tokens).
+ *  - "promoted"    : passou o gate e foi promovido.
+ */
+
+import { mkdtemp, rm, writeFile, readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path, { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+import { createArtifactRequest, chooseKind } from "./contract.mjs";
+import { createGap, detectGaps } from "./detect.mjs";
+import { generateCli } from "./generate-cli.mjs";
+import { generateSkill } from "./generate-skill.mjs";
+import { specifyGap } from "./specify.mjs";
+import { probeTest } from "./probe.mjs";
+import * as governance from "../governance/approval.mjs";
+import { generateMcpConfig } from "./generate-mcp-config.mjs";
+import { generateMcpServer } from "./generate-mcp-server.mjs";
+import { generateExtension } from "./generate-extension.mjs";
+import { runGate, decidePromotion } from "./gatekeeper.mjs";
+
+// URL do sandbox (A6): o artefato gerado nunca executa solto — a sonda o roda
+// via runSandboxed, com Permission Model e preload de rede.
+const ROOT = path.resolve(import.meta.dirname, "..", "..");
+const SANDBOX_URL = pathToFileURL(path.join(ROOT, "core", "sandbox", "run-sandboxed.mjs")).href;
+
+/** Lista recursivamente os arquivos de um diretório (para o gate varrer todos). */
+async function listFilesRecursive(dir) {
+  const out = [];
+  async function walk(d) {
+    let entries;
+    try {
+      entries = await readdir(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = join(d, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (e.isFile()) out.push(full);
+    }
+  }
+  await walk(dir);
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+function isPlainObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Regras do gate estático que significam "precisa de humano". */
+const NEEDS_HUMAN_RULES = new Set([
+  "network-access",
+  "ssh-access",
+  "credential-store",
+  "userprofile-config",
+  "registry-exe",
+  "secret-env-read",
+  "embedded-secret",
+]);
+
+/* ------------------------------------------------------------------ */
+/* Defaults reais                                                      */
+/* ------------------------------------------------------------------ */
+
+/** Gera o artefato conforme o kind (dispatcher dos cinco kinds reais). */
+export async function defaultGenerate(request, outDir) {
+  if (request.kind === "mcp-config") return generateMcpConfig(request, outDir);
+  if (request.kind === "skill") return generateSkill(request, outDir);
+  if (request.kind === "cli") return generateCli(request, outDir);
+  if (request.kind === "extension") return generateExtension(request, outDir);
+  if (request.kind === "mcp-server") return generateMcpServer(request, outDir);
+  // Sem gerador => erro honesto. Nunca gerar o artefato errado.
+  throw new Error(`forge-loop: sem gerador para kind "${request.kind}"`);
+}
+
+/**
+ * Roda o VERIFICADOR (verify.mjs/probe.mjs) FORA do sandbox. Quem invoca o
+ * artefato é a sonda, via runSandboxed — o artefato nunca executa solto.
+ * Sem shell: o comando é gerado pelo loop, não entrada de usuário, mas shell
+ * é superfície de injeção e não há motivo para usá-la.
+ */
+async function defaultRunVerification(command, opts = {}) {
+  const { spawnSync } = await import("node:child_process");
+  const cwd = opts.cwd ?? undefined;
+  const m = String(command).match(/^(\S+)\s+([\s\S]+)$/);
+  const cmd = m ? m[1] : String(command);
+  const args = m ? [m[2]] : [];
+  const executable = cmd === "node" || cmd === "nodejs" ? process.execPath : cmd;
+  const r = spawnSync(executable, args, { cwd, encoding: "utf8", windowsHide: true });
+  return {
+    ok: r.status === 0,
+    status: r.status,
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? "",
+  };
+}
+
+/** Gate estático do artefato (reusa o módulo do sandbox, não o duplica). */
+async function defaultStaticGate(filePath, workspace) {
+  const { evaluateFile } = await import("../sandbox/static-gate.mjs");
+  return evaluateFile(filePath, { workspace });
+}
+
+/** Promoção padrão: não toca em área protegida; só marca o artefato. */
+async function defaultPromote({ artifactDir, report }) {
+  return { ok: true, promoted: true, ref: artifactDir, taskId: report?.taskId ?? null };
+}
+
+/** Rollback padrão: remove o diretório do artefato (desfaz a geração). */
+async function defaultRollback({ artifactDir }) {
+  await rm(artifactDir, { recursive: true, force: true }).catch(() => {});
+  return { ok: true, rolledBack: true };
+}
+
+/** Stub de eval para dry-run: uma execução neutra, zero token. */
+async function stubRunEvals() {
+  return [{ passed: true, tokens: 0 }];
+}
+
+/* ------------------------------------------------------------------ */
+/* Testes sintetizados (sonda por kind)                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Quando o pedido nao traz testes, cria uma sonda de interface real: um
+ * `probe.mjs` gravado no diretorio do artefato que exercita o artefato do
+ * jeito que ele e chamado (flags para cli, JSON-RPC para mcp-server, modulo
+ * para extension).
+ *
+ * Sem isso, o default era um "smoke test" que sempre passa — e um artefato com
+ * uma interface errada (ler args posicionais em vez de --flag) era promovido
+ * com evidencia falsa.
+ */
+export { PRIMARY_FILE, renderProbe, probeTest } from "./probe.mjs";
+
+/* ------------------------------------------------------------------ */
+/* createEvolutionLoop                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Cria o loop evolutivo com todas as peças injetáveis.
+ *
+ * @param {object} [deps]
+ * @param {Function} [deps.detect]        default detectGaps
+ * @param {Function} [deps.chooseKind]    default chooseKind (contract)
+ * @param {Function} [deps.specify]       default specifyGap (SpecWriter da lacuna em contrato)
+ * @param {Function} [deps.generate]      default dispatcher por kind
+ * @param {Function} [deps.runVerification] default spawnSync do verifyCommand
+ * @param {Function} [deps.staticGate]    default evaluateFile (sandbox)
+ * @param {Function} [deps.runGate]       default runGate (gatekeeper)
+ * @param {Function} [deps.decidePromotion] default decidePromotion
+ * @param {Function} [deps.runEvals]      default stub (CLI injeta o real)
+ * @param {Function} [deps.promote]       default marca o artefato
+ * @param {Function} [deps.rollback]      default remove o artifactDir
+ * @param {Function} [deps.onEvent]       telemetria (JSONL)
+ * @param {string}   [deps.workRoot]      base dos artefatos (default os.tmpdir)
+ * @param {Function} [deps.now]           relógio
+ */
+export function createEvolutionLoop(deps = {}) {
+  const {
+    detect = detectGaps,
+    chooseKind: choose = chooseKind,
+    specify = specifyGap,
+    generate = defaultGenerate,
+    runVerification = defaultRunVerification,
+    staticGate = defaultStaticGate,
+    runGate: gate = runGate,
+    decidePromotion: decide = decidePromotion,
+    runEvals = stubRunEvals,
+    promote = defaultPromote,
+    rollback = defaultRollback,
+    onEvent = null,
+    workRoot = tmpdir(),
+    now = () => new Date(),
+  } = deps;
+
+  function emit(event) {
+    if (typeof onEvent === "function") {
+      try {
+        onEvent({ at: now().toISOString(), ...event });
+      } catch {
+        // telemetria nunca derruba o loop
+      }
+    }
+  }
+
+  /**
+   * Verifica se o pedido/artefato exige algo que precisa de humano.
+   *
+   * A política é a de `core/governance/approval.mjs` — uma só, para que o loop e
+   * um operador manual cheguem à mesma resposta. Aqui só se traduz o laudo dela
+   * para a frase curta que o relatório mostra.
+   */
+  function needsHumanFrom({ request, gap, staticDecision }) {
+    const { reviewApproval } = governance;
+    const laudo = reviewApproval({
+      request: {
+        ...(request ?? {}),
+        // a lacuna também pode declarar a necessidade
+        needsNetwork: gap?.meta?.needsNetwork,
+        needsCredential: gap?.meta?.needsCredential,
+      },
+      scan: staticDecision,
+    });
+    if (!laudo || laudo.needsHuman !== true) return null;
+
+    const sinais = Array.isArray(laudo.triggers) ? laudo.triggers : [];
+    const perguntas = Array.isArray(laudo.questions) ? laudo.questions : [];
+    // nomeia o que do pedido disparou: "acessar rede" diz mais que "network"
+    const permissoes = (Array.isArray(request?.permissions) ? request.permissions : [])
+      .map((p) => String(p).trim())
+      .filter(Boolean);
+    const base = sinais.length > 0
+      ? `precisa de humano (${[...sinais, ...permissoes].join(", ")})`
+      : "precisa de humano";
+    // a primeira pergunta é a que o operador tem que responder; as outras ficam no laudo
+    return perguntas.length > 0 ? `${base}: ${perguntas[0]}` : base;
+  }
+
+  /**
+   * Executa um ciclo do loop.
+   *
+   * @param {object} input
+   * @param {object} [input.gap]       lacuna já detectada (opcional)
+   * @param {string} [input.taskId]    tarefa a rastrear (para detect)
+   * @param {object} [input.request]   request de createArtifactRequest (opcional;
+   *                                    senão é sintetizado do gap)
+   * @param {string} [input.outDir]    diretório do artefato (default mkdtemp)
+   * @param {object} [input.baseline]  baseline para o gate
+   * @param {number} [input.toleranceTokens]
+   * @param {boolean} [input.dryRun]   não promove nem reverte de fato
+   * @returns {Promise<object>} LoopReport
+   */
+  async function evolve(input = {}) {
+    const report = {
+      outcome: "error",
+      taskId: input.taskId ?? null,
+      gap: input.gap ?? null,
+      kind: null,
+      artifactDir: null,
+      files: [],
+      verify: null,
+      gate: null,
+      decision: null,
+      promoted: null,
+      rolledBack: null,
+      reasons: [],
+      startedAt: now().toISOString(),
+    };
+    const finish = (outcome, extra = {}) => {
+      report.outcome = outcome;
+      report.finishedAt = now().toISOString();
+      if (Array.isArray(extra.reasons)) report.reasons = extra.reasons;
+      emit({ event: "loop-end", taskId: report.taskId, outcome, reasons: report.reasons });
+      return report;
+    };
+
+    let madeDir = false;
+    let artifactDir = null;
+
+    try {
+      // 1. Detecta lacuna (se não veio pronta).
+      let gap = input.gap;
+      // Objetivo explícito (--goal) sintetiza a lacuna na hora: é o caminho do
+      // "gere um artefato para isto" sem depender de uma falha no ledger.
+      if (!gap && typeof input.goal === "string" && input.goal.trim() !== "") {
+        const slug = input.goal
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+          .slice(0, 40) || "objetivo";
+        gap = createGap({
+          kind: "tool-missing",
+          taskId: input.taskId ?? slug,
+          capability: input.goal.trim(),
+          goal: input.goal.trim(),
+          evidence: ["--goal (pedido explícito do operador)"],
+          meta: { source: "cli" },
+        });
+      }
+      if (!gap) {
+        const ledger = input.ledger;
+        const det = await detect({
+          ledger: typeof ledger === "string" ? ledger : Array.isArray(ledger) ? ledger : undefined,
+          threshold: input.threshold,
+          capabilities: input.capabilities,
+          tokenCeiling: input.tokenCeiling,
+        });
+        let gaps = Array.isArray(det.gaps) ? det.gaps : [];
+        // se o chamador pediu uma tarefa, prefere a lacuna dessa tarefa
+        if (report.taskId) {
+          const forTask = gaps.filter((g) => g.taskId === report.taskId);
+          if (forTask.length > 0) gaps = forTask;
+        }
+        gap = gaps.length > 0 ? gaps[0] : null;
+      }
+      if (!gap) return finish("rejected", { reasons: ["nenhuma lacuna detectada"] });
+      report.gap = gap;
+      report.taskId = gap.taskId ?? report.taskId;
+      emit({ event: "gap", kind: gap.kind, taskId: gap.taskId, capability: gap.capability });
+
+      // 2. Escolhe o kind mais leve que atende — mas só quando o operador deu
+      // capacidades estruturadas. Uma lacuna em linguagem de gente não é uma
+      // capability: passá-la crua fazia o chooseKind cair no caso degenerado.
+      const needed = Array.isArray(input.capabilities) && input.capabilities.length > 0
+        ? input.capabilities
+        : null;
+      const choice = needed && typeof choose === "function" ? choose(needed) : null;
+      // Um kind pedido explicitamente (input.forceKind ou input.kind, vindos do
+      // CLI) tem prioridade sobre o palpite do chooseKind.
+      const forced = input.forceKind ?? input.kind ?? null;
+      const kind = forced ?? choice?.kind ?? "skill";
+      // Sem gerador => erro honesto no generate (nunca artefato errado).
+      report.kind = kind;
+      emit({ event: "kind", kind, covers: choice?.covers ?? null, fallback: choice?.fallback ?? false });
+
+      // 3. Especifica (SpecWriter do plano) e monta o request.
+      //
+      // Duas entradas possíveis:
+      //   a) o operador já deu request pronto       -> usa como está
+      //   b) temos uma lacuna e o SpecWriter extrai  -> contrato do modelo, com
+      //      as opções do operador por cima quando ele as deu
+      //
+      // O `finalKind` que recaía para cli foi removido: recair para o artefato
+      // errado é pior que falhar dizendo que não há gerador.
+      let request = input.request;
+      if (!request) {
+        let base = null;
+        if (typeof specify === "function") {
+          const spec = await specify({
+            gap,
+            context: input.context ?? null,
+            allowHeuristic: input.allowHeuristic !== false,
+          });
+          base = spec.request;
+          report.spec = { basis: spec.basis, notes: spec.notes ?? [] };
+          emit({ event: "spec", basis: spec.basis, kind: base.kind });
+        }
+
+        // sobreposições do operador (quando ele foi explícito).
+        // A hierarquia de artefatos (chooseKind) ganha do palpite do modelo: o plano
+        // manda preferir o mais leve que atenda, e o SpecWriter não sabe disso.
+        const opInputs = input.inputs && Object.keys(input.inputs).length > 0 ? input.inputs : base?.inputs;
+        const opOutputs = input.outputs && Object.keys(input.outputs).length > 0 ? input.outputs : base?.outputs;
+        const opKind = input.forceKind ?? choice?.kind ?? base?.kind ?? "skill";
+        const opGoal = gap.goal || gap.capability || base?.goal;
+
+        // Testes: os do operador, os do SpecWriter, ou um teste de interface
+        // sintetizado do contrato. Nunca um smoke test vazio.
+        //
+        // Quando o kind final é diferente do que o SpecWriter propôs, os testes dele
+        // não valem: um teste que procura SKILL.md não serve para um cli.mjs.
+        const baseKindMatches = base && base.kind === opKind;
+        const tests = Array.isArray(input.tests) && input.tests.length > 0
+          ? input.tests
+          : baseKindMatches && Array.isArray(base?.tests) && base.tests.length > 0
+            ? base.tests
+            : [probeTest({ kind: opKind })];
+
+        request = createArtifactRequest({
+          goal: opGoal,
+          kind: opKind,
+          inputs: opInputs ?? {},
+          outputs: opOutputs ?? {},
+          forbidden: input.forbidden ?? base?.forbidden ?? ["acessar rede", "escrever fora do workspace"],
+          tests,
+        });
+        request.taskId = gap.taskId ?? null;
+      }
+      report.request = request;
+      report.kind = request.kind ?? report.kind;
+
+      // 4. Gera em isolamento (mkdtemp: nunca a raiz do projeto).
+      artifactDir = input.outDir;
+      if (!artifactDir) {
+        artifactDir = await mkdtemp(join(workRoot, `forge-${report.taskId ?? "gap"}-`));
+        madeDir = true;
+      }
+      report.artifactDir = artifactDir;
+      const gen = await generate(request, artifactDir);
+      report.files = gen.files ?? [];
+      report.verifyCommand = gen.verifyCommand ?? null;
+
+      // Sonda de interface: um probe.mjs no diretorio do artefato, para o
+      // verify poder exercitar o artefato do jeito certo (flags, JSON-RPC, módulo).
+      if (Array.isArray(request.tests) && request.tests.some((t) => t?.command === "node probe.mjs")) {
+        const { renderProbe } = await import("./probe.mjs");
+        await writeFile(join(artifactDir, "probe.mjs"), renderProbe(request, { sandboxUrl: SANDBOX_URL }), "utf8");
+      }
+      emit({ event: "generated", kind, files: report.files });
+
+      // 5. Gate estático: varre TODOS os arquivos do artifactDir, fail-closed.
+      //    Se um arquivo secundário é perigoso, o artefato inteiro é bloqueado;
+      //    se o verificador lança, isso é bloqueio (needs-human), não execução.
+      let staticDecision = null;
+      if (typeof staticGate === "function") {
+        // Varre os arquivos do ARTEFATO, não o verificador: verify.mjs/probe.mjs
+        // são gerados pelo Forge (confiáveis) e legitimamente usam child_process.
+        const VERIFIER = new Set(["verify.mjs", "probe.mjs", "README.md"]);
+        const files = (await listFilesRecursive(artifactDir))
+          .filter((f) => !VERIFIER.has(path.basename(f)));
+        for (const f of files) {
+          let dec;
+          try {
+            dec = await staticGate(f, artifactDir);
+          } catch (err) {
+            const reason = `gate falhou (fail-closed): ${err?.message ?? err}`;
+            report.reasons = [reason];
+            emit({ event: "needs-human", reason });
+            if (madeDir) await rm(artifactDir, { recursive: true, force: true }).catch(() => {});
+            report.artifactDir = null;
+            return finish("needs-human", { reasons: [reason] });
+          }
+          if (dec && dec.decision === "block") {
+            staticDecision = dec;
+            break;
+          }
+        }
+      }
+      const human = needsHumanFrom({ request, gap, staticDecision });
+      if (human) {
+        report.reasons = [human];
+        emit({ event: "needs-human", reason: human });
+        // limpa artefato efêmero quando ele mesmo foi criado aqui
+        if (madeDir) await rm(artifactDir, { recursive: true, force: true }).catch(() => {});
+        report.artifactDir = null;
+        return finish("needs-human", { reasons: report.reasons });
+      }
+
+      // 6. Verificação FORA do sandbox (o verify.mjs é a evidência).
+      let verify = { ok: false, status: null, stdout: "", stderr: "sem verifyCommand" };
+      if (report.verifyCommand && typeof runVerification === "function") {
+        verify = await runVerification(report.verifyCommand, { cwd: artifactDir });
+      }
+      report.verify = verify;
+      emit({ event: "verify", ok: verify.ok, status: verify.status });
+
+      // 7. Gate de promoção.
+      const gateReport = await gate({
+        artifactDir,
+        request,
+        runEvals,
+        baseline: input.baseline ?? null,
+        toleranceTokens: input.toleranceTokens,
+        runs: input.runs,
+      });
+      report.gate = gateReport;
+
+      // evidência de teste: o verify passou E os testes declarados existem
+      const decision = decide(gateReport, { toleranceTokens: input.toleranceTokens });
+      if (verify.ok === false) {
+        decision.promote = false;
+        decision.reasons = [...decision.reasons, "verificação (verify.mjs) não passou"];
+      }
+      report.decision = decision;
+      emit({ event: "gate", promote: decision.promote, reasons: decision.reasons });
+
+      // 8. Promove ou reverte.
+      if (decision.promote) {
+        if (input.dryRun) {
+          report.promoted = null;
+          return finish("promoted", { reasons: ["dry-run: promoção não aplicada"], dryRun: true });
+        }
+        const promo = await promote({ artifactDir, report: gateReport, request });
+        report.promoted = promo;
+        return finish("promoted", { reasons: [] });
+      }
+
+      // gate reprovou -> rollback
+      if (input.dryRun) {
+        report.rolledBack = null;
+        return finish("rejected", { reasons: decision.reasons, dryRun: true });
+      }
+      const back = await rollback({ artifactDir, report: gateReport });
+      report.rolledBack = back;
+      emit({ event: "rollback", ok: back?.ok ?? true });
+      return finish("rejected", { reasons: decision.reasons });
+    } catch (err) {
+      report.reasons = [String(err?.message ?? err)];
+      emit({ event: "error", message: report.reasons[0] });
+      return finish("error", { reasons: report.reasons });
+    } finally {
+      // Limpa o diretório temporário ao fim, inclusive em erro. Após promote o
+      // artefato já foi copiado; após rollback/needs-human já foi removido.
+      if (madeDir && artifactDir) {
+        await rm(artifactDir, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+  }
+
+  return { evolve };
+}

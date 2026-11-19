@@ -1,0 +1,40 @@
+{
+  "$schema": "https://pi.dev/schemas/models.schema.json",
+  "_comment": "EXEMPLO. Nunca coloque chaves reais aqui. O arquivo real vive em ~/.pi/agent/models.json e e gerado por scripts/import-providers.mjs.",
+  "_generatedBy": "scripts/import-providers.mjs",
+  "_targets": ["kilo1", "kilo2", "kilo3", "kilo4", "or1", "or2", "or3", "or4"],
+  "providers": {
+    "kilo1": {
+      "name": "Kilo 1",
+      "baseUrl": "https://ai-gateway.kilo.ai/api/v1",
+      "api": "openai-completions",
+      "apiKey": "$KILO1_API_KEY",
+      "models": [
+        {
+          "id": "fornecedor/modelo:free",
+          "name": "[K1] Modelo",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 1000000,
+          "maxTokens": 65536
+        }
+      ]
+    },
+    "or1": {
+      "name": "OpenRouter 1",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "api": "openai-completions",
+      "apiKey": "$OR1_API_KEY",
+      "models": [
+        {
+          "id": "baidu/ernie-5.5-flash-preview:free",
+          "name": "[OR1] ERNIE 5.5 Flash",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 128000,
+          "maxTokens": 16384
+        }
+      ]
+    }
+  }
+}

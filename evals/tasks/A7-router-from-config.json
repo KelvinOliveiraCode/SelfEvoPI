@@ -1,0 +1,9 @@
+{
+  "id": "A7-router-from-config",
+  "group": "A",
+  "title": "fromPiConfig carrega models.json e pick respeita contexto e famílias",
+  "description": "A partir de um models.json temporário, verifica formato do ref, filtragem por janela de contexto, prioridade de modelo explícito e que a família desativada nunca é escolhida.",
+  "checker": "node evals/checks/check-from-config.mjs",
+  "timeoutMs": 30000,
+  "tags": ["router", "config", "selecao"]
+}

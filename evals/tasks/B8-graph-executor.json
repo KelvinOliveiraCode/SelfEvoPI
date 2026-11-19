@@ -1,0 +1,9 @@
+{
+  "id": "B8-graph-executor",
+  "group": "B",
+  "title": "executor do grafo respeita ordem, gate humano e falhas",
+  "description": "Executa grafos e verifica: ordem topológica, gate humano para a execução (sucedidos ficam skipped), autoApprove atravessa o humano, e nó que lança vira failed com dependentes bloqueados.",
+  "checker": "node evals/checks/check-graph-executor.mjs",
+  "timeoutMs": 30000,
+  "tags": ["grafico", "orquestracao", "executor"]
+}
