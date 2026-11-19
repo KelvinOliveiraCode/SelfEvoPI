@@ -10,7 +10,7 @@ import {
   parseFrontmatter,
   normalizeForSearch,
   DEFAULT_SKILLS_SUBDIR,
-} from "./skills-pc.mjs";
+} from "./skills-user.mjs";
 
 /* --------------------------- helpers de teste --------------------------- */
 

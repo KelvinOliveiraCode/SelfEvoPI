@@ -27,7 +27,7 @@
  * Código de saída: 0 se nenhum servidor local falhou, 1 se algum falhou.
  */
 
-import { findOpencodeConfig, listOpencodeMcp, probeOpencodeMcp } from "../core/agent/mcp-opencode.mjs";
+import { findOpencodeConfig, listOpencodeMcp, probeOpencodeMcp } from "../core/agent/mcp-probe.mjs";
 
 /* ------------------------------------------------------------------ */
 /* Argumentos                                                          */

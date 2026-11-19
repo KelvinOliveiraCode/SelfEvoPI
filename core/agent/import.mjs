@@ -46,8 +46,8 @@ import {
   statusOf,
   stripJsonc,
   stripTrailingCommas,
-} from "./mcp-opencode.mjs";
-import { parseFrontmatter } from "./skills-pc.mjs";
+} from "./mcp-probe.mjs";
+import { parseFrontmatter } from "./skills-user.mjs";
 
 /* ------------------------------------------------------------------ */
 /* Constantes                                                          */

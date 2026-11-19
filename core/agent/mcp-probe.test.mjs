@@ -14,7 +14,7 @@ import {
   listOpencodeMcp,
   normalizeOpencodeServer,
   probeOpencodeMcp,
-} from "./mcp-opencode.mjs";
+} from "./mcp-probe.mjs";
 
 /* ------------------------------------------------------------------ */
 /* Fixtures                                                            */
