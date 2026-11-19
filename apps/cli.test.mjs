@@ -1132,6 +1132,186 @@ test("runSlash /mode sem argumento alterna o modo e volta ao início", async () 
   assert.equal(seen[5], seen[0], "o anel não voltou ao início");
 });
 
+/* ---------------------------------------------------------------- */
+/* /model: seletor no REPL (setas, enter, esc)                      */
+/* ---------------------------------------------------------------- */
+
+/**
+ * A lista de modelos vem da mesma fonte que o /model usa: a configuração do
+ * usuário lida por listConfiguredModels. Só nomes — nunca chaves.
+ */
+async function configuredModelsForTest() {
+  const { listConfiguredModels } = await import("../core/agent/pi-rpc.mjs");
+  try {
+    return listConfiguredModels();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Motor dublê: só o que o seletor e o refreshStatus tocam.
+ *
+ * Sem `_rpc` a etapa de esforço é pulada; com `_rpc` ela pergunta os níveis
+ * **daquele** modelo — é o que prova que a lista não é uma constante da CLI.
+ */
+function fakeModelEngine(levels = null) {
+  const chamadas = [];
+  const pi = {
+    chamadas,
+    on() { return () => {}; },
+    prompt: async () => "started",
+    abort: async () => {},
+    getState: async () => ({ model: { provider: "p1", id: "m1" }, mode: "build" }),
+    setModel: async (provider, id) => { chamadas.push(["setModel", provider, id]); return {}; },
+    getAvailableModels: async () => [],
+  };
+  if (levels) {
+    pi._rpc = {
+      getAvailableThinkingLevels: async () => levels,
+      setThinkingLevel: async (n) => { chamadas.push(["setThinkingLevel", n]); return null; },
+    };
+  }
+  return pi;
+}
+
+/**
+ * REPL com entrada dublê. `take()` esvazia o coletor, então cada etapa do
+ * teste vê só o que a tecla anterior desenhou — sem herdar frames antigos.
+ */
+function openRepl(pi) {
+  const input = new EventEmitter();
+  input.setEncoding = () => {};
+  input.isTTY = true;
+  let all = "";
+  const done = repl({ pi, write: (s) => (all += s), input, setRaw: () => {}, data: {} });
+  return {
+    input,
+    done,
+    press: async (data, ms = 60) => {
+      input.emit("data", data);
+      await new Promise((r) => setTimeout(r, ms));
+    },
+    take: () => { const t = stripAnsi(all); all = ""; return t; },
+    close: async () => { await new Promise((r) => setTimeout(r, 40)); input.emit("data", "\u0004"); await done; },
+  };
+}
+
+const ENTER = "\r";
+const DOWN = "\u001b[B";
+const ESC = "\u001b";
+
+/**
+ * /model sem argumento abre o seletor. São dois enters: o primeiro escolhe
+ * `/model` na paleta (que preenche o buffer), o segundo submete o comando.
+ */
+async function abrirSeletor(h) {
+  await h.press("", 40);
+  h.take();
+  await h.press("/model");
+  await h.press(ENTER);
+  await h.press(ENTER, 120);
+  return h.take();
+}
+
+test("REPL /model: seletor abre com provedores em seções e o padrão de teclas", async () => {
+  const h = openRepl(fakeModelEngine());
+  const t = await abrirSeletor(h);
+
+  assert.match(t, /modelo/, "o seletor não abriu");
+  assert.match(t, /enter escolher/, "sem a dica de teclas (padrão da paleta)");
+  assert.match(t, /esc cancela/, "sem a dica de cancelar");
+
+  // provedores aparecem como cabeçalho de seção
+  const lidos = new Set((await configuredModelsForTest()).map((m) => m.provider));
+  const vistos = [...lidos].filter((p) => t.includes(p));
+  assert.ok(vistos.length > 0, "nenhum provedor apareceu como seção");
+
+  await h.close();
+});
+
+test("REPL /model: setas navegam e enter escolhe o modelo destacado", async () => {
+  const pi = fakeModelEngine();
+  const h = openRepl(pi);
+  await abrirSeletor(h);
+
+  // desce uma casa: o aplicado tem de ser o SEGUNDO modelo da lista achatada
+  await h.press(DOWN, 80);
+  await h.press(ENTER, 250);
+
+  const aplicados = pi.chamadas.filter((c) => c[0] === "setModel");
+  assert.equal(aplicados.length, 1, "enter não aplicou o modelo");
+
+  const { flat } = flattenModelGroups(groupModelsByProvider(await configuredModelsForTest()));
+  assert.ok(flat.length >= 2, "a máquina não tem dois modelos para escolher");
+  const esperado = flat[1];
+  assert.equal(aplicados[0][1], esperado.provider, "provedor errado após descer uma casa");
+  assert.equal(aplicados[0][2], esperado.id, "modelo errado após descer uma casa");
+
+  await h.close();
+});
+
+test("REPL /model: esc cancela sem aplicar nada", async () => {
+  const pi = fakeModelEngine(["off", "low", "high"]);
+  const h = openRepl(pi);
+  await abrirSeletor(h);
+  h.take();
+
+  await h.press(ESC, 90);
+  const fechado = h.take();
+  assert.ok(!/enter escolher/.test(fechado), "esc não fechou o seletor");
+  assert.equal(pi.chamadas.length, 0, "esc aplicou modelo ou esforço");
+
+  await h.close();
+});
+
+test("REPL /model: depois do modelo pergunta o esforço daquele modelo", async () => {
+  // "medium" ausente de propósito: se aparecer, a lista é constante, não do modelo.
+  const pi = fakeModelEngine(["off", "low", "high"]);
+  const h = openRepl(pi);
+  await abrirSeletor(h);
+
+  await h.press(ENTER, 300); // escolhe o modelo
+  const etapa = h.take();
+
+  assert.match(etapa, /esfor/, "não perguntou o esforço depois do modelo");
+  for (const n of ["off", "low", "high"]) {
+    assert.ok(etapa.includes(n), "faltou o nível " + n + " que o modelo expõe");
+  }
+  assert.ok(!etapa.includes("medium"), "impôs um nível que o modelo não expõe");
+
+  await h.press(ENTER, 300); // escolhe o esforço
+  const aplicacoes = pi.chamadas.filter((c) => c[0] === "setThinkingLevel");
+  assert.equal(aplicacoes.length, 1, "não aplicou o esforço escolhido");
+  assert.equal(aplicacoes[0][1], "off", "aplicou o nível errado");
+
+  await h.close();
+});
+
+test("REPL /model <nome> direto pula o seletor", async () => {
+  const pi = fakeModelEngine(["off", "low", "high"]);
+  const h = openRepl(pi);
+  try {
+    await h.press("", 40);
+    h.take();
+
+    await h.press("/model nemotron");
+    await h.press(ENTER, 200);
+    const t = h.take();
+
+    // A paleta sempre mostra "enter escolher" enquanto se digita; o que não
+    // pode aparecer é o cabeçalho do seletor nem a etapa de esforço.
+    assert.ok(!/^\s*modelo\s*$/m.test(t), "/model <nome> abriu o seletor mesmo com argumento");
+    assert.ok(!/esc cancela/.test(t), "/model <nome> abriu o seletor mesmo com argumento");
+
+    const aplicados = pi.chamadas.filter((c) => c[0] === "setModel");
+    assert.equal(aplicados.length, 1, "/model <nome> não aplicou o modelo direto");
+    assert.equal(aplicados[0][2], "nvidia/nemotron-3-ultra-550b-a55b:free");
+  } finally {
+    await h.close();
+  }
+});
+
 test("runSlash /mode <nome> vai direto, sem passar pelo anel", async () => {
   let out = "";
   const code = await runSlash("/mode", "goal", (s) => (out += s + "\n"), { pi: null });

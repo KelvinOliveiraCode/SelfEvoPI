@@ -136,8 +136,7 @@ async function scanSessions(dir) {
       turns: countTurns(messages),
       tokens: estimateTokens(messages),
       forkedFrom: (header && header.forkedFrom) || null,
-      // De qual front-end a sessão nasceu. Header antigo não tem o campo: é CLI.
-      client: (header && header.client) || "cli",
+      client: (header && header.client) || null,
     });
   }
   return sessions;
@@ -195,7 +194,7 @@ export async function listSessions(dir, { refresh = false } = {}) {
 export async function loadSession(dir, id) {
   const file = await findSessionFile(dir, id);
   if (!file) {
-    return { messages: [], meta: { id, title: null, startedAt: null, turns: 0, tokens: 0, forkedFrom: null, client: "cli" } };
+    return { messages: [], meta: { id, title: null, startedAt: null, turns: 0, tokens: 0, forkedFrom: null, client: null } };
   }
   const text = await readFile(file, "utf8");
   const { header, messages } = parseSession(text);
@@ -208,7 +207,7 @@ export async function loadSession(dir, id) {
       turns: countTurns(messages),
       tokens: estimateTokens(messages),
       forkedFrom: (header && header.forkedFrom) || null,
-      client: (header && header.client) || "cli",
+      client: (header && header.client) || null,
     },
   };
 }
@@ -222,7 +221,7 @@ export async function loadSession(dir, id) {
  * @param {string} [name]
  * @returns {Promise<string>} novo id
  */
-export async function forkSession(dir, id, name = null) {
+export async function forkSession(dir, id, name = null, client = null) {
   const src = await findSessionFile(dir, id);
   if (!src) throw new Error(`sessions: sessão não encontrada: ${id}`);
 
@@ -240,6 +239,9 @@ export async function forkSession(dir, id, name = null) {
     forkedFrom: id,
   };
   if (name) newHeader.title = name;
+  // `client` identifica a superfície que criou a sessão (cli|desktop)
+  if (client) newHeader.client = client;
+  else if (header && header.client) newHeader.client = header.client;
 
   const lines = [JSON.stringify(newHeader)];
   for (const m of messages) lines.push(JSON.stringify(m));
