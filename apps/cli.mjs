@@ -463,8 +463,8 @@ function capLinhas(linhas, largura = 72) {
 async function runSettingsView({ out }) {
   const { renderSettings } = await import("../core/agent/settings-view.mjs");
   const { getTheme } = await import("../core/agent/theme.mjs");
-  const { listOpencodeMcp } = await import("../core/agent/mcp-opencode.mjs");
-  const { listPcSkills } = await import("../core/agent/skills-pc.mjs");
+  const { listOpencodeMcp } = await import("../core/agent/mcp-probe.mjs");
+  const { listPcSkills } = await import("../core/agent/skills-user.mjs");
 
   // Cada fonte e opcional: se uma falhar, a visao mostra — e nao derruba.
   const seguro = async (fn, fallback) => {
@@ -907,9 +907,9 @@ async function runSkills({ out, arg }) {
   const store = openStore({ root: MEMORY });
   const entries = store.query({ level: "skills" }).filter((e) => !e.invalid);
 
-  // As skills do OpenCode (as suas) ficam em ~/.config/opencode/skills/*/SKILL.md.
+  // As skills do usuário ficam em ~/.pi/skills/*/SKILL.md.
   // O /skills nasceu lendo so o store do loop, e por isso elas nao apareciam.
-  const { findPcSkills } = await import("../core/agent/skills-pc.mjs");
+  const { findPcSkills } = await import("../core/agent/skills-user.mjs");
   let pc = [];
   try {
     pc = findPcSkills({ termo: String(arg ?? "").trim() });
@@ -928,7 +928,7 @@ async function runSkills({ out, arg }) {
 
   if (pc.length > 0) {
     if (linhas.length > 0) linhas.push("");
-    linhas.push(paint(`  pc (OpenCode): ${pc.length}`, "fg"));
+    linhas.push(paint(`  usuário: ${pc.length}`, "fg"));
     for (const s of pc.slice(0, 15)) {
       const nome = String(s.name || "").slice(0, 28).padEnd(28);
       const desc = String(s.description || "").replace(/\s+/g, " ").slice(0, 34);
