@@ -24,6 +24,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import process from "node:process";
 
 import { listSessions, loadSession, forkSession, parseSession } from "../../core/agent/sessions.mjs";
@@ -59,6 +60,39 @@ const MSGS = [
   { role: "user", content: "faça X", at: "2026-11-15T23:01:44.000Z" },
 ];
 
+/**
+ * Cria um HOME falso com uma sessão de fixture para o projeto atual.
+ *
+ * O desktop resolve a pasta de sessões em `process.env.USERPROFILE/HOME` +
+ * `.pi/agent/sessions/<sub>` casando `header.cwd` com a raiz do projeto
+ * (sessionDir() do desktop.mjs). Sem uma sessão real, `GET /api/sessions`
+ * devolve lista vazia e os testes de :id / fork falham com "PENDENTE: nenhuma
+ * sessão" — e isso é não-determinístico (depende do estado da máquina).
+ *
+ * Aqui fabricamos um HOME descartável com UMA sessão cuja `cwd` é a raiz do
+ * projeto, na subpasta codificada. Assim o desktop sempre a encontra, e o
+ * teste tem um id conhecido para :id e /fork — sem depender da sessão real.
+ *
+ * @returns {Promise<{ home: string, id: string, cleanup: () => Promise<void> }>}
+ */
+async function makeSessionHome() {
+  const home = await mkdtemp(join(tmpdir(), "session-api-home-"));
+  const id = "fixture-" + randomUUID().slice(0, 8);
+  const cwd = ROOT;
+  // subpasta codificada: troca separadores por '-' e caixa (como o motor faz).
+  const sub = join(home, ".pi", "agent", "sessions", "proj");
+  await mkdir(sub, { recursive: true });
+  const header = { type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd, client: "desktop", title: "fixture" };
+  const lines = [JSON.stringify(header)];
+  // formato do motor: {"type":"message","message":{role,content},"timestamp":...}
+  for (const m of MSGS) {
+    lines.push(JSON.stringify({ type: "message", message: { role: m.role, content: m.content }, timestamp: m.at }));
+  }
+  const file = join(sub, `2026-11-15T23-01-39-318Z_${id}.jsonl`);
+  await writeFile(file, lines.join("\n") + "\n", "utf8");
+  return { home, id, cleanup: () => rm(home, { recursive: true, force: true }) };
+}
+
 /* ------------------------------------------------------------------ */
 /* Sobe o desktop uma vez para a suíte (porta efêmera)                */
 /* ------------------------------------------------------------------ */
@@ -76,12 +110,20 @@ async function freePort() {
 }
 
 /** Sobe o desktop headless e espera ele responder; devolve { port, stop }. */
-async function startDesktop() {
+async function startDesktop({ home } = {}) {
   const port = await freePort();
+  // `home` (opcional) redireciona a pasta de sessões do desktop: sessionDir()
+  // resolve a partir de USERPROFILE/HOME. Sem home, usa o HOME real (comportamento
+  // antigo) — com home, o teste controla exatamente quais sessões existem.
+  const env = { ...process.env, SELFEOPI_FORCE_NO_ENGINE: "1" };
+  if (home) {
+    env.USERPROFILE = home;
+    env.HOME = home;
+  }
   const child = spawn(process.execPath, [DESKTOP, "--no-open", "--port", String(port)], {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, SELFEOPI_FORCE_NO_ENGINE: "1" },
+    env,
   });
   const base = `http://127.0.0.1:${port}`;
   const stop = () => new Promise((r) => child.once("exit", r).kill?.() ?? child.kill() ?? r());
@@ -135,23 +177,19 @@ test("GET /api/sessions devolve { ok, sessions, dir } (contrato §2)", async () 
 });
 
 test("GET /api/sessions/:id devolve { ok, session, messages } (contrato §2)", async () => {
-  const { base, stop } = await startDesktop();
+  // Fixture isolada: um HOME descartável com UMA sessão cuja cwd é a raiz do
+  // projeto. Assim o desktop sempre a encontra — sem depender de sessão real.
+  const fx = await makeSessionHome();
+  const { base, stop } = await startDesktop({ home: fx.home });
   try {
-    // precisa existir ao menos uma sessão; pega o id da listagem
-    const listRes = await fetch(base + "/api/sessions");
-    assert.notEqual(listRes.status, 404, "PENDENTE: GET /api/sessions ausente");
-    const { sessions } = await listRes.json();
-    if (!sessions || sessions.length === 0) {
-      // sem sessão real nesta máquina: registra PENDENTE em vez de afrouxar
-      assert.fail("PENDENTE: nenhuma sessão para GET /api/sessions/:id (crie uma e rode de novo)");
-    }
-    const id = sessions[0].id;
+    const id = fx.id;
     const res = await fetch(base + "/api/sessions/" + encodeURIComponent(id));
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.ok, true);
     assert.equal(body.session.id, id);
     assert.ok(Array.isArray(body.messages), "messages é lista");
+    assert.ok(body.messages.length > 0, "a fixture tem mensagens");
     for (const m of body.messages) {
       assert.ok(["system", "user", "assistant", "tool"].includes(m.role), "Msg.role válido: " + m.role);
       assert.ok("content" in m, "Msg tem content");
@@ -159,19 +197,16 @@ test("GET /api/sessions/:id devolve { ok, session, messages } (contrato §2)", a
     }
   } finally {
     await stop();
+    await fx.cleanup();
   }
 });
 
 test("POST /api/sessions/fork cria nova sessão com forkedFrom (contrato §2)", async () => {
-  const { base, stop } = await startDesktop();
+  // Mesma fixture isolada: o id de origem é conhecido, o fork nasce na hora.
+  const fx = await makeSessionHome();
+  const { base, stop } = await startDesktop({ home: fx.home });
   try {
-    const listRes = await fetch(base + "/api/sessions");
-    assert.notEqual(listRes.status, 404, "PENDENTE: GET /api/sessions ausente");
-    const { sessions } = await listRes.json();
-    if (!sessions || sessions.length === 0) {
-      assert.fail("PENDENTE: nenhuma sessão para POST /api/sessions/fork");
-    }
-    const id = sessions[0].id;
+    const id = fx.id;
     const res = await fetch(base + "/api/sessions/fork", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -185,6 +220,7 @@ test("POST /api/sessions/fork cria nova sessão com forkedFrom (contrato §2)", 
     assert.equal(body.session.forkedFrom, id, "fork aponta para a origem");
   } finally {
     await stop();
+    await fx.cleanup();
   }
 });
 
