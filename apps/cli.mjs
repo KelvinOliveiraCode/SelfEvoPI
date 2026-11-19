@@ -413,6 +413,102 @@ export function renderMarkdown(md) {
 /* Comandos de barra                                                  */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Comandos 1.1: settings, theme, swarm                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Trunca cada linha em 72 colunas.
+ *
+ * A TUI desenha em 72 e um texto mais longo desalinha o resto da tela. A
+ * saida de comando e dado do usuario ou do provedor — nao da para confiar
+ * que caiba. `stripAnsi` existe para medir sem contar as sequencias de cor.
+ */
+function capLinhas(linhas, largura = 72) {
+  return linhas.map((l) => {
+    const texto = String(l);
+    return visibleWidth(texto) > largura ? `${texto.slice(0, largura - 1)}…` : texto;
+  });
+}
+
+async function runSettingsView({ out }) {
+  const { renderSettings } = await import("../core/agent/settings-view.mjs");
+  const { getTheme } = await import("../core/agent/theme.mjs");
+  const { listOpencodeMcp } = await import("../core/agent/mcp-opencode.mjs");
+  const { listPcSkills } = await import("../core/agent/skills-pc.mjs");
+
+  // Cada fonte e opcional: se uma falhar, a visao mostra — e nao derruba.
+  const seguro = async (fn, fallback) => {
+    try {
+      return await fn();
+    } catch {
+      return fallback;
+    }
+  };
+
+  const [mcp, skills] = await Promise.all([
+    seguro(() => listOpencodeMcp({}), []),
+    seguro(() => listPcSkills({}), []),
+  ]);
+
+  const linhas = renderSettings({
+    mode: currentMode,
+    permission: permissionMode,
+    model: null,
+    effort: null,
+    theme: seguro(() => getTheme(), null),
+    mcp: mcp.length,
+    skills: skills.length,
+    sessions: null,
+  });
+  out(linhas.join("\n"));
+  return 0;
+}
+
+async function runTheme({ arg, out }) {
+  const { setTheme, getTheme, listThemes } = await import("../core/agent/theme.mjs");
+  const nome = String(arg ?? "").trim();
+  if (!nome) {
+    out(`  tema atual: ${getTheme()}`);
+    out(`  disponíveis: ${listThemes().join(", ")}`);
+    return 0;
+  }
+  try {
+    const t = setTheme(nome);
+    out(paint(`  tema: ${t}`, "ok"));
+    return 0;
+  } catch (err) {
+    out(paint(`  ${String(err?.message || err).slice(0, 120)}`, "fail"));
+    return 2;
+  }
+}
+
+async function runSwarm({ arg, out }) {
+  const { planSwarm, renderSwarm, parseSwarmArgs } = await import("../core/agent/swarm.mjs");
+  const bruto = String(arg ?? "").trim();
+  if (!bruto) {
+    out(paint("  uso: /swarm [n] <tarefa>", "muted"));
+    return 2;
+  }
+  // Provedores vem do roteador; sem nenhum, o swarm diz e para.
+  const provedores = (() => {
+    try {
+      return listConfiguredModels().map((m) => m.provider).filter((v, i, a) => a.indexOf(v) === i);
+    } catch {
+      return [];
+    }
+  })();
+  if (provedores.length === 0) {
+    out(paint("  nenhum provedor configurado — /swarm precisa de pelo menos um", "warn"));
+    return 2;
+  }
+  const { n, task } = parseSwarmArgs(bruto);
+  const plano = planSwarm({ task, n, providers: provedores });
+  out(renderSwarm(plano).join("\n"));
+  out(paint("  (o modelo principal executa e coleta; /swarm <n> <tarefa> ajusta n)", "muted"));
+  return 0;
+}
+
 // FONTE ÚNICA dos comandos de barra. A paleta e o /help leem daqui; o `run`
 // é o executor. Nada de lista duplicada.
 export const COMMANDS = [
@@ -445,6 +541,9 @@ export const COMMANDS = [
   { name: "/build", args: "", description: "modo build: escreve e executa no workspace", run: (ctx) => runMode("build", ctx) },
   { name: "/ask", args: "", description: "modo ask: só responde, nunca toca em disco", run: (ctx) => runMode("ask", ctx) },
   { name: "/goal", args: "[condição|clear]", description: "define/limpa a condição de conclusão", run: runGoal },
+  { name: "/settings", args: "", description: "visão de tudo que está configurado", run: runSettingsView },
+  { name: "/theme", args: "[escuro|claro|alto-contraste]", description: "tema da interface", run: runTheme },
+  { name: "/swarm", args: "[n] <tarefa>", description: "orquestra n subagentes rumo à tarefa", run: runSwarm },
   { name: "/help", args: "", description: "mostra esta lista", run: runHelp },
 ];
 
@@ -769,19 +868,48 @@ async function runDetect({ out }) {
   return 0;
 }
 
-async function runSkills({ out }) {
+async function runSkills({ out, arg }) {
   const { openStore } = await import("../core/memory/store.mjs");
   const store = openStore({ root: MEMORY });
   const entries = store.query({ level: "skills" }).filter((e) => !e.invalid);
-  if (entries.length === 0) {
-    out(paint("  nenhuma skill registrada ainda", "muted"));
+
+  // As skills do OpenCode (as suas) ficam em ~/.config/opencode/skills/*/SKILL.md.
+  // O /skills nasceu lendo so o store do loop, e por isso elas nao apareciam.
+  const { findPcSkills } = await import("../core/agent/skills-pc.mjs");
+  let pc = [];
+  try {
+    pc = findPcSkills({ termo: String(arg ?? "").trim() });
+  } catch {
+    pc = [];
+  }
+
+  const linhas = [];
+
+  if (entries.length > 0) {
+    linhas.push(paint(`  loop (geradas pelo SelfEvoPI): ${entries.length}`, "fg"));
+    for (const e of entries.slice(0, 15)) {
+      linhas.push(`  ${paint("●", "ok")} ${String(e.text).replace(/\s+/g, " ").slice(0, 60)}`);
+    }
+  }
+
+  if (pc.length > 0) {
+    if (linhas.length > 0) linhas.push("");
+    linhas.push(paint(`  pc (OpenCode): ${pc.length}`, "fg"));
+    for (const s of pc.slice(0, 15)) {
+      const nome = String(s.name || "").slice(0, 28).padEnd(28);
+      const desc = String(s.description || "").replace(/\s+/g, " ").slice(0, 34);
+      linhas.push(`  ${paint("○", "muted")} ${nome} ${desc}`);
+    }
+  }
+
+  if (linhas.length === 0) {
+    out(paint("  nenhuma skill encontrada (nem do loop, nem do OpenCode)", "muted"));
     return 0;
   }
-  const lines = [paint(`  ${entries.length} skill(s) registrada(s)`, "fg")];
-  for (const e of entries.slice(0, 15)) {
-    lines.push(`  ${paint("●", "ok")} ${String(e.text).replace(/\s+/g, " ").slice(0, 64)}`);
-  }
-  out(lines.join("\n"));
+
+  linhas.push("");
+  linhas.push(paint("  /skills <termo> filtra · ● loop · ○ pc", "muted"));
+  out(capLinhas(linhas).join("\n"));
   return 0;
 }
 
@@ -1470,10 +1598,11 @@ async function runModeCycle({ out }) {
   const linhas = [paint(`  modo: ${m.name}`, "ok")];
   const linha = describeModeLine(m);
   if (linha) linhas.push(`    ${linha}`);
+  const anel = paint(`  anel: ${MODE_NAMES.join(" → ")}`, "muted");
   linhas.push("");
-  linhas.push(paint(`  anel: ${MODE_NAMES.join(" → ")}`, "muted"));
+  linhas.push(anel);
 
-  out(linhas.join("\n"));
+  out(capLinhas(linhas).join("\n"));
   return 0;
 }
 
@@ -1487,9 +1616,9 @@ async function runMode(name, { out }) {
   if (m.name === "plan") {
     const g = guardWrite({ mode: "plan", path: "exemplo.txt", workspace: ROOT });
     lines.push("");
-    lines.push(paint(`    escrita: ${g.decision} — ${g.reason}`, g.decision === "block" ? "warn" : "muted"));
+    lines.push(paint(`    escrita: ${g.decision} - ${g.reason}`, g.decision === "block" ? "warn" : "muted"));
   }
-  out(lines.join("\n"));
+  out(capLinhas(lines).join("\n"));
   return 0;
 }
 
