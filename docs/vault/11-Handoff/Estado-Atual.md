@@ -8,43 +8,55 @@ created: 2026-11-19
 > Retrato do SelfEvoPI. Para quem vai continuar o desenvolvimento em outro chat: o
 > que está pronto, o que falta, como rodar e onde estão as coisas.
 >
-> **Atualizado em 2026-11-20** para o HEAD `fc9aa29` (a versão em `package.json` segue
-> `1.1.4`, o trabalho novo abaixo está sobreposto a ela, ainda sem bump).
+> **Atualizado em 2026-11-20** para o HEAD `ed939e6`, versão `1.2.0` (bump já aplicado).
 
 ## Situação
 
-| | HEAD | Tag |
+| | HEAD | Versão |
 |:--|:--|:--|
-| Repositório privado | `fc9aa29` | `v1.1.4` (package.json) |
-| Repositório público |, |, |
+| Repositório privado | `ed939e6` | `1.2.0` (package.json) |
+| Repositório público | | |
 
 **Gate:** ver `npm test` / `node evals/gate.mjs` (os números do badge do README são a
 referência viva; a última contagem medida da suíte foi 958 unit + 86/87 evals).
 
-## O que há de novo (desde a v1.1.3)
+## O que há de novo (v1.2.0, desde a v1.1.4)
 
-Cinco commits de `fd1fc16` a `fc9aa29` reescreveram a TUI e adicionaram temas,
-subagentes e o painel de atividade. Resumo do que mudou (ver
-[[04-Features/Features]] e [[03-Comandos/CLI]]):
+A v1.2.0 (`ed939e6`) fecha o trabalho de TUI que começou na v1.1.4. Ver
+[[04-Features/Features]] e [[03-Comandos/CLI]].
+
+- **`/plugins`** (`ed939e6`): lista os plugins (servidores MCP) ativos e sonda um
+  (`/plugins <nome>`, handshake JSON-RPC + tools) ou todos (`/plugins test`). Lê o
+  settings global (`~/.pi/settings.json`), mesma fonte do `/mcp`.
+- **Tema violeta e padrão escuro** (`02bf804`): o tema `claro` virou `violeta`; o
+  editor de tema custom não derruba mais a CLI; o padrão é sempre `escuro`.
+- **Ctrl+K com deletar sessão**: a lista de sessões ganhou submenu abrir/deletar, com
+  confirmação antes de remover o arquivo.
+- **Ctrl+O**: abre o editor interativo de settings (tema, modo, permissão, modelo,
+  esforço) sem sair da conversa.
+- **Esforço**: o nível `"none"` é filtrado na linha de status, no seletor e no `/effort`;
+  quando o motor não expõe raciocínio, aparecem os níveis padrão `off/low/medium/high`.
+
+Antes disso, a v1.1.4 (`fd1fc16` a `fc9aa29`) trouxe:
 
 - **TUI ousada** (`fd1fc16`): accent, cantos arredondados, tagline no header, status
   colorido, respeito a `reduced-motion`. Renomeação agnóstica (OpenCode → mcp-probe).
 - **Subagentes moldáveis** (`08d082a`, estilo dsh): `core/agent/subagent.mjs`,
   `core/agent/swarm.mjs`. `/swarm` executa de verdade; `/subagent` cria subagente
   nomeado, persistente ou temporário; A2A entre persistentes e `@orquestrador`.
-- **Temas + atividade + A2A** (`79955f7`): cores por papel semântico, 3 temas built-in
-  + 3 slots custom editáveis (`core/agent/theme-custom.mjs`), painel **Ctrl+P** de
+- **Temas, atividade e A2A** (`79955f7`): cores por papel semântico, 3 temas built-in
+  mais 3 slots custom editáveis (`core/agent/theme-custom.mjs`), painel Ctrl+P de
   atividade (`core/agent/activity.mjs`), `sendA2A`.
 - **Correções de tema e effort** (`6104f43`): temas funcionam em terminal 256 cores
   (fallback ANSI-256); modelos que só expõem `"none"` veem os níveis padrão de effort.
-- **Novos comandos**: `/evo` (substituiu `/forge`), `/explorer` e `/pasta` (seletor de
-  pasta do Windows), `/worktree`, `/workspace`, `/providers`, `/subagent`. `/evals` e
-  `/gate` **saíram** de `COMMANDS` (as funções existem, mas não são mais digitáveis).
+- **Comandos**: `/evo` (substituiu `/forge`), `/explorer` (seletor de pasta do Windows;
+  o alias `/pasta` saiu depois), `/worktree`, `/workspace`, `/providers`, `/subagent`.
+  `/evals` e `/gate` saíram de `COMMANDS` (as funções existem, mas não são digitáveis).
 - **Infra**: `core/agent/providers.mjs`, `worktree.mjs`, `file-explorer.mjs`,
   `list-window.mjs`, `theme-custom.mjs`, `activity.mjs`, `subagent.mjs`, `swarm.mjs`,
   cada um com seu `*.test.mjs`.
 
-## O que está pronto (1.1.3)
+## O que já estava pronto (v1.1.3 e anteriores)
 
 ### Agnosticismo (1.1.1, o grande)
 - Skills leem `~/.pi/skills/<nome>/SKILL.md` (padrão agentskills.io), não a config de
@@ -55,8 +67,7 @@ subagentes e o painel de atividade. Resumo do que mudou (ver
   `core/agent/import.mjs` (`scanSource`, `scanTarget`, `planImport`, `applyImport`,
   `undoImport`). Merge "existente vence", escrita atômica, backup `.bak-<ts>`,
   manifesto em `~/.pi/harness/ledger/import-<ts>.json`, rollback seletivo.
-  **Nota:** o módulo existe e funciona (21 testes), mas **não está ligado** como
-  comando `/import` no `apps/cli.mjs`, é um item em aberto.
+  Ligado ao comando `/import` no `apps/cli.mjs` (preview/confirma/undo/status).
 
 ### Robustez do probe (1.1.2)
 - `ENV_BASE` com `APPDATA`/`LOCALAPPDATA`, o `searxng` voltou a responder.
@@ -100,9 +111,6 @@ subagentes e o painel de atividade. Resumo do que mudou (ver
 5. **`SelfEvoPI-Painel.cmd`**, shim de compatibilidade mantido, não instalado.
 6. **Teste `ctrl+k`**, flake resolvido com fixture, mas a máquina tem 83 processos
    node de base; medir dentro de worktree custa ~1,5x.
-7. **Sem bump de versão.** `package.json` segue `1.1.4` com todo o trabalho novo
-   (temas, subagentes, Ctrl+P) por cima, falta um `chore(release): bump` quando
-   estabilizar.
 
 ## Como rodar
 
@@ -138,7 +146,8 @@ node scripts/daily.mjs --dry-run
 | `core/agent/activity.mjs` | Registro do painel Ctrl+P (shells + subagentes) |
 | `core/agent/providers.mjs` | Registro de provedores e modelos (`/providers`) |
 | `core/agent/worktree.mjs` | Worktrees git isoladas (`/worktree`) |
-| `core/agent/file-explorer.mjs` · `list-window.mjs` | Seletor de pasta do Windows (`/explorer`, `/pasta`) e workspace |
+| `core/agent/mcp-probe.mjs` | Lê MCPs do settings global e sonda handshake/tools (`/mcp`, `/plugins`) |
+| `core/agent/file-explorer.mjs` · `list-window.mjs` | Seletor de pasta do Windows (`/explorer`) e workspace |
 | `core/router/` | Roteador (provider + modelo) |
 | `core/forge/` | Auto-evolução (detect, specify, generate, probe, gatekeeper, promote) |
 | `core/governance/` | Modos, aprovação, rollback |

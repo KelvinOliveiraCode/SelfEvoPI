@@ -27,7 +27,8 @@ Os 30 comandos reais, conforme `apps/cli.mjs` (`name: "/..."`):
 | `/cost` | Tokens e custo da sessão |
 | `/context` | Quanto da janela de contexto está em uso |
 | `/status` | Estado da sessão, modelo e modo |
-| `/mcp` | Servidores MCP declarados (config global `~/.pi/settings.json`) |
+| `/mcp` | Servidores MCP configurados no settings global (`~/.pi/settings.json`) |
+| `/plugins [nome\|test]` | Lista os plugins (MCP) ativos; sonda um (`nome`) ou todos (`test`) |
 | `/skills` | Skills do loop + skills do PC (`~/.pi/skills`) |
 | `/memory <termo>` | Busca na memória (lexical + PPMI) |
 | `/detect` | Lacunas de ferramenta em aberto |
@@ -42,7 +43,7 @@ Os 30 comandos reais, conforme `apps/cli.mjs` (`name: "/..."`):
 | `/subagent <nome> <tarefa> [...] ` | Subagente moldado (persistente ou temporário) |
 | `/worktree [list\|new\|rm]` | Worktrees git isoladas |
 | `/workspace [caminho]` | Troca o diretório de trabalho |
-| `/explorer` `/pasta` | Abre o explorador do Windows e escolhe a pasta |
+| `/explorer` | Abre o explorador do Windows e escolhe a pasta/workspace |
 | `/providers [list\|add\|rm\|models]` | Registra/remove provedores e modelos |
 | `/clear` | Limpa a conversa e começa de novo |
 | `/compact` | Compacta o histórico da conversa |
@@ -62,6 +63,8 @@ Logo ASCII na inicialização. `core/agent/banner.mjs`.
 A visão de estado (`renderSettings`) vive em `apps/cli.mjs` (não em
 `core/agent/settings-view.mjs`). Devolve linhas ≤ 72 colunas com modo, permissão,
 modelo, esforço, tema, custo e contexto. Abre com `Ctrl+,` (mesma tecla do desktop).
+`Ctrl+O` abre o editor interativo (`startSettingsPicker`): escolhe e troca tema, modo,
+permissão, modelo e esforço sem sair da conversa.
 
 ## Truncamento de linha (`capLinhas`)
 

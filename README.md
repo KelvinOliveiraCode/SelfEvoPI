@@ -309,20 +309,21 @@ A conversation, not a menu. The engine underneath is invisible, the interface is
 
 | Comando | O que faz |
 |:--|:--|
-| `/evo <meta>` | **modo principal**, o harness evolui/modela a si mesmo rumo à meta (substituiu `/forge`) |
+| `/evo <meta>` | modo principal: o harness evolui/modela a si mesmo rumo à meta (substituiu `/forge`) |
 | `/detect` | lacunas de ferramenta em aberto |
 | `/memory <termo>` `/skills` | busca na memória (lexical + PPMI) e o que já foi gerado |
 | `/compact` | resume o histórico quando a janela enche |
 | `/sessions` `/sessions <id>` | lista sessões ou carrega uma |
 | `/cost` `/status` `/context` | tokens e custo, estado da sessão, uso da janela |
-| `/mcp` `/init` | servidores declarados e rascunho de `AGENTS.md` |
+| `/mcp` `/plugins [nome\|test]` | servidores MCP do settings global; `/plugins` ainda sonda um (`nome`) ou todos (`test`) |
+| `/init` `/import` | rascunho de `AGENTS.md` e migração reversível de MCPs/skills |
 | `/model [nome]` `/effort [nível]` | modelo da conversa e esforço de raciocínio |
-| `/theme [tema]` | tema da interface (3 built-in + 3 slots custom editáveis) |
+| `/theme [escuro\|violeta\|alto-contraste]` | tema da interface (3 escuros + 3 slots custom editáveis) |
 | `/providers [list\|add\|rm\|models]` | registra/remove provedores e seus modelos |
 | `/swarm [n] <tarefa>` | molda e executa n subagentes em round-robin |
 | `/subagent <nome> <tarefa> [--provider --model --effort --mode --persistent]` | subagente moldado (nomeado, persistente ou temporário) |
 | `/worktree [list\|new\|rm]` | worktrees git isoladas |
-| `/workspace [caminho]` `/explorer` `/pasta` | troca o diretório de trabalho / abre o explorador do Windows |
+| `/workspace [caminho]` `/explorer` | troca o diretório de trabalho / abre o explorador do Windows |
 | `/clear` `/help` | limpar a conversa, ajuda |
 
 **Modos**, mudam o que o agente pode fazer, e aparecem na barra de estado:
@@ -343,7 +344,7 @@ A conversation, not a menu. The engine underneath is invisible, the interface is
 
 ### Temas
 
-A TUI tem 3 temas embutidos (`escuro`, `violeta`, `alto-contraste`) e 3 slots custom editáveis pelo usuário. Cada tema define 11 papéis de cor semânticos: `fg`, `muted`, `accent`, `ok`, `warn`, `fail`, `code`, `tool`, `link`, `rule`, `bg`.
+A TUI tem 3 temas embutidos (`escuro`, `violeta`, `alto-contraste`) e 3 slots custom editáveis. O padrão é sempre `escuro`; o antigo tema `claro` virou `violeta`. Cada tema define 11 papéis de cor semânticos: `fg`, `muted`, `accent`, `ok`, `warn`, `fail`, `code`, `tool`, `link`, `rule`, `bg`.
 
 - `/theme` abre o seletor (3 built-in + `custom:1..3` + "gerenciar temas custom…").
 - "gerenciar temas custom…" abre o editor: modo **geral** (5 papéis: fg/accent/ok/warn/fail) ou **detalhado** (todos os 11 papéis + bg), com paleta de 12 cores prontas ou hex livre.
@@ -361,7 +362,11 @@ Filosofia dsh: o modelo principal **molda** subagentes (provider/modelo/esforço
 
 ### Esforço (effort)
 
-`/effort` consulta o modelo em uso (`get_available_thinking_levels`). Modelos que só expõem `"none"` (sem raciocínio) agora mostram os **níveis padrão** (`off/low/medium/high`) em vez de um seletor inútil de 1 item, o modelo pode ignorá-los, mas o usuário tem o que escolher.
+`/effort` consulta o modelo em uso (`get_available_thinking_levels`). O nível `"none"` (modelos sem raciocínio) é filtrado na linha de status, no seletor e no `/effort`; quando o motor só expõe `"none"`, os três mostram os níveis padrão `off/low/medium/high` (`EFFORT_FALLBACK` em `apps/cli.mjs`). O modelo pode ignorá-los, mas o usuário tem o que escolher.
+
+### Plugins (MCP)
+
+Um plugin é um servidor MCP configurado em `~/.pi/settings.json`. `/mcp` lista os servidores com status (configurado, desabilitado, quebrado) e o comando de cada um. `/plugins` lista os mesmos e ainda sonda: `/plugins <nome>` faz o handshake JSON-RPC e mostra as tools que o servidor expõe, `/plugins test` sonda todos os ativos. A leitura vem do settings global, não da config de outro harness (`core/agent/mcp-probe.mjs`).
 
 ### From the shell
 

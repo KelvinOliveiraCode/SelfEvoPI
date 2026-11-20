@@ -39,7 +39,7 @@ created: 2026-11-19
 - [[10-Glossario]], termos do projeto
 
 ### Estado e continuação
-- [[11-Handoff/Estado-Atual]], retrato no HEAD `fc9aa29` (v1.1.4 + trabalho novo: temas, subagentes, Ctrl+P): o que está pronto, o que falta, como rodar, onde estão as coisas
+- [[11-Handoff/Estado-Atual]], retrato no HEAD `ed939e6` (v1.2.0: temas, subagentes, Ctrl+P, /plugins): o que está pronto, o que falta, como rodar, onde estão as coisas
 
 ## Sobre
 
@@ -47,5 +47,5 @@ O SelfEvoPI é um harness de agente de código ultraleve, rápido, econômico em
 
 - **Repositório privado:** SelfEvoPI-Priv
 - **Repositório público:** SelfEvoPI (release limpa)
-- **HEAD de referência das medições:** `fc9aa29` (2026-11-20); medições antigas em `ee74ed9` (2026-11-18)
+- **HEAD de referência das medições:** `ed939e6` (2026-11-20); medições antigas em `ee74ed9` (2026-11-18)
 - **Fases:** P, 0, 1, 2, 3, 4, 5, todas concluídas

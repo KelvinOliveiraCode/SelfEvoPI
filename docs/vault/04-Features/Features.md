@@ -119,20 +119,45 @@ meta (persistente/temporário, provider/modelo, effort).
 
 Ver `core/agent/activity.mjs` e `startActivityPanel` em `apps/cli.mjs`.
 
+## Sessões e settings na TUI (Ctrl+K, Ctrl+O)
+
+- `Ctrl+K` abre a lista de sessões. Ao escolher uma, abre um submenu com duas ações:
+  abrir a sessão ou deletar o arquivo dela. A exclusão pede confirmação antes de
+  remover.
+- `Ctrl+O` abre o editor interativo de settings: troca tema, modo, permissão, modelo
+  e esforço sem sair da conversa (`startSettingsPicker` em `apps/cli.mjs`).
+- `Ctrl+,` continua abrindo as configurações estáticas (a visão em texto).
+
 ## Provedores e workspace
 
 - `/providers [list|add|rm|models]`, registra/remove provedores e seus modelos
   (`core/agent/providers.mjs`), que o roteador passa a enxergar.
 - `/worktree [list|new|rm]`, worktrees git isoladas (`core/agent/worktree.mjs`).
-- `/workspace [caminho]`, `/explorer`, `/pasta`, trocam o diretório de trabalho;
-  `/explorer` e `/pasta` abrem o seletor de pasta do Windows (`core/agent/file-explorer.mjs`).
+- `/workspace [caminho]` troca o diretório de trabalho; `/explorer` abre o seletor de
+  pasta do Windows (`core/agent/file-explorer.mjs`, `core/agent/list-window.mjs`).
+  O antigo alias `/pasta` foi removido.
+
+## Plugins (MCP)
+
+Um "plugin" é um servidor MCP configurado em `~/.pi/settings.json`. Dois comandos
+leem essa lista:
+
+- `/mcp` lista os servidores com status (configurado, desabilitado, quebrado) e o
+  comando de cada um.
+- `/plugins` lista os mesmos e ainda sonda: `/plugins <nome>` faz o handshake JSON-RPC
+  e mostra as tools que o servidor expõe; `/plugins test` sonda todos os ativos.
+
+A leitura é a mesma fonte do `/mcp`, o settings global, não a config de outro harness.
+Ver `core/agent/mcp-probe.mjs` (`listConfiguredMcp`, `probeMcpServer`).
 
 ## Esforço (effort)
 
-`/effort` consulta o modelo em uso (`get_available_thinking_levels`). Modelos que só
-expõem `"none"` (sem raciocínio) agora mostram os **níveis padrão**
-(`off/low/medium/high`) em vez de um seletor inútil de 1 item, o modelo pode ignorá-los,
-mas o usuário tem o que escolher. `EFFORT_FALLBACK` em `apps/cli.mjs`.
+`/effort` consulta o modelo em uso (`get_available_thinking_levels`). O nível `"none"`,
+que alguns modelos devolvem quando não têm raciocínio, é filtrado em três lugares: na
+linha de status (`statusInfo.reasoning` vira `null`, então não aparece `think:none`), no
+seletor (`startEffortPicker`) e no próprio `/effort`. Quando o motor só expõe `"none"`,
+os três mostram os níveis padrão `off/low/medium/high` (`EFFORT_FALLBACK` em
+`apps/cli.mjs`); o modelo pode ignorá-los, mas o usuário tem o que escolher.
 
 ## Medições
 
