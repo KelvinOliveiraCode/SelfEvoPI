@@ -967,7 +967,7 @@ test("REPL: ctrl+k abre a lista de sessões e fecha de novo", async () => {
 
     all = "";
     input.emit("data", "\x0b"); // ctrl+k abre o picker de sessões
-    await sleep(150); // picker asíncrono carrega as 3 sessões do fixture
+    await sleep(400); // picker asíncrono carrega as 3 sessões do fixture (folga p/ carga)
     const aberta = stripAnsi(all);
     // o picker mostra o título "sessões (3)" e não "nenhuma"
     assert.match(aberta, /sessões/i, "o picker de sessões não abriu");
