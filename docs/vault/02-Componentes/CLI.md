@@ -21,7 +21,7 @@ Os 30 comandos reais, conforme `apps/cli.mjs` (`name: "/..."`):
 | `/model [nome]` | Mostra ou troca o modelo da conversa |
 | `/effort [off\|low\|medium\|high]` | Esforço de raciocínio do modelo atual |
 | `/mode [modo]` | Alterna o modo (plan → build → manual → ask → goal) |
-| `/theme [escuro\|claro\|alto-contraste]` | Tema da interface (3 built-in + 3 slots custom) |
+| `/theme [escuro\|violeta\|alto-contraste]` | Tema da interface (3 built-in + 3 slots custom) |
 | `/settings` | Visão de tudo que está configurado |
 | `/sessions [id]` | Lista sessões ou carrega uma |
 | `/cost` | Tokens e custo da sessão |

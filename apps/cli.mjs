@@ -915,7 +915,7 @@ export const COMMANDS = [
   { name: "/ask", args: "", description: "modo ask: só responde, nunca toca em disco", run: (ctx) => runMode("ask", ctx) },
   { name: "/goal", args: "[condição|clear]", description: "define/limpa a condição de conclusão", run: runGoal },
   { name: "/settings", args: "", description: "visão de tudo que está configurado", run: runSettingsView },
-  { name: "/theme", args: "[escuro|claro|alto-contraste]", description: "tema da interface", run: runTheme },
+  { name: "/theme", args: "[escuro|violeta|alto-contraste]", description: "tema da interface", run: runTheme },
   { name: "/swarm", args: "[n] <tarefa>", description: "molda e executa n subagentes rumo à tarefa", run: runSwarm },
   { name: "/subagent", args: "<nome> <tarefa> [--provider --model --effort --mode --persistent]", description: "subagente moldado (nomeado, persistente ou temporário)", run: runSubagentCmd },
   { name: "/worktree", args: "[list|new|rm]", description: "worktrees git isoladas", run: runWorktree },
@@ -3223,17 +3223,26 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   // Editor de um tema custom: geral (5 papéis) ou detalhado (todos).
   const startThemeEditor = async (slot) => {
     const tc = await import("../core/agent/theme-custom.mjs");
-    const base = getThemeColors("escuro");
+    // getThemeColors devolve { name, bg, fg, ... }; "name" não é papel de cor,
+    // então separa antes de compor a paleta (senão validateColors rejeita).
+    const { name: _nomeBase, ...baseCores } = getThemeColors("escuro");
     const custom = (await tc.getCustomTheme(slot)) || { name: `meu tema ${slot}`, colors: {} };
-    let colors = { ...base, ...custom.colors };
+    let colors = { ...baseCores, ...(custom.colors || {}) };
     let nome = custom.name || `meu tema ${slot}`;
     let detalhado = false;
 
+    // save nunca lança: um erro de validação não pode derrubar a CLI.
     const save = async (ativar) => {
-      await tc.saveCustomTheme(slot, { name: nome, colors });
-      if (ativar) {
-        setTheme(`custom:${slot}`);
-        await refreshThemeCache();
+      try {
+        await tc.saveCustomTheme(slot, { name: nome, colors: { ...colors } });
+        if (ativar) {
+          setTheme(`custom:${slot}`);
+          await refreshThemeCache();
+        }
+        return true;
+      } catch (err) {
+        write(paint(`  erro ao salvar tema: ${String(err?.message || err).slice(0, 120)}`, "fail"));
+        return false;
       }
     };
 
@@ -3252,8 +3261,8 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         footer: "enter escolhe o papel · depois a cor · salvar",
         onChoose: async (it) => {
           if (it.value === "__toggle") { detalhado = !detalhado; render(); return "keep"; }
-          if (it.value === "__save") { await save(true); write(paint(`  tema custom ${slot} salvo e ativo`, "ok")); return; }
-          if (it.value === "__saveonly") { await save(false); write(paint(`  tema custom ${slot} salvo`, "ok")); return; }
+          if (it.value === "__save") { const ok = await save(true); if (ok) write(paint(`  tema custom ${slot} salvo e ativo`, "ok")); return; }
+          if (it.value === "__saveonly") { const ok = await save(false); if (ok) write(paint(`  tema custom ${slot} salvo`, "ok")); return; }
           if (it.value === "__back") { return; }
           const role = it.value;
           startValuePicker({

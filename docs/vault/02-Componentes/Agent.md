@@ -18,7 +18,7 @@ created: 2026-11-19
 | `core/agent/banner.mjs` | Logo ASCII e linhas de estado | `bannerLines`, `asciiWordmark` |
 | `core/agent/settings.mjs` | Coleta e aplica configurações | `collectSettings`, `applySetting` |
 | `core/agent/settings-view.mjs` | Visão única do estado (`/settings`) | `renderSettings` |
-| `core/agent/theme.mjs` | Tema da interface: 3 built-in (escuro/claro/alto-contraste), 11 papéis de cor | `getTheme`, `setTheme`, `listThemes`, `themeToAnsi256` |
+| `core/agent/theme.mjs` | Tema da interface: 3 built-in (escuro/violeta/alto-contraste), 11 papéis de cor | `getTheme`, `setTheme`, `listThemes`, `themeToAnsi256` |
 | `core/agent/theme-custom.mjs` | 3 slots custom editáveis (`~/.pi/agent/custom-themes.json`) | `listCustomThemes`, `getCustomTheme`, `saveCustomTheme` |
 | `core/agent/mcp.mjs` | Inventaria MCPs do projeto (`.mcp.json` / `.pi/settings.json`) | `readMcpConfig`, `listMcpServers` |
 | `core/agent/mcp-probe.mjs` | Lê MCPs da config global `~/.pi/settings.json` + probe JSON-RPC (ex-`mcp-opencode.mjs`) | `listConfiguredMcp` (+ alias `listOpencodeMcp`) |

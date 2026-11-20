@@ -54,19 +54,19 @@ export const THEMES = {
     link: "#4a9eff",
     rule: "#3a3a3a",
   },
-  claro: {
-    name: "claro",
-    bg: "#ffffff",
-    fg: "#0d0d0d",
-    muted: "#6b7280",
-    accent: "#1565c0",
-    ok: "#15803d",
-    warn: "#b45309",
-    fail: "#dc2626",
-    code: "#4a4a4a",
-    tool: "#b45309",
-    link: "#1565c0",
-    rule: "#d0d0d0",
+  violeta: {
+    name: "violeta",
+    bg: "#000000",
+    fg: "#ffffff",
+    muted: "#9a9a9a",
+    accent: "#a78bfa",
+    ok: "#22c55e",
+    warn: "#f59e0b",
+    fail: "#ef4444",
+    code: "#c8c8c8",
+    tool: "#e5c07b",
+    link: "#a78bfa",
+    rule: "#3a3a3a",
   },
   "alto-contraste": {
     name: "alto-contraste",
@@ -136,7 +136,13 @@ let current = null;
 
 function resolveInitial() {
   // prioridade: arquivo (fonte da verdade entre TUI e desktop) > localStorage > padrão
-  return readThemeFile() || readLocalStorage() || DEFAULT_THEME;
+  const saved = readThemeFile() || readLocalStorage();
+  if (!saved) return DEFAULT_THEME;
+  // tema salvo que não existe mais (removido/renomeado) cai no padrão (escuro)
+  const isBuiltin = Object.prototype.hasOwnProperty.call(THEMES, saved);
+  const isCustom = /^custom:[1-3]$/.test(String(saved));
+  if (!isBuiltin && !isCustom) return DEFAULT_THEME;
+  return saved;
 }
 
 /* ------------------------------------------------------------------ */

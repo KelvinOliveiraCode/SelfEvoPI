@@ -24,7 +24,7 @@ Os **30 comandos reais**, conforme `apps/cli.mjs` (linhas 883–927):
 | `/model [nome]` | Mostra ou troca o modelo da conversa | `core/router/router.mjs` |
 | `/effort [off\|low\|medium\|high]` | Esforço de raciocínio do modelo atual | `apps/cli.mjs` |
 | `/mode [modo]` | Alterna o modo (plan → build → manual → ask → goal) | `core/governance/modes.mjs` |
-| `/theme [escuro\|claro\|alto-contraste]` | Tema da interface (3 built-in + 3 slots custom) | `apps/cli.mjs` + `core/agent/theme.mjs` + `core/agent/theme-custom.mjs` |
+| `/theme [escuro\|violeta\|alto-contraste]` | Tema da interface (3 built-in + 3 slots custom) | `apps/cli.mjs` + `core/agent/theme.mjs` + `core/agent/theme-custom.mjs` |
 | `/settings` | Visão de tudo que está configurado | `apps/cli.mjs` (`renderSettings`) |
 
 ### Diagnóstico

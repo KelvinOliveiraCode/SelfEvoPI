@@ -343,7 +343,7 @@ A conversation, not a menu. The engine underneath is invisible, the interface is
 
 ### Temas
 
-A TUI tem 3 temas embutidos (`escuro`, `claro`, `alto-contraste`) e 3 slots custom editáveis pelo usuário. Cada tema define 11 papéis de cor semânticos: `fg`, `muted`, `accent`, `ok`, `warn`, `fail`, `code`, `tool`, `link`, `rule`, `bg`.
+A TUI tem 3 temas embutidos (`escuro`, `violeta`, `alto-contraste`) e 3 slots custom editáveis pelo usuário. Cada tema define 11 papéis de cor semânticos: `fg`, `muted`, `accent`, `ok`, `warn`, `fail`, `code`, `tool`, `link`, `rule`, `bg`.
 
 - `/theme` abre o seletor (3 built-in + `custom:1..3` + "gerenciar temas custom…").
 - "gerenciar temas custom…" abre o editor: modo **geral** (5 papéis: fg/accent/ok/warn/fail) ou **detalhado** (todos os 11 papéis + bg), com paleta de 12 cores prontas ou hex livre.

@@ -21,7 +21,7 @@ import {
 
 test("THEMES exporta os três temas", () => {
   assert.ok(THEMES.escuro, "falta escuro");
-  assert.ok(THEMES.claro, "falta claro");
+  assert.ok(THEMES.violeta, "falta violeta");
   assert.ok(THEMES["alto-contraste"], "falta alto-contraste");
 });
 
@@ -29,7 +29,7 @@ test("listThemes devolve os três nomes", () => {
   const names = listThemes();
   assert.equal(names.length, 3);
   assert.ok(names.includes("escuro"));
-  assert.ok(names.includes("claro"));
+  assert.ok(names.includes("violeta"));
   assert.ok(names.includes("alto-contraste"));
 });
 
@@ -47,12 +47,12 @@ test("setTheme aceita e persiste um tema válido", () => {
   const orig = process.env.USERPROFILE;
   process.env.USERPROFILE = tmp; // redireciona ~/.pi/agent/theme.json
   try {
-    assert.equal(setTheme("claro"), true);
-    assert.equal(getTheme(), "claro");
+    assert.equal(setTheme("violeta"), true);
+    assert.equal(getTheme(), "violeta");
     // arquivo persistido
     const file = join(tmp, ".pi", "agent", "theme.json");
     const doc = JSON.parse(readFileSync(file, "utf8"));
-    assert.equal(doc.theme, "claro");
+    assert.equal(doc.theme, "violeta");
   } finally {
     process.env.USERPROFILE = orig;
     rmSync(tmp, { recursive: true, force: true });
@@ -72,9 +72,9 @@ test("cada tema tem as seis chaves semânticas", () => {
 });
 
 test("getThemeColors devolve a paleta do tema", () => {
-  const t = getThemeColors("claro");
-  assert.equal(t.bg, "#ffffff");
-  assert.equal(t.fg, "#0d0d0d");
+  const t = getThemeColors("violeta");
+  assert.equal(t.bg, "#000000");
+  assert.equal(t.fg, "#ffffff");
 });
 
 test("getThemeColors com nome inválido cai no padrão", () => {
@@ -110,7 +110,7 @@ test("themeToAnsi256 gera sequências ANSI-256 (38;5;N) e é distinta por tema",
   assert.ok(a.accent.startsWith("\x1b[38;5;"), "accent não é 256 cores");
   const idx = (seq) => { const n = (seq.match(/\d+/g) || []); return Number(n[n.length - 1]); };
   // os três temas têm accent 256 distintos (não caem todos no mesmo índice)
-  const accents = new Set(["escuro", "claro", "alto-contraste"].map((t) => idx(themeToAnsi256(t).accent)));
+  const accents = new Set(["escuro", "violeta", "alto-contraste"].map((t) => idx(themeToAnsi256(t).accent)));
   assert.ok(accents.size >= 2, "accent 256 não distingue os temas");
   // hexToAnsi256 mapeia branco/preto para índices do cubo
   const branco = hexToAnsi256("#ffffff");
@@ -118,7 +118,7 @@ test("themeToAnsi256 gera sequências ANSI-256 (38;5;N) e é distinta por tema",
 });
 
 test("applyAnsiTheme define variáveis SELFEVOPI_ANSI_*", () => {
-  applyAnsiTheme("claro");
+  applyAnsiTheme("violeta");
   assert.ok(process.env.SELFEVOPI_ANSI_FG, "falta SELFEVOPI_ANSI_FG");
   assert.ok(process.env.SELFEVOPI_ANSI_OK, "falta SELFEVOPI_ANSI_OK");
   // limpa

@@ -74,7 +74,7 @@ Ver [[03-Comandos/CLI]] para `/settings`.
 
 ## Temas
 
-A TUI tem **3 temas embutidos** (`escuro`, `claro`, `alto-contraste`) e **3 slots
+A TUI tem **3 temas embutidos** (`escuro`, `violeta`, `alto-contraste`) e **3 slots
 custom** editáveis pelo usuário (`custom:1`..`custom:3`).
 
 - `/theme` abre o seletor: 3 built-in + os 3 slots + "gerenciar temas custom…".
