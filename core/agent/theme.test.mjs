@@ -12,6 +12,8 @@ import {
   getThemeColors,
   themeToCss,
   themeToAnsi,
+  themeToAnsi256,
+  hexToAnsi256,
   applyAnsiTheme,
 } from "./theme.mjs";
 
@@ -92,7 +94,7 @@ test("themeToCss gera variáveis --fg, --muted, --accent, --ok, --warn, --fail",
 
 test("themeToCss do alto-contraste usa as cores do tema", () => {
   const css = themeToCss("alto-contraste");
-  assert.ok(css.includes("#6cb6ff"), "accent do alto-contraste");
+  assert.ok(css.includes("#00d4ff"), "accent do alto-contraste");
 });
 
 /* --------------------------- ANSI --------------------------------------- */
@@ -101,6 +103,18 @@ test("themeToAnsi gera sequências truecolor", () => {
   const ansi = themeToAnsi("escuro");
   assert.ok(ansi.fg.startsWith("\x1b[38;2;"), "fg não é truecolor");
   assert.ok(ansi.ok.startsWith("\x1b[38;2;"), "ok não é truecolor");
+});
+
+test("themeToAnsi256 gera sequências ANSI-256 (38;5;N) e é distinta por tema", () => {
+  const a = themeToAnsi256("escuro");
+  assert.ok(a.accent.startsWith("\x1b[38;5;"), "accent não é 256 cores");
+  const idx = (seq) => { const n = (seq.match(/\d+/g) || []); return Number(n[n.length - 1]); };
+  // os três temas têm accent 256 distintos (não caem todos no mesmo índice)
+  const accents = new Set(["escuro", "claro", "alto-contraste"].map((t) => idx(themeToAnsi256(t).accent)));
+  assert.ok(accents.size >= 2, "accent 256 não distingue os temas");
+  // hexToAnsi256 mapeia branco/preto para índices do cubo
+  const branco = hexToAnsi256("#ffffff");
+  assert.ok(branco >= 16 && branco <= 255, "hexToAnsi256 fora da faixa");
 });
 
 test("applyAnsiTheme define variáveis SELFEVOPI_ANSI_*", () => {

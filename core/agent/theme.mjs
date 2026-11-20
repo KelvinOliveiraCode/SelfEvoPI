@@ -65,7 +65,7 @@ export const THEMES = {
     bg: "#000000",
     fg: "#ffffff",
     muted: "#b0b0b0",
-    accent: "#6cb6ff",
+    accent: "#00d4ff",
     ok: "#39ff14",
     warn: "#ffd700",
     fail: "#ff4d4d",
@@ -215,6 +215,47 @@ export function themeToAnsi(nome) {
   };
 }
 
+/** Converte um hex (#rrggbb) no índice da paleta ANSI-256 (16..255). */
+export function hexToAnsi256(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  // tons de cinza: rampa 232..255 (cinza 8..238)
+  if (r === g && g === b) {
+    if (r < 8) return 16;
+    if (r > 238) return 231;
+    return 232 + Math.max(0, Math.min(23, Math.round((r - 8) / 10)));
+  }
+  // cubo 6x6x6: níveis [0, 95, 135, 175, 215, 255]
+  const levels = [0, 95, 135, 175, 215, 255];
+  const near = (v) => {
+    let best = 0;
+    let bd = Infinity;
+    for (let i = 0; i < 6; i++) {
+      const d = Math.abs(levels[i] - v);
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+  };
+  return 16 + 36 * near(r) + 6 * near(g) + near(b);
+}
+
+/**
+ * Paleta do tema em ANSI-256 (`\x1b[38;5;Nm`) — funciona em terminais que não
+ * têm truecolor (ex.: `xterm-256color`, console clássico do Windows).
+ * @param {string} [nome]
+ */
+export function themeToAnsi256(nome) {
+  const t = getThemeColors(nome);
+  const seq = (hex) => `\x1b[38;5;${hexToAnsi256(hex)}m`;
+  return {
+    fg: seq(t.fg),
+    muted: seq(t.muted),
+    accent: seq(t.accent),
+    ok: seq(t.ok),
+    warn: seq(t.warn),
+    fail: seq(t.fail),
+  };
+}
+
 /**
  * Aplica o tema ao processo: define as variáveis de cor ANSI que a TUI usa.
  * Não imprime nada; só prepara o ambiente.
@@ -236,5 +277,7 @@ export default {
   getThemeColors,
   themeToCss,
   themeToAnsi,
+  themeToAnsi256,
+  hexToAnsi256,
   applyAnsiTheme,
 };

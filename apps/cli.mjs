@@ -31,7 +31,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { findEngine, listConfiguredModels } from "../core/agent/pi-rpc.mjs";
-import { getTheme, themeToAnsi } from "../core/agent/theme.mjs";
+import { getTheme, themeToAnsi, themeToAnsi256 } from "../core/agent/theme.mjs";
 
 // Acoplamento conhecido: usamos pi._rpc (acesso interno do RpcClient) para
 // getSessionStats/getMessages/switchSession, que o wrapper PiClient
@@ -54,12 +54,16 @@ const RULE = 64; // régua de ─ (marca §1.1)
 /* ------------------------------------------------------------------ */
 
 function detectTruecolor() {
-  // Assume truecolor por padrão (Windows Terminal, iTerm2, etc. aceitam mesmo
-  // sem COLORTERM). Só desliga em terminais comprovadamente limitados.
+  // Truecolor SÓ quando o terminal anuncia (COLORTERM=truecolor/24bit). Sem isso,
+  // usamos ANSI-256 (aceito por praticamente todo terminal moderno, inclusive
+  // xterm-256color e o console do Windows) — evita o bug de "nada muda" quando o
+  // terminal é 256 cores e ignorava os códigos truecolor.
   if (process.env.NO_COLOR) return false;
+  const ct = String(process.env.COLORTERM || "").toLowerCase();
+  if (ct.includes("truecolor") || ct.includes("24bit")) return true;
   const term = String(process.env.TERM || "").toLowerCase();
   if (term === "dumb" || term === "linux") return false;
-  return true;
+  return false; // sem anúncio de truecolor → 256 cores
 }
 
 const TRUE = detectTruecolor();
@@ -74,19 +78,19 @@ let _pxTheme = null;
 function px() {
   const name = getTheme();
   if (_pxCache && _pxTheme === name) return _pxCache;
-  const a = themeToAnsi(name); // { fg, muted, accent, ok, warn, fail } em truecolor
-  // Tudo vem do tema (rule/code derivam de muted/fg); só cai no ANSI fixo em
-  // terminais limitados (TRUE=false).
+  // truecolor quando o terminal anuncia; senão ANSI-256 (funciona em
+  // xterm-256color e afins). Tudo vem do tema; rule/code derivam de muted/fg.
+  const a = TRUE ? themeToAnsi(name) : themeToAnsi256(name);
   _pxCache = {
     ...SGR,
-    fg: TRUE ? a.fg : "",
-    muted: TRUE ? a.muted : "\x1b[90m",
-    rule: TRUE ? a.muted : "\x1b[90m",
-    accent: TRUE ? a.accent : "\x1b[90m",
-    code: TRUE ? a.fg : "\x1b[37m",
-    ok: TRUE ? a.ok : "\x1b[32m",
-    warn: TRUE ? a.warn : "\x1b[33m",
-    fail: TRUE ? a.fail : "\x1b[31m",
+    fg: a.fg,
+    muted: a.muted,
+    rule: a.muted,
+    accent: a.accent,
+    code: a.fg,
+    ok: a.ok,
+    warn: a.warn,
+    fail: a.fail,
   };
   _pxTheme = name;
   return _pxCache;
@@ -3206,6 +3210,16 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     }
     let niveis = [];
     try { niveis = normalizeEffortList(await pi._rpc.getAvailableThinkingLevels()); } catch { niveis = []; }
+    // Alguns modelos devolvem só "none" (não têm raciocínio). Em vez de um
+    // picker inútil de 1 item, oferece os níveis padrão (o modelo pode ignorá-los).
+    const reais = niveis.filter((n) => n !== "none");
+    if (reais.length === 0) {
+      write(paint('  este modelo não expõe níveis de raciocínio (só "none")', "muted"));
+      write(paint("  exibindo os níveis padrão (o modelo pode ignorá-los)", "muted"));
+      niveis = [...EFFORT_FALLBACK];
+    } else {
+      niveis = reais;
+    }
     if (niveis.length === 0) {
       write("  (o motor não expôs níveis de esforço)\n");
       return;
