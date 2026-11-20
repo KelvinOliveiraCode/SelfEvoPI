@@ -77,3 +77,5 @@ test-results/
 *.mp4
 *.mov
 *.psd
+# Serena (metadados de projeto local)
+.serena/

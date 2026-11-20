@@ -65,6 +65,9 @@ import {
   groupModelsByProvider,
   flattenModelGroups,
   renderModelPicker,
+  renderValuePicker,
+  windowBounds,
+  inputWindow,
   prefersReducedMotion,
 } from "./cli.mjs";
 
@@ -97,7 +100,9 @@ test("--render conversation/help/banner saem 0 e imprimem algo", () => {
     const { code, out } = run(["--render", s]);
     assert.equal(code, 0, `--render ${s} saiu ${code}`);
     assert.ok(out.length > 0, `--render ${s} não imprimiu nada`);
-    assert.match(stripAnsi(out), /SelfEvoPI/);
+    // O banner agora é logo ASCII (figlet); aceita o nome em texto OU a assinatura do logo.
+    const plain = stripAnsi(out);
+    assert.ok(/SelfEvoPI/.test(plain) || /\|____\//.test(plain) || /____/.test(plain), `--render ${s} não mostra a identidade do produto`);
   }
 });
 
@@ -121,7 +126,7 @@ test("nenhuma linha dos frames passa de 72 colunas", () => {
 
 test("os comandos de barra existem", () => {
   const names = SLASH_COMMANDS.map((c) => c.cmd.split(" ")[0]);
-  for (const n of ["/evals", "/gate", "/detect", "/forge", "/memory", "/skills", "/model", "/clear", "/help"]) {
+  for (const n of ["/detect", "/evo", "/memory", "/skills", "/model", "/clear", "/help"]) {
     assert.ok(names.includes(n), `falta o comando ${n}`);
   }
 });
@@ -130,9 +135,9 @@ test("parseInput reconhece quit, slash com argumento, prosa e vazio", () => {
   assert.deepEqual(parseInput("q"), { type: "quit" });
   assert.deepEqual(parseInput("/quit"), { type: "quit" });
   assert.deepEqual(parseInput(""), { type: "empty" });
-  assert.deepEqual(parseInput("/forge extrair HTML"), {
+  assert.deepEqual(parseInput("/evo extrair HTML"), {
     type: "slash",
-    name: "/forge",
+    name: "/evo",
     arg: "extrair HTML",
   });
   assert.deepEqual(parseInput("como está a cobertura?"), {
@@ -184,7 +189,7 @@ test("renderMarkdown: negrito, listas, código e tabela (sem ** cru)", () => {
 test("renderHelp não cita o motor (só SelfEvoPI)", () => {
   const text = stripAnsi(renderHelp());
   assert.ok(!/(?<![A-Za-z])pi(?![A-Za-z])/i.test(text), "ajuda vazou o nome do motor");
-  assert.match(text, /\/evals/);
+  assert.match(text, /\/evo/);
 });
 
 test("wrapAnsi quebra linha longa em largura e preserva texto", () => {
@@ -473,7 +478,10 @@ test("--help e banner não citam o motor", () => {
   assert.ok(!/(?<![A-Za-z])pi(?![A-Za-z])/i.test(help), "--help vazou o nome do motor");
   const banner = stripAnsi(renderBanner());
   assert.ok(!/(?<![A-Za-z])pi(?![A-Za-z])/i.test(banner), "banner vazou o nome do motor");
-  assert.match(banner, /SelfEvoPI/);
+  // O banner agora é arte ASCII grande (figlet). Verifica a assinatura do logo
+  // (linha de abertura + de fechamento) em vez do nome em texto reto.
+  assert.match(banner, /____/, "banner perdeu o logo ASCII (linha de abertura)");
+  assert.match(banner, /\|____\//, "banner perdeu o logo ASCII (linha de fechamento)");
 });
 
 
@@ -485,10 +493,10 @@ test("filterCommands: vazio lista tudo (ordenado); prefixo e fuzzy", () => {
   const all = filterCommands("");
   const names = all.map((c) => c.name);
   assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)));
-  assert.ok(names.includes("/evals") && names.includes("/model"));
+  assert.ok(names.includes("/evo") && names.includes("/model"));
 
   // prefixo
-  assert.deepEqual(filterCommands("ev").map((c) => c.name), ["/evals"]);
+  assert.deepEqual(filterCommands("ev").map((c) => c.name), ["/evo"]);
   // fuzzy (subsequência): dtc → detect
   assert.ok(filterCommands("dtc").map((c) => c.name).includes("/detect"));
   // sem correspondência
@@ -544,7 +552,7 @@ test("reduceLine: / abre paleta, /ev filtra, esc fecha, enter preenche", () => {
   // enter (paleta aberta) preenche o buffer, não executa
   const selected = reduceLine({ buf: "/ev", cur: 3, sel: 0, dismissed: false }, "enter");
   assert.equal(selected.effect, "selected");
-  assert.ok(selected.state.buf.startsWith("/evals"));
+  assert.ok(selected.state.buf.startsWith("/evo"));
   assert.equal(selected.state.dismissed, true);
 });
 
@@ -758,17 +766,20 @@ test("REPL: ctrl+o abre e fecha o painel; ctrl+c não mata", async () => {
   const boot = stripAnsi(all);
   assert.match(boot, /build · full access/);
   assert.match(boot, /ctrl\+o painel/);
-  // ctrl+o abre
+  // ctrl+o abre o editor interativo de configurações (picker)
   all = "";
   input.emit("data", "\x0f");
   await sleep(30);
-  assert.match(stripAnsi(all), /permissão:\s+full access/);
-  assert.match(stripAnsi(all), /modelo:/);
-  // ctrl+o fecha
+  const cfg = stripAnsi(all);
+  assert.match(cfg, /configurações/);
+  assert.match(cfg, /permissão/);
+  assert.match(cfg, /full access/);
+  assert.match(cfg, /modelo/);
+  // esc fecha o picker
   all = "";
-  input.emit("data", "\x0f");
+  input.emit("data", "\x1b");
   await sleep(30);
-  assert.doesNotMatch(stripAnsi(all), /permissão:/);
+  assert.doesNotMatch(stripAnsi(all), /permissão/);
   // ctrl+c não mata (dois toques: limpa linha, não sai)
   all = "";
   input.emit("data", "\x03");
@@ -955,17 +966,19 @@ test("REPL: ctrl+k abre a lista de sessões e fecha de novo", async () => {
     await sleep(20);
 
     all = "";
-    input.emit("data", "\x0b"); // ctrl+k
-    await sleep(100); // com 3 sessões, a varredura é instantânea
+    input.emit("data", "\x0b"); // ctrl+k abre o picker de sessões
+    await sleep(150); // picker asíncrono carrega as 3 sessões do fixture
     const aberta = stripAnsi(all);
-    // determinístico: a fixture tem exatamente 3 sessões, então tem que aparecer
-    // "3 sessão(es)" — nunca "nenhuma", nunca outro número.
-    assert.match(aberta, /3 sess/, "a lista das 3 sessões da fixture não apareceu");
+    // o picker mostra o título "sessões (3)" e não "nenhuma"
+    assert.match(aberta, /sessões/i, "o picker de sessões não abriu");
+    assert.match(aberta, /\(3\)/, "as 3 sessões do fixture não apareceram");
+    assert.doesNotMatch(aberta, /nenhuma sess/);
 
     all = "";
-    input.emit("data", "\x0b"); // ctrl+k fecha
+    input.emit("data", "\x1b"); // esc fecha o picker
     await sleep(80);
-    assert.doesNotMatch(stripAnsi(all), /\d+ sess|nenhuma sess/);
+    // o título do picker some (a linha de dicas pode citar "ctrl+k sessões")
+    assert.doesNotMatch(stripAnsi(all), /sessões \(/);
 
     input.emit("data", "\x04");
     await sleep(30);
@@ -1157,6 +1170,52 @@ test("renderModelPicker: etapa de esforço lista só os níveis do modelo", () =
   assert.match(texto, /off/);
   assert.match(texto, /max/);
   assert.ok(!texto.includes("medium"), "não pode impor níveis que o modelo não expõe");
+});
+
+/* ---------------------------------------------------------------- */
+/* Janela de rolagem e linha de entrada (fix de navegação)          */
+/* ---------------------------------------------------------------- */
+
+test("windowBounds: mantém a seleção visível e centraliza quando dá", () => {
+  // total 0
+  assert.deepEqual(windowBounds(0, 0, 10), { start: 0, end: 0 });
+  // total < maxRows → mostra tudo
+  assert.deepEqual(windowBounds(3, 1, 10), { start: 0, end: 3 });
+  // total ≫ maxRows, sel no meio → janela contém sel (exemplo autoritativo do K2)
+  const w = windowBounds(50, 30, 10);
+  assert.ok(w.start <= 30 && 30 < w.end, "a janela precisa conter o selecionado");
+  assert.ok(w.end - w.start <= 10, "a janela não pode passar de maxRows");
+  // sel no fim → encosta em total-maxRows
+  const wf = windowBounds(50, 49, 10);
+  assert.equal(wf.end, 50);
+  assert.ok(wf.start <= 49 && 49 < wf.end);
+});
+
+test("renderValuePicker: lista grande vira janela (não desenha tudo, seta visível)", () => {
+  const items = Array.from({ length: 50 }, (_, i) => ({ label: `item ${i}`, value: i }));
+  const linhas = renderValuePicker({ title: "teste", items, sel: 30, footer: "fim" });
+  const texto = stripAnsi(linhas.join("\n"));
+  const marcadas = linhas.filter((l) => l.includes("›"));
+  assert.equal(marcadas.length, 1, "exatamente uma linha marcada");
+  assert.match(texto, /item 30/, "o selecionado tem de aparecer");
+  assert.ok(!texto.includes("item 0"), "não desenha a lista inteira (item 0 fora da janela)");
+  assert.match(texto, /acima/, "indica que há itens acima");
+  assert.match(texto, /31\/50/, "mostra a posição (1-based)");
+});
+
+test("inputWindow: texto grande mantém o cursor visível (sem cortar com ...)", () => {
+  const buf = "x".repeat(100);
+  const r = inputWindow(buf, 100, 20); // cursor no fim
+  assert.equal(r.shown.length, 20, "mostra só o que cabe");
+  assert.equal(r.curCol, 20, "cursor visível na borda direita");
+  assert.ok(!r.shown.includes("…"), "não usa reticências");
+  // buffer curto mostra tudo
+  const curto = inputWindow("hello", 5, 68);
+  assert.equal(curto.shown, "hello");
+  assert.equal(curto.curCol, 5);
+  // quebras de linha viram ↵ visível (não quebram o redraw de 1 linha)
+  const multi = inputWindow("a\nb", 3, 68);
+  assert.ok(multi.shown.includes("↵") && !multi.shown.includes("\n"));
 });
 
 test("runSlash /effort com motor ausente não lança e sai 0", async () => {

@@ -39,6 +39,9 @@ import { getTheme, themeToAnsi } from "../core/agent/theme.mjs";
 // métodos para o wrapper é mudança futura em área compartilhada (core/agent/).
 
 const ROOT = path.resolve(import.meta.dirname, "..");
+// Diretório onde os agentes AGEM (workspace). Começa na raiz do repo; o
+// comando /workspace troca em tempo real (outro diretório, a máquina toda…).
+let workspaceRoot = ROOT;
 const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
 const BASELINE = path.join(ROOT, "evals", "baseline.json");
 const MEMORY = path.join(ROOT, ".pi", "harness", "memory");
@@ -51,8 +54,12 @@ const RULE = 64; // régua de ─ (marca §1.1)
 /* ------------------------------------------------------------------ */
 
 function detectTruecolor() {
-  const ct = String(process.env.COLORTERM || "").toLowerCase();
-  return ct.includes("truecolor") || ct.includes("24bit");
+  // Assume truecolor por padrão (Windows Terminal, iTerm2, etc. aceitam mesmo
+  // sem COLORTERM). Só desliga em terminais comprovadamente limitados.
+  if (process.env.NO_COLOR) return false;
+  const term = String(process.env.TERM || "").toLowerCase();
+  if (term === "dumb" || term === "linux") return false;
+  return true;
 }
 
 const TRUE = detectTruecolor();
@@ -68,13 +75,15 @@ function px() {
   const name = getTheme();
   if (_pxCache && _pxTheme === name) return _pxCache;
   const a = themeToAnsi(name); // { fg, muted, accent, ok, warn, fail } em truecolor
+  // Tudo vem do tema (rule/code derivam de muted/fg); só cai no ANSI fixo em
+  // terminais limitados (TRUE=false).
   _pxCache = {
     ...SGR,
     fg: TRUE ? a.fg : "",
     muted: TRUE ? a.muted : "\x1b[90m",
-    rule: TRUE ? "\x1b[38;2;74;74;74m" : "\x1b[90m",
+    rule: TRUE ? a.muted : "\x1b[90m",
     accent: TRUE ? a.accent : "\x1b[90m",
-    code: TRUE ? "\x1b[38;2;200;200;200m" : "\x1b[37m",
+    code: TRUE ? a.fg : "\x1b[37m",
     ok: TRUE ? a.ok : "\x1b[32m",
     warn: TRUE ? a.warn : "\x1b[33m",
     fail: TRUE ? a.fail : "\x1b[31m",
@@ -107,6 +116,18 @@ function fit(s, width = WIDTH) {
   return plain + " ".repeat(width - plain.length);
 }
 
+/**
+ * Logo ASCII grande do SelfEvoPI (figlet "standard"). Aparece no início da
+ * sessão e nos frames headless. Largura ~45 col — cabe em 72.
+ */
+export const LOGO = [
+  "  ____       _  __ _____            ____ ___ ",
+  " / ___|  ___| |/ _| ____|_   _____ |  _ \\_ _|",
+  " \\___ \\ / _ \\ | |_|  _| \\ \\ / / _ \\| |_) | | ",
+  "  ___) |  __/ |  _| |___ \\ V / (_) |  __/| | ",
+  " |____/ \\___|_|_| |_____| \\_/ \\___/|_|  |___|",
+];
+
 function rule() {
   return "  " + paint("─".repeat(RULE), "rule");
 }
@@ -137,35 +158,34 @@ export function harnessState(data = {}) {
   return { label: "cold start", color: "amber" };
 }
 
-/** Linha de estado: branch · estado · baseline. Sem citar o motor. */
+/** Linha de estado: branch · estado. Sem citar o motor nem baseline. */
 export function renderStatusLine(data = {}) {
   const st = harnessState(data);
   const dot = paint("●", STATE_KEY[st.color] || "warn");
-  const base = data.baseline || readJson(BASELINE, {});
-  const t = base.totals || {};
-  const cells = t.taskRuns != null && t.passes != null ? `${t.passes}/${t.taskRuns} baseline` : "baseline ?";
   const branch = data.branch || "repo";
   const state = paint(st.label, STATE_KEY[st.color] || "warn");
   const mode = data.mode ? ` · ${paint(data.mode, "accent")}` : "";
-  const line = `  ${dot} ${branch} · ${state} · ${paint(cells, "muted")}${mode}`;
+  const line = `  ${dot} ${branch} · ${state}${mode}`;
   // Preserva ANSI (não usa fit(), que removeria as cores e deixava a linha monocromática).
   return visibleWidth(line) > WIDTH ? truncateVisible(line, WIDTH) : line;
 }
 
-/** Banner: ◍ SelfEvoPI ... v0.5.0 + tagline. Voz do produto; nunca cita o motor. */
+/**
+ * Banner: logo ASCII grande + versão. Voz do produto; nunca cita o motor nem
+ * baseline. Substituiu a antiga linha "◍ SelfEvoPI ... v0.5.0".
+ */
 export function renderBanner() {
-  const left = `  ${paint("◍", "accent")}  ${paint("SelfEvoPI", "bold")}`;
-  const right = paint(`v${VERSION}`, "muted");
-  const pad = Math.max(1, WIDTH - visibleWidth(left) - visibleWidth(right));
-  return left + " ".repeat(pad) + right;
+  const logo = LOGO.map((l) => "  " + paint(l, "accent")).join("\n");
+  const ver = paint(`v${VERSION}`, "muted");
+  return `${logo}\n  ${ver}`;
 }
 
 /**
- * Tagline do banner (voz do produto). Aparece uma vez, abaixo do banner, no
- * frame de conversa e nos frames headless — dá identidade sem citar o motor.
+ * Tagline do banner. Removida do fluxo visual (o logo grande já dá identidade);
+ * mantida como função por compatibilidade com --render frames existentes.
  */
 export function renderTagline() {
-  return `  ${paint("harness de código que mede o que falta e constrói.", "muted")}`;
+  return "";
 }
 
 /* ------------------------------------------------------------------ */
@@ -567,13 +587,158 @@ async function runSwarm({ arg, out }) {
   return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/* /worktree — worktrees git isoladas (core/agent/worktree.mjs)       */
+/* ------------------------------------------------------------------ */
+
+async function runWorktree({ arg, out }) {
+  const wt = await import("../core/agent/worktree.mjs");
+  const bruto = String(arg ?? "").trim();
+  const [sub, ...resto] = bruto ? bruto.split(/\s+/) : [];
+  const nome = resto.join(" ").trim();
+  const cwd = ROOT;
+  try {
+    if (!sub || sub === "list" || sub === "ls") {
+      const lista = await wt.listWorktrees({ cwd });
+      if (lista.length === 0) {
+        out(paint("  nenhuma worktree", "muted"));
+        return 0;
+      }
+      out(paint("  worktrees:", "fg"));
+      for (const w of lista) out(`    ${w.branch || "(detached)"}  ${w.path}`);
+      return 0;
+    }
+    if (sub === "new" || sub === "add") {
+      if (!nome) {
+        out(paint("  uso: /worktree new <nome> [branch]", "muted"));
+        return 2;
+      }
+      const [nome2, branch] = nome.split(/\s+/);
+      const r = await wt.createWorktree({ cwd, name: nome2, branch: branch || undefined });
+      out(paint(`  worktree criada: ${r.branch} em ${r.path}`, "ok"));
+      return 0;
+    }
+    if (sub === "rm" || sub === "remove") {
+      if (!nome) {
+        out(paint("  uso: /worktree rm <path> [--force]", "muted"));
+        return 2;
+      }
+      const force = /(^|\s)--force(\s|$)/.test(nome);
+      const alvo = nome.replace(/\s*--force\s*/, "").trim();
+      const r = await wt.removeWorktree({ cwd, path: alvo, force });
+      out(paint(`  worktree removada${r.removed ? "" : " (nada a remover)"}`, r.removed ? "ok" : "muted"));
+      return 0;
+    }
+    out(paint("  uso: /worktree [list|new <nome> [branch]|rm <path>]", "muted"));
+    return 2;
+  } catch (err) {
+    const msg = String(err?.message || err).slice(0, 160);
+    out(paint(`  worktree: ${msg}`, "fail"));
+    return 1;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* /workspace — onde os agentes agem (troca o diretório de trabalho)  */
+/* ------------------------------------------------------------------ */
+
+async function runWorkspace({ arg, out }) {
+  const bruto = String(arg ?? "").trim();
+  if (!bruto) {
+    out(paint(`  workspace atual: ${workspaceRoot}`, "fg"));
+    out(paint("  troque com /workspace <caminho> ou /workspace (menu)", "muted"));
+    return 0;
+  }
+  // valida e troca (recria o motor). O onChoose do picker faz o mesmo caminho.
+  const alvo = path.resolve(bruto);
+  try {
+    const stat = (await import("node:fs/promises")).stat(alvo);
+    if (!stat.isDirectory()) {
+      out(paint(`  workspace: "${bruto}" não é um diretório`, "fail"));
+      return 1;
+    }
+  } catch {
+    out(paint(`  workspace: "${bruto}" não existe`, "fail"));
+    return 1;
+  }
+  out(paint(`  workspace: ${alvo} (recrie a sessão para valer nas conversas)`, "ok"));
+  return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* /providers — registro manual de provedores (core/agent/providers)  */
+/* ------------------------------------------------------------------ */
+
+async function runProviders({ arg, out, pi }) {
+  const pv = await import("../core/agent/providers.mjs");
+  const bruto = String(arg ?? "").trim();
+  try {
+    if (!bruto || bruto === "list" || bruto === "ls") {
+      const lista = await pv.listProviders();
+      if (lista.length === 0) {
+        out(paint("  nenhum provedor registrado", "muted"));
+        out(paint("  adicione com: /providers add <id> <baseUrl> <apiKey>", "muted"));
+        return 0;
+      }
+      out(paint("  provedores:", "fg"));
+      for (const p of lista) {
+        const n = Array.isArray(p.models) ? p.models.length : 0;
+        out(`    ${p.id}  ${p.baseUrl}  (${n} modelos)`);
+      }
+      return 0;
+    }
+    const [sub, ...resto] = bruto.split(/\s+/);
+    if (sub === "add") {
+      // /providers add <id> <baseUrl> <apiKey>  (apiKey pode ficar de fora p/ colar depois)
+      const [id, baseUrl, apiKey] = resto;
+      if (!id || !baseUrl) {
+        out(paint("  uso: /providers add <id> <baseUrl> [apiKey]", "muted"));
+        return 2;
+      }
+      const r = await pv.addProvider({ id, baseUrl, apiKey });
+      out(paint(`  provedor "${r.id}" salvo (${r.models.length} modelos, chave ${r.apiKeyRedacted})`, "ok"));
+      return 0;
+    }
+    if (sub === "rm" || sub === "remove") {
+      const id = resto[0];
+      if (!id) {
+        out(paint("  uso: /providers rm <id>", "muted"));
+        return 2;
+      }
+      const r = await pv.removeProvider({ id });
+      out(paint(r.removed ? `  provedor "${id}" removado` : `  provedor "${id}" não existia`, r.removed ? "ok" : "muted"));
+      return 0;
+    }
+    if (sub === "models") {
+      const baseUrl = resto[0];
+      if (!baseUrl) {
+        out(paint("  uso: /providers models <baseUrl> [apiKey]", "muted"));
+        return 2;
+      }
+      const apiKey = resto[1] || "";
+      const models = await pv.fetchModels({ baseUrl, apiKey });
+      if (models.length === 0) {
+        out(paint("  nenhum modelo retornado", "muted"));
+        return 0;
+      }
+      out(paint(`  ${models.length} modelos em ${baseUrl}:`, "fg"));
+      for (const m of models.slice(0, 40)) out(`    ${m.id}`);
+      return 0;
+    }
+    out(paint("  uso: /providers [list|add|rm|models]", "muted"));
+    return 2;
+  } catch (err) {
+    const msg = String(err?.message || err).slice(0, 160);
+    out(paint(`  providers: ${msg}`, "fail"));
+    return 1;
+  }
+}
+
 // FONTE ÚNICA dos comandos de barra. A paleta e o /help leem daqui; o `run`
 // é o executor. Nada de lista duplicada.
 export const COMMANDS = [
-  { name: "/evals", args: "", description: "roda os grupos A/B/C (estruturais)", run: runEvals },
-  { name: "/gate", args: "", description: "gate completo (usa modelo; pode demorar)", run: runGate },
   { name: "/detect", args: "", description: "lacunas de ferramenta em aberto", run: runDetect },
-  { name: "/forge", args: "<meta>", description: "inicia um ciclo evolutivo rumo à meta", run: runForge },
+  { name: "/evo", args: "<meta>", description: "MODO PRINCIPAL: o harness evolui/modela a si mesmo rumo à meta", run: runForge },
   { name: "/memory", args: "<termo>", description: "busca na memória (lexical + PPMI)", run: runMemory },
   { name: "/skills", args: "", description: "o que o loop já gerou e registrou", run: runSkills },
   { name: "/model", args: "[nome]", description: "seletor de modelo, ou troca direto", run: runModel },
@@ -608,6 +773,11 @@ export const COMMANDS = [
   { name: "/settings", args: "", description: "visão de tudo que está configurado", run: runSettingsView },
   { name: "/theme", args: "[escuro|claro|alto-contraste]", description: "tema da interface", run: runTheme },
   { name: "/swarm", args: "[n] <tarefa>", description: "orquestra n subagentes rumo à tarefa", run: runSwarm },
+  { name: "/worktree", args: "[list|new|rm]", description: "worktrees git isoladas", run: runWorktree },
+  { name: "/workspace", args: "[caminho]", description: "onde os agentes agem (troca o diretório de trabalho)", run: runWorkspace },
+  { name: "/explorer", args: "", description: "abre o explorador do Windows e escolhe a pasta/workspace", run: (ctx) => runWorkspace(ctx) },
+  { name: "/pasta", args: "", description: "atalho de /explorer (explorador de arquivos)", run: (ctx) => runWorkspace(ctx) },
+  { name: "/providers", args: "[list|add|rm|models]", description: "registra/remove provedores e seus modelos", run: runProviders },
   { name: "/help", args: "", description: "mostra esta lista", run: runHelp },
 ];
 
@@ -738,6 +908,37 @@ function padVisible(s, w) {
   return s;
 }
 
+/**
+ * Janela horizontal da linha de entrada: em vez de cortar o texto com "…" e
+ * jogar o cursor para fora da tela (o bug de "o texto corta e aparece ..."),
+ * devolve a fatia do buffer que cabe em `avail` colunas MANTENDO o cursor
+ * visível. O texto completo continua no buffer (é ele que vai pro harness);
+ * só o que se vê é uma janela que acompanha o cursor.
+ *
+ * @param {string} buf  texto completo (sem ANSI — é entrada crua do usuário)
+ * @param {number} cur  índice do cursor (unidades de código, como reduceLine)
+ * @param {number} avail colunas disponíveis para o texto (WIDTH - prefixo)
+ * @returns {{ shown: string, curCol: number, start: number, end: number }}
+ */
+export function inputWindow(buf, cur, avail) {
+  const s = String(buf ?? "");
+  const n = s.length;
+  const c = Math.max(0, Math.min(n, cur | 0));
+  const cols = Math.max(1, avail | 0);
+  if (n <= cols) return { shown: s.replace(/\r\n|\r|\n/g, "↵"), curCol: c, start: 0, end: n };
+  // cursor ~60% à esquerda, com margem; encosta nas bordas
+  let start = c - Math.floor(cols * 0.6);
+  if (start < 0) start = 0;
+  if (start + cols > n) start = n - cols;
+  const fatia = s.slice(start, start + cols).replace(/\r\n|\r|\n/g, "↵");
+  return {
+    shown: fatia,
+    curCol: c - start,
+    start,
+    end: start + cols,
+  };
+}
+
 const normName = (n) => String(n).replace(/^\//, "").toLowerCase();
 
 /** Subsequência: os caracteres de `needle` aparecem em ordem em `hay`. */
@@ -834,7 +1035,6 @@ export function renderPaletteFrame(filterQuery = "", width = WIDTH) {
   const palette = renderPalette(filtered, 0, width);
   const out = [];
   out.push(renderBanner());
-  out.push(rule());
   out.push(renderStatusLine({}));
   out.push("");
   out.push(`  ${paint("›", "accent")} /${filterQuery}`);
@@ -1065,15 +1265,18 @@ async function runGate({ out }) {
 async function runForge({ arg, out }) {
   const meta = arg.trim();
   if (!meta) {
-    out(paint("  uso: /forge <meta>  (ex.: /forge \"extrair HTML com seletor\")", "muted"));
+    out(paint("  uso: /evo <meta>  (ex.: /evo \"extrair HTML com seletor\")", "muted"));
+    out(paint("  /evo é o MODO PRINCIPAL: o harness evolui, modela e modifica a si", "muted"));
+    out(paint("  mesmo rumo à meta — mais profundo que /goal, que só define um alvo.", "muted"));
     return 2;
   }
-  out(paint(`  iniciando ciclo evolutivo rumo a: ${meta}`, "muted"));
-  out(paint("  (um ciclo mexe em arquivos e pode demorar; Ctrl+C interrompe)", "muted"));
+  out(paint(`  modo principal · evoluindo o harness rumo a: ${meta}`, "fg"));
+  out(paint("  (o ciclo lê lacunas, propõe, aplica e valida; mexe em arquivos e pode", "muted"));
+  out(paint("   demorar; Ctrl+C interrompe)", "muted"));
   const r = await runProcess(process.execPath, [path.join(ROOT, "core", "forge", "cli.mjs"), "evolve", "--goal", meta], {
     onLine: (line) => out(paint("  · " + line, "muted")),
   });
-  out(paint(`  outcome: ${r.code === 0 ? "concluído" : "interrompido ou reprovado"}`, r.code === 0 ? "ok" : "warn"));
+  out(paint(`  outcome: ${r.code === 0 ? "concluído — o harness evoluiu" : "interrompido ou reprovado"}`, r.code === 0 ? "ok" : "warn"));
   return r.code;
 }
 
@@ -1150,34 +1353,105 @@ export function flattenModelGroups(groups) {
  * Monta as linhas do seletor de modelo (etapa "models") ou de esforço
  * (etapa "effort"). Função pura: o REPL só desenha o que ela devolve.
  */
+/* ------------------------------------------------------------------ */
+/* Picker genérico (overlay de lista única)                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Renderiza um picker de lista única (usado por /theme, /mode, /providers,
+ * /worktree e pelo editor de settings). Estilo alinhado ao renderPalette:
+ * caixa arredondada, marcador "›" no item selecionado, rótulos em negrito.
+ *
+ * @param {{title:string, items:Array<{label:string, hint?:string, value?:string}>, sel:number, footer?:string, active?:boolean}} o
+ * @returns {string[]} linhas prontas para write()
+ */
+/** Máximo de linhas de ITENS visíveis num picker (a seta sempre aparece). */
+const PICKER_ROWS = 10;
+
+/**
+ * Janela de rolagem: devolve { start, end } (0-based, end exclusivo) da maior
+ * fatia contígua de tamanho ≤ maxRows dentro de [0,total] que CONTÉM `sel`,
+ * centralizando quando dá e encostando nas bordas. É o que faz a tela "seguir
+ * a seta" em listas grandes, em vez de desenhar tudo e a seleção sumir.
+ */
+export function windowBounds(total, sel, maxRows = PICKER_ROWS) {
+  const n = Math.max(0, Math.floor(total));
+  if (n === 0) return { start: 0, end: 0 };
+  let rows = Math.floor(maxRows);
+  if (!(rows >= 1)) rows = 1;
+  if (n <= rows) return { start: 0, end: n };
+  let s = Math.max(0, Math.min(n - 1, Math.floor(sel)));
+  let start = s - Math.floor(rows / 2);
+  if (start < 0) start = 0;
+  if (start + rows > n) start = n - rows;
+  return { start, end: start + rows };
+}
+
+export function renderValuePicker({ title, items, sel, footer, active }) {
+  const linhas = [];
+  const titulo = active === false ? title : paint(title, "accent");
+  const total = items.length;
+  const s = Math.max(0, Math.min(total - 1, sel | 0));
+  const win = windowBounds(total, s, PICKER_ROWS);
+  linhas.push("  " + titulo + (total > 0 ? paint(`  ${s + 1}/${total}`, "muted") : ""));
+  if (total === 0) {
+    linhas.push(paint("    (nada a escolher)", "muted"));
+  }
+  if (win.start > 0) linhas.push(paint(`    … ${win.start} acima`, "dim"));
+  for (let i = win.start; i < win.end; i++) {
+    const it = items[i];
+    const marcador = i === s ? paint("›", "accent") : " ";
+    const label = i === s ? paint(it.label, "bold") : it.label;
+    const hint = it.hint ? paint("  " + it.hint, "muted") : "";
+    linhas.push("    " + marcador + " " + label + hint);
+  }
+  if (win.end < total) linhas.push(paint(`    … ${total - win.end} abaixo`, "dim"));
+  if (footer) linhas.push(paint("  " + footer, "dim"));
+  return linhas;
+}
+
 export function renderModelPicker({ stage, sel, grupos, niveis, modelo }) {
   const linhas = [];
 
   if (stage === "effort") {
+    const total = niveis.length;
+    const s = Math.max(0, Math.min(total - 1, sel | 0));
+    const win = windowBounds(total, s, PICKER_ROWS);
     linhas.push(paint("  esforço — " + modelo, "fg"));
-    for (let i = 0; i < niveis.length; i++) {
-      const marcador = i === sel ? paint("›", "accent") : " ";
-      const nome = i === sel ? paint(niveis[i], "bold") : niveis[i];
+    if (win.start > 0) linhas.push(paint(`    … ${win.start} acima`, "dim"));
+    for (let i = win.start; i < win.end; i++) {
+      const marcador = i === s ? paint("›", "accent") : " ";
+      const nome = i === s ? paint(niveis[i], "bold") : niveis[i];
       linhas.push("    " + marcador + " " + nome);
     }
+    if (win.end < total) linhas.push(paint(`    … ${total - win.end} abaixo`, "dim"));
     linhas.push("");
     linhas.push(paint("  ↑↓ navegar  enter escolher  esc cancela", "dim"));
     return linhas;
   }
 
-  linhas.push(paint("  modelo", "fg"));
-  let idx = 0;
-  for (const g of grupos) {
-    linhas.push("");
-    linhas.push(paint("  " + g.provider, "bold"));
-    for (const id of g.ids) {
-      const marcador = idx === sel ? paint("›", "accent") : " ";
-      const nome = idx === sel ? paint(id, "bold") : id;
-      linhas.push("    " + marcador + " " + nome);
-      idx += 1;
+  // Achata os grupos num índice único para poder aplicar a janela de rolagem.
+  const flat = [];
+  for (const g of grupos) for (const id of g.ids) flat.push({ provider: g.provider, id });
+  const total = flat.length;
+  const s = Math.max(0, Math.min(total - 1, sel | 0));
+  const win = windowBounds(total, s, PICKER_ROWS);
+
+  linhas.push(paint("  modelo", "fg") + (total > 0 ? paint(`  ${s + 1}/${total}`, "muted") : ""));
+  if (total === 0) linhas.push(paint("  nenhum modelo configurado.", "warn"));
+  if (win.start > 0) linhas.push(paint(`    … ${win.start} acima`, "dim"));
+  let ultimoProvider = null;
+  for (let i = win.start; i < win.end; i++) {
+    const { provider, id } = flat[i];
+    if (provider !== ultimoProvider) {
+      linhas.push(paint("  " + provider, "bold"));
+      ultimoProvider = provider;
     }
+    const marcador = i === s ? paint("›", "accent") : " ";
+    const nome = i === s ? paint(id, "bold") : id;
+    linhas.push("    " + marcador + " " + nome);
   }
-  if (grupos.length === 0) linhas.push(paint("  nenhum modelo configurado.", "warn"));
+  if (win.end < total) linhas.push(paint(`    … ${total - win.end} abaixo`, "dim"));
   linhas.push("");
   linhas.push(paint("  ↑↓ navegar  enter escolher  esc cancela", "dim"));
   return linhas;
@@ -2483,8 +2757,6 @@ const SAMPLE_ANSWER = [
 export function renderConversationFrame(data = {}) {
   const out = [];
   out.push(renderBanner());
-  out.push(renderTagline());
-  out.push(rule());
   out.push(renderStatusLine(data));
   out.push("");
   out.push("  " + paint("›", "accent") + " " + SAMPLE_QUESTION);
@@ -2532,11 +2804,9 @@ function detectBranch() {
   }
 }
 
-/** Escreve o banner + estado no topo. */
+/** Escreve o banner ASCII + estado no topo. */
 function printHeader(write, data) {
   write(renderBanner() + "\n");
-  write(renderTagline() + "\n");
-  write(rule() + "\n");
   write(renderStatusLine(data) + "\n");
 }
 
@@ -2544,7 +2814,7 @@ function printHeader(write, data) {
  * Loop interativo (TTY, modo cru). `pi` pode ser null (conversa desativada;
  * comandos de barra seguem). `write` escreve no terminal.
  */
-export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: sessionsDirInjetado } = {}) {
+export async function repl({ pi, engineRef, write, input, setRaw, data = {}, sessionsDir: sessionsDirInjetado } = {}) {
   const keymap = makeKeyMap();
   let line = { buf: "", cur: 0, sel: 0, dismissed: false };
   let history = [];
@@ -2558,6 +2828,7 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
   let settingsCache = null;
   let sessionsDirCache = null; // resolvido uma vez (sessionDir é varredura)
   let modelPicker = null; // seletor de /model: { stage, sel, grupos, flat, niveis, modelo }
+  let valuePicker = null; // seletor genérico de valor único: { title, items, sel, onChoose }
 
   const paletteWidth = () => {
     const cols = (process.stdout && process.stdout.columns) || 80;
@@ -2584,9 +2855,16 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
     if (model) statusParts.push(paint(model, "muted"));
     if (statusInfo.reasoning) statusParts.push(paint("think:" + statusInfo.reasoning, "muted"));
     if (goalTag) statusParts.push(paint(goalTag, "warn"));
-    const statusLine = "  " + statusParts.join(" · ");
+    // Trunca cada linha a WIDTH para não quebrar o redraw incremental: uma
+    // linha que o terminal wrapa vira 2 linhas visuais mas conta como 1, e o
+    // reposicionamento do cursor (\x1b[<n>A) fica deslocado — é a sobreposição
+    // "status · permissão · modelo" por cima de "enter enviar · / comandos".
+    // WIDTH-1: nunca encosta na última coluna (evita o "deferred wrap" do
+    // terminal que faz a linha seguinte subir/sobrepor — causa do texto misturado).
+    let statusLine = "  " + statusParts.join(" · ");
+    if (visibleWidth(statusLine) >= WIDTH) statusLine = truncateVisible(statusLine, WIDTH - 1);
 
-    const keysLine = "  " + paint(
+    let keysLine = "  " + paint(
       panelOpen
         ? "ctrl+o fechar · enter enviar · q sair"
         : open
@@ -2594,6 +2872,7 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
           : "enter enviar · / comandos · ctrl+o painel · ctrl+k sessões · q sair",
       "dim",
     );
+    if (visibleWidth(keysLine) >= WIDTH) keysLine = truncateVisible(keysLine, WIDTH - 1);
 
     // Linhas abaixo da entrada (redesenho incremental: limpa daqui para baixo).
     const belowLines = [];
@@ -2602,20 +2881,30 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
     if (settingsOpen && settingsCache) for (const pl of settingsCache) belowLines.push(pl);
     if (sessionsOpen && sessionsCache) for (const pl of sessionsCache) belowLines.push(pl);
     for (const pl of modelPickerRows()) belowLines.push(pl);
+    for (const pl of valuePickerRows()) belowLines.push(pl);
     belowLines.push(statusLine);
     belowLines.push(keysLine);
 
-    // Trunca o texto EXIBIDO (line.buf completo fica para edição) para não
-    // estourar 72 colunas e quebrar o redraw incremental (\r\x1b[J assume 1 linha).
-    const shown = truncateVisible(line.buf, WIDTH - 4);
-    write("\r\x1b[J");
-    write("  " + paint("›", "accent") + " " + shown);
-    for (const bl of belowLines) write("\n" + bl);
+    // Janela horizontal: mostra a fatia do buffer que cabe, mantendo o cursor
+    // visível. Assim um prompt grande NÃO corta com "…" nem some da tela — o
+    // texto completo continua no buffer (é ele que vai pro harness).
+    const avail = WIDTH - 4;
+    const win = inputWindow(line.buf, line.cur, avail);
+    const shown = win.shown;
+    // Anti-flicker: o Windows Terminal repinta por chunk de write(); montar o
+    // frame INTEIRO numa string e escrever UMA vez (cursor escondido durante a
+    // repintura) é o que mais reduz o piscar a cada tecla de seta.
+    const parts = ["\x1b[?25l"]; // esconde o cursor durante o redraw
+    parts.push("\r\x1b[J"); // CR + limpa da linha de entrada para baixo
+    parts.push("  " + paint("›", "accent") + " " + shown);
+    for (const bl of belowLines) parts.push("\n" + bl);
     const below = belowLines.length;
-    if (below > 0) write(`\x1b[${below}A`);
-    const col = 4 + Math.min(line.cur, visibleWidth(shown));
-    write("\r");
-    if (col > 0) write(`\x1b[${col}C`);
+    if (below > 0) parts.push(`\x1b[${below}A`);
+    const col = 4 + win.curCol;
+    parts.push("\r");
+    if (col > 0) parts.push(`\x1b[${col}C`);
+    parts.push("\x1b[?25h"); // mostra o cursor na posição de entrada
+    write(parts.join(""));
   };
 
   // ------------------------------------------------------------- overlays
@@ -2659,6 +2948,16 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
   // controle para cá, e as teclas (↑ ↓ enter esc) são tratadas antes do editor
   // de linha. Com argumento, /model <nome> continua indo direto e nunca abre.
 
+  const valuePickerRows = () => {
+    if (!valuePicker) return [];
+    return renderValuePicker({
+      title: valuePicker.title,
+      items: valuePicker.items,
+      sel: valuePicker.sel,
+      footer: valuePicker.footer,
+    });
+  };
+
   const modelPickerRows = () => {
     if (!modelPicker) return [];
     return renderModelPicker({
@@ -2674,7 +2973,359 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
     const grupos = groupModelsByProvider(listConfiguredModels());
     const { flat } = flattenModelGroups(grupos);
     modelPicker = { stage: "models", sel: 0, grupos, flat, niveis: [], modelo: null };
+    valuePicker = null;
     drawInput();
+  };
+
+  // ------------------------------------------------------ value picker
+  // Picker genérico de lista única. Enquanto aberto, ↑↓ andam, enter escolhe,
+  // esc cancela — nada chega ao editor de linha. onChoose(item) roda no enter.
+  const startValuePicker = (opts) => {
+    modelPicker = null;
+    valuePicker = {
+      title: String(opts?.title ?? "escolha"),
+      items: Array.isArray(opts?.items) ? opts.items : [],
+      sel: 0,
+      footer: opts?.footer ?? "↑↓ navegar · enter escolher · esc cancela",
+      onChoose: typeof opts?.onChoose === "function" ? opts.onChoose : null,
+    };
+    drawInput();
+  };
+
+  const cancelValuePicker = () => {
+    valuePicker = null;
+    drawInput();
+  };
+
+  const moveValuePicker = (delta) => {
+    if (!valuePicker) return;
+    const n = valuePicker.items.length;
+    if (n === 0) return;
+    valuePicker.sel = (valuePicker.sel + delta + n) % n;
+    drawInput();
+  };
+
+  const chooseValuePicker = async () => {
+    if (!valuePicker) return;
+    const vp = valuePicker;
+    const item = vp.items[vp.sel];
+    valuePicker = null;
+    if (!item || !vp.onChoose) { drawInput(); return; }
+    // onChoose pode devolver "keep" para reabrir o picker (ex.: submenus).
+    const r = await vp.onChoose(item);
+    if (r === "keep") return; // onChoose já chamou startValuePicker/drawInput
+    drawInput();
+  };
+
+  // ------------------------------------------------- atalhos de comandos
+  // Cada função abre um valuePicker sob medida. Chamadas pelo submit quando o
+  // comando vem sem argumento; com argumento o comando segue direto (runSlash).
+
+  const startThemePicker = async () => {
+    const _th = await import("../core/agent/theme.mjs");
+    const atual = _th.getTheme();
+    const items = _th.listThemes().map((nome) => ({
+      label: nome,
+      hint: nome === atual ? "(atual)" : "",
+      value: nome,
+    }));
+    startValuePicker({
+      title: "tema",
+      items,
+      onChoose: async (it) => {
+        const ok = _th.setTheme(it.value);
+        write(ok ? `  tema: ${atual} -> ${_th.getTheme()}\n` : `  tema "${it.value}" indisponível\n`);
+      },
+    });
+  };
+
+  const startModePicker = async () => {
+    const { MODE_NAMES, resolveMode } = await import("../core/governance/modes.mjs");
+    const atual = String(currentMode || "").toLowerCase();
+    const items = MODE_NAMES.map((nome) => ({
+      label: nome,
+      hint: nome.toLowerCase() === atual ? "(atual)" : "",
+      value: nome,
+    }));
+    startValuePicker({
+      title: "modo",
+      items,
+      onChoose: async (it) => {
+        const m = resolveMode(it.value);
+        currentMode = m.name;
+        statusInfo.mode = m.name;
+        const linha = describeModeLine(m);
+        write(`  modo: ${m.name}\n`);
+        if (linha) write(`    ${linha}\n`);
+      },
+    });
+  };
+
+  const startSettingsPicker = async () => {
+    const _th = await import("../core/agent/theme.mjs");
+    const refresh = () => {
+      const atual = _th.getTheme();
+      const itens = [
+        { label: "tema", hint: atual, value: "__theme" },
+        { label: "modo", hint: currentMode || "—", value: "__mode" },
+        { label: "permissão", hint: permissionMode, value: "__perm" },
+        { label: "modelo", hint: shortModel(statusInfo.model) || "—", value: "__model" },
+        { label: "esforço", hint: statusInfo.reasoning || "—", value: "__effort" },
+      ];
+      startValuePicker({
+        title: "configurações",
+        items: itens,
+        onChoose: async (it) => {
+          if (it.value === "__theme") { startThemePicker(); return "keep"; }
+          if (it.value === "__mode") { await startModePicker(); return "keep"; }
+          if (it.value === "__perm") { startPermissionPicker(); return "keep"; }
+          if (it.value === "__model") { startModelPicker(); return "keep"; }
+          if (it.value === "__effort") { await startEffortPicker(); return "keep"; }
+        },
+      });
+    };
+    refresh();
+  };
+
+  // Permissões disponíveis (o que o /settings deixa escolher). Duas hoje;
+  // aberto como menu (não toggle) para o usuário VER a atual e escolher.
+  const PERMISSION_MODES = ["full access", "ask"];
+  const startPermissionPicker = () => {
+    const atual = permissionMode;
+    startValuePicker({
+      title: "permissão",
+      items: PERMISSION_MODES.map((p) => ({ label: p, hint: p === atual ? "(atual)" : "", value: p })),
+      onChoose: async (it) => {
+        permissionMode = it.value;
+        if (statusInfo) statusInfo.permission = permissionMode;
+        write(`  permissão: ${permissionMode}\n`);
+      },
+    });
+  };
+
+  const startEffortPicker = async () => {
+    if (!pi || !pi._rpc || typeof pi._rpc.getAvailableThinkingLevels !== "function") {
+      write("  (sem sessão ativa — abra uma conversa e tente /effort)\n");
+      return;
+    }
+    let niveis = [];
+    try { niveis = normalizeEffortList(await pi._rpc.getAvailableThinkingLevels()); } catch { niveis = []; }
+    if (niveis.length === 0) {
+      write("  (o motor não expôs níveis de esforço)\n");
+      return;
+    }
+    const atual = String(statusInfo.reasoning || "").toLowerCase();
+    startValuePicker({
+      title: "esforço",
+      items: niveis.map((n) => ({ label: n, hint: n === atual ? "(atual)" : "", value: n })),
+      onChoose: async (it) => {
+        if (pi?._rpc && typeof pi._rpc.setThinkingLevel === "function") {
+          await pi._rpc.setThinkingLevel(it.value).catch(() => null);
+        }
+        statusInfo.reasoning = it.value;
+        write(`  esforço: ${it.value}\n`);
+      },
+    });
+  };
+
+  // ------------------------------------------------------ workspace
+  // Onde os agentes agem. Trocar recria o motor com o novo cwd (o engineRef
+  // mantém main sabendo qual client fechar no fim).
+  const switchWorkspace = async (destino) => {
+    const alvo = path.resolve(destino);
+    let stat = null;
+    try { stat = (await import("node:fs/promises")).stat(alvo); } catch { /* segue */ }
+    if (!stat || !stat.isDirectory()) {
+      write(paint(`  workspace: "${destino}" não é um diretório válido`, "fail"));
+      return false;
+    }
+    const antes = workspaceRoot;
+    workspaceRoot = alvo;
+    // Recria o motor (fecha o antigo) para o novo diretório valer nas conversas.
+    const novo = await startEngine(workspaceRoot);
+    if (!novo) {
+      // não conseguiu recriar: mantém o antigo e avisa
+      workspaceRoot = antes;
+      write(paint("  workspace: não consegui recriar o motor no novo diretório", "warn"));
+      return false;
+    }
+    if (pi && typeof pi.close === "function") await pi.close().catch(() => {});
+    pi = novo;
+    if (engineRef) engineRef.current = novo;
+    write(paint(`  workspace: ${workspaceRoot}`, "ok"));
+    return true;
+  };
+
+  const startWorkspacePicker = async () => {
+    const home = (await import("node:os")).homedir();
+    const candidates = [
+      { label: "raiz do repo", hint: ROOT, value: ROOT },
+      { label: "diretório atual", hint: process.cwd(), value: process.cwd() },
+      { label: "home", hint: home, value: home },
+      { label: "desktop", hint: path.join(home, "Desktop"), value: path.join(home, "Desktop") },
+      { label: "máquina toda (raiz)", hint: path.parse(process.cwd()).root, value: path.parse(process.cwd()).root },
+    ];
+    // remove duplicados mantendo a ordem
+    const seen = new Set();
+    const items = candidates.filter((c) => (seen.has(c.value) ? false : (seen.add(c.value), true)))
+      .map((c) => ({ label: c.label, hint: (c.value === workspaceRoot ? "(atual) " : "") + c.hint, value: c.value }));
+    items.push({ label: "explorer… escolher pelo Windows", hint: "abre o explorador de arquivos", value: "__explorer" });
+    items.push({ label: "digitar caminho…", hint: "/workspace <caminho>", value: "__manual" });
+    startValuePicker({
+      title: "workspace (onde os agentes agem)",
+      items,
+      footer: "↑↓ navegar · enter escolher · esc cancela · ou /workspace <caminho>",
+      onChoose: async (it) => {
+        if (it.value === "__manual") {
+          write(paint("  digite: /workspace <caminho>", "muted"));
+          return;
+        }
+        if (it.value === "__explorer") {
+          await pickAndSwitchWorkspace();
+          return "keep";
+        }
+        await switchWorkspace(it.value);
+      },
+    });
+  };
+
+  // Abre o explorador de arquivos do Windows e usa a pasta escolhida como
+  // workspace (onde os agentes agem).
+  const pickAndSwitchWorkspace = async () => {
+    let pickFolder;
+    try {
+      ({ pickFolder } = await import("../core/agent/file-explorer.mjs"));
+    } catch {
+      write(paint("  explorador de arquivos indisponível neste ambiente", "warn"));
+      return;
+    }
+    write(paint("  abrindo o explorador… escolha uma pasta", "muted"));
+    const dest = await pickFolder({ title: "SelfEvoPI — escolha a pasta/workspace" });
+    if (!dest) {
+      write(paint("  (cancelado)", "muted"));
+      return;
+    }
+    await switchWorkspace(dest);
+  };
+
+  // ------------------------------------------------------ providers
+  // Menu de 2 opções (adicionar / remover) + listar. Configurar = guia para a
+  // forma com argumento (/providers add <id> <baseUrl> <apiKey>), que grava e
+  // espelha a chave com ACL.
+  const startProvidersPicker = async () => {
+    let pv;
+    try {
+      pv = await import("../core/agent/providers.mjs");
+    } catch {
+      write(paint("  módulo de provedores indisponível", "warn"));
+      return;
+    }
+    let lista = [];
+    try { lista = await pv.listProviders(); } catch { lista = []; }
+    const resumo = lista.length
+      ? lista.map((p) => `${p.id} (${Array.isArray(p.models) ? p.models.length : 0} modelos)`).join(", ")
+      : "nenhum provedor registrado";
+    const items = [
+      { label: "adicionar provedor", hint: "configurar id + endpoint + chave", value: "__add" },
+      { label: "remover provedor", hint: resumo, value: "__rm" },
+      { label: "listar provedores", hint: resumo, value: "__list" },
+    ];
+    startValuePicker({
+      title: "provedores",
+      items,
+      footer: "↑↓ navegar · enter escolher · esc cancela",
+      onChoose: async (it) => {
+        if (it.value === "__add") {
+          write(paint("  configure com: /providers add <id> <baseUrl> [apiKey]", "muted"));
+          write(paint("  exemplo: /providers add openai https://api.openai.com sk-...", "muted"));
+          write(paint("  (depois /providers models <baseUrl> lista os modelos do endpoint)", "muted"));
+          return;
+        }
+        if (it.value === "__list") {
+          if (!lista.length) write(paint("  nenhum provedor registrado", "muted"));
+          else for (const p of lista) write(`  ${p.id}  ${p.baseUrl}  (${Array.isArray(p.models) ? p.models.length : 0} modelos)`);
+          return;
+        }
+        if (it.value === "__rm") {
+          if (!lista.length) {
+            write(paint("  nenhum provedor para remover", "muted"));
+            return;
+          }
+          // submenu: qual remover
+          startValuePicker({
+            title: "remover qual provedor?",
+            items: lista.map((p) => ({ label: p.id, hint: p.baseUrl, value: p.id })),
+            onChoose: async (alvo) => {
+              try {
+                const r = await pv.removeProvider({ id: alvo.value });
+                write(r.removed ? paint(`  provedor "${alvo.value}" removido`, "ok") : paint(`  "${alvo.value}" não existia`, "muted"));
+              } catch (err) {
+                write(paint(`  erro: ${String(err?.message || err).slice(0, 120)}`, "fail"));
+              }
+            },
+          });
+          return "keep";
+        }
+      },
+    });
+  };
+
+  // ------------------------------------------------------ sessions
+  // Ctrl+K agora abre um picker navegável (setas + enter carrega + esc fecha),
+  // em vez de um overlay estático que ficava na tela para sempre.
+  const switchToSession = async (id) => {
+    let target = null;
+    try {
+      const { readdir } = await import("node:fs/promises");
+      if (!sessionsDirCache) sessionsDirCache = await sessionDir();
+      for (const f of (await readdir(sessionsDirCache)).filter((x) => x.endsWith(".jsonl"))) {
+        if (f.includes(id)) { target = path.join(sessionsDirCache, f); break; }
+      }
+    } catch { /* segue */ }
+    if (target && pi?._rpc && typeof pi._rpc.switchSession === "function") {
+      const ok = await pi._rpc.switchSession(target).then(() => true).catch(() => false);
+      write(ok ? paint(`  sessão ${String(id).slice(0, 8)} ativa.`, "ok") : paint("  não consegui trocar de sessão.", "warn"));
+      return;
+    }
+    write(paint(`  sessão ${String(id).slice(0, 8)} selecionada (troca ativa depende do orquestrador).`, "muted"));
+  };
+
+  const startSessionsPicker = async () => {
+    let list = [];
+    let extras = new Map();
+    try {
+      const { listSessions } = await import("../core/agent/sessions.mjs");
+      if (!sessionsDirCache) {
+        try { sessionsDirCache = sessionsDirInjetado ?? await sessionDir(); } catch { sessionsDirCache = null; }
+      }
+      list = await listSessions(sessionsDirCache);
+      extras = await readSessionExtras(sessionsDirCache);
+    } catch (err) {
+      write(paint(`  não consegui ler as sessões: ${err?.message ?? err}`, "warn"));
+      return;
+    }
+    if (!list || list.length === 0) {
+      write(paint("  nenhuma sessão encontrada", "muted"));
+      return;
+    }
+    const items = list.map((se) => {
+      const extra = extras.get(se.id);
+      const title = deriveTitle(se.title, extra?.firstUser) ?? String(se.id).slice(0, 8);
+      const when = String(se.updatedAt || "").slice(0, 10);
+      return {
+        label: String(title),
+        hint: `${String(se.id).slice(0, 8)} · ${se.turns} turnos · ${when}`,
+        value: se.id,
+      };
+    });
+    startValuePicker({
+      title: `sessões (${items.length})`,
+      items,
+      footer: "↑↓ navegar · enter carregar · esc cancela",
+      onChoose: async (it) => {
+        await switchToSession(it.value);
+      },
+    });
   };
 
   /** Fecha o seletor sem mudar nada (Esc). */
@@ -2821,10 +3472,29 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
       return;
     }
     if (parsed.type === "slash") {
-      // /model sem argumento não lista na tela: abre o seletor aqui no REPL,
-      // onde as setas e o esc existem. Com argumento segue direto.
-      if (parsed.name === "/model" && String(parsed.arg ?? "").trim() === "") {
-        startModelPicker();
+      const semArg = String(parsed.arg ?? "").trim() === "";
+      // Comandos com opções abrem um picker interativo quando vêm sem argumento.
+      // Com argumento, seguem direto (runSlash).
+      if (semArg) {
+        if (parsed.name === "/model") { startModelPicker(); return; }
+        if (parsed.name === "/theme") { await startThemePicker(); return; }
+        if (parsed.name === "/mode") { await startModePicker(); return; }
+        if (parsed.name === "/effort") { await startEffortPicker(); return; }
+        if (parsed.name === "/settings") { await startSettingsPicker(); return; }
+        if (parsed.name === "/workspace") { await startWorkspacePicker(); return; }
+        if (parsed.name === "/providers") { await startProvidersPicker(); return; }
+      }
+      // /workspace <caminho> troca direto (sem picker)
+      if (parsed.name === "/workspace") {
+        await switchWorkspace(String(parsed.arg ?? "").trim());
+        prompt();
+        return;
+      }
+      // /explorer (ou /pasta) abre o explorador do Windows e usa a escolha
+      // como workspace.
+      if (parsed.name === "/explorer" || parsed.name === "/pasta") {
+        await pickAndSwitchWorkspace();
+        prompt();
         return;
       }
       await runSlash(parsed.name, parsed.arg, (s) => write(s + "\n"), { pi, onClear: () => write("\x1b[2J\x1b[H") });
@@ -2852,22 +3522,31 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
     for (const key of keymap(chunk)) {
       if (quitting) return;
       if (key === "ctrl-o" && !running) {
-        panelOpen = !panelOpen;
-        drawInput();
+        // Ctrl+O abre o editor interativo de configurações (escolhe e muda
+        // tema/modo/permissão/modelo/esforço). Fecha os outros overlays/pickers.
+        panelOpen = false;
+        settingsOpen = false;
+        sessionsOpen = false;
+        modelPicker = null;
+        valuePicker = null;
+        await startSettingsPicker();
         continue;
       }
       if (key === "ctrl-k" && !running) {
-        sessionsOpen = !sessionsOpen;
+        // Ctrl+K abre o picker de sessões (navegável, enter carrega, esc fecha).
+        // Fecha as configurações estáticas e o painel (um overlay por vez).
         settingsOpen = false;
-        if (sessionsOpen) {
-          // abre na hora com um "lendo"; a varredura chega depois e redesenha
-          sessionsCache = [paint("  lendo sessões…", "muted")];
-          drawInput();
-          void refreshSessionsOverlay();
-        } else drawInput();
+        panelOpen = false;
+        sessionsOpen = false;
+        modelPicker = null;
+        valuePicker = null;
+        await startSessionsPicker();
         continue;
       }
       if (key === "ctrl-comma" && !running) {
+        modelPicker = null;
+        valuePicker = null;
+        panelOpen = false;
         settingsOpen = !settingsOpen;
         sessionsOpen = false;
         if (settingsOpen) {
@@ -2889,6 +3568,13 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
           continue;
         }
         if (key === "esc") { cancelModelPicker(); continue; }
+      }
+      if (valuePicker) {
+        if (key === "up") { moveValuePicker(-1); continue; }
+        if (key === "down") { moveValuePicker(1); continue; }
+        if (key === "enter") { await chooseValuePicker(); continue; }
+        if (key === "esc") { cancelValuePicker(); continue; }
+        continue;
       }
       if (running) {
         if (key === "ctrl-c") {
@@ -3051,9 +3737,9 @@ function makeKeyMap() {
 }
 
 /** Cria o cliente de conversa e aplica SELFEOPI_MODEL (formato "provedor/modelo"). */
-async function startEngine() {
+async function startEngine(cwd = workspaceRoot) {
   const { createPiClient } = await import("../core/agent/pi-rpc.mjs");
-  const client = await createPiClient({ cwd: ROOT }).catch(() => null);
+  const client = await createPiClient({ cwd }).catch(() => null);
   if (client) {
     const m = process.env.SELFEOPI_MODEL;
     if (m && m.includes("/")) {
@@ -3104,14 +3790,13 @@ async function main() {
     const data = { branch: "main" };
     let frame;
     if (screen === "conversation") frame = renderConversationFrame(data);
-    else if (screen === "help") frame = [renderBanner(), renderTagline(), rule(), renderStatusLine(data), "", renderHelp()].join("\n");
-    else if (screen === "banner") frame = [renderBanner(), renderTagline(), rule(), renderStatusLine(data)].join("\n");
+    else if (screen === "help") frame = [renderBanner(), renderStatusLine(data), "", renderHelp()].join("\n");
+    else if (screen === "banner") frame = [renderBanner(), renderStatusLine(data)].join("\n");
     else if (screen === "palette") frame = renderPaletteFrame("", 72);
     else if (screen === "menu") frame = renderPaletteFrame("", 72);
     else if (screen === "palette-filtered") frame = renderPaletteFrame("ev", 72);
     else if (screen === "status") frame = [
       renderBanner(),
-      rule(),
       renderStatusLine({ ...data, mode: currentMode }),
       "",
       paint("  sessão", "fg"),
@@ -3132,7 +3817,6 @@ async function main() {
       };
       frame = [
         renderBanner(),
-        rule(),
         renderStatusLine({ ...data, mode: currentMode }),
         "",
         ...renderPanel(sample, data),
@@ -3142,7 +3826,6 @@ async function main() {
       const f = spinnerFrame(SPINNER_MS * 3);
       frame = [
         renderBanner(),
-        rule(),
         renderStatusLine({ ...data, mode: currentMode }),
         "",
         "  " + paint("›", "accent") + " " + SAMPLE_QUESTION,
@@ -3259,9 +3942,11 @@ async function main() {
 
   // TTY: conversa
   printHeader((s) => process.stdout.write(s + "\n"), data);
-  let pi = null;
+  // engineRef carrega o client atual; /workspace pode trocá-lo (recria com novo
+  // cwd), então main lê engineRef.current no fim em vez de um `pi` fixo.
+  const engineRef = { current: null };
   if (engine.available) {
-    pi = await startEngine();
+    engineRef.current = await startEngine(workspaceRoot);
   } else {
     process.stdout.write(engineUnavailableNote() + "\n\n");
   }
@@ -3275,9 +3960,9 @@ async function main() {
       /* idem */
     }
   };
-  await repl({ pi, write: (s) => stdout.write(s), input: stdin, setRaw, data });
+  await repl({ pi: engineRef.current, engineRef, write: (s) => stdout.write(s), input: stdin, setRaw, data });
   setRaw(false);
-  if (pi) await pi.close().catch(() => {});
+  if (engineRef.current) await engineRef.current.close().catch(() => {});
   process.exitCode = 0;
 }
 

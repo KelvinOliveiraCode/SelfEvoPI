@@ -27,10 +27,27 @@ import { join } from "node:path";
 /** Diretório padrão das skills do SelfEvoPI, relativo ao home. */
 export const DEFAULT_SKILLS_SUBDIR = join(".pi", "skills");
 
+/**
+ * Diretórios de skills a varrer (em ordem de precedência):
+ *   1. `.pi/skills`       — skills do próprio SelfEvoPI (agentskills.io)
+ *   2. `.config/opencode/skills` — skills instaladas pelo OpenCode (as reais)
+ *        (mantém compatibilidade com `~/.config/opencode/skills`)
+ */
+export const DEFAULT_SKILLS_SUBDIRS = [
+  join(".pi", "skills"),
+  join(".config", "opencode", "skills"),
+];
+
 /** Resolve o diretório de skills a partir do home (injetável). */
 export function skillsDir(home) {
   const base = home ?? resolveHome();
   return join(base, DEFAULT_SKILLS_SUBDIR);
+}
+
+/** Todos os diretórios de skills a varrer, a partir do home (injetável). */
+export function skillsDirs(home) {
+  const base = home ?? resolveHome();
+  return DEFAULT_SKILLS_SUBDIRS.map((sub) => join(base, sub));
 }
 
 /** Home do usuário (fallback quando não injetado). */
@@ -147,35 +164,40 @@ function readSkill(dir) {
  * @returns {Array<{ name, description, path, dir, error? }>}
  */
 export function listPcSkills({ home } = {}) {
-  const dir = skillsDir(home);
-  if (!existsSync(dir)) return [];
-  let entries;
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return [];
-  }
-
+  // Varre todos os diretórios (`.pi/skills` + `.config/opencode/skills`), com
+  // dedup por nome (o primeiro diretório vence).
+  const seen = new Set();
   const skills = [];
-  for (const name of entries) {
-    let full;
+  for (const dir of skillsDirs(home)) {
+    if (!existsSync(dir)) continue;
+    let entries;
     try {
-      full = join(dir, name);
-      if (!statSync(full).isDirectory()) continue;
+      entries = readdirSync(dir);
     } catch {
-      continue; // entrada que sumiu/ilegível: ignora
-    }
-    const skill = readSkill(full);
-    // "sem name", "sem SKILL.md" e "sem frontmatter" não são skills válidas → pula.
-    // (skill com name mas outro problema continua entrando com `error`.)
-    if (
-      skill.error === "sem name" ||
-      skill.error === "sem SKILL.md" ||
-      skill.error === "sem frontmatter"
-    ) {
       continue;
     }
-    skills.push(skill);
+    for (const name of entries) {
+      let full;
+      try {
+        full = join(dir, name);
+        if (!statSync(full).isDirectory()) continue;
+      } catch {
+        continue; // entrada que sumiu/ilegível: ignora
+      }
+      const skill = readSkill(full);
+      // "sem name", "sem SKILL.md" e "sem frontmatter" não são skills válidas → pula.
+      if (
+        skill.error === "sem name" ||
+        skill.error === "sem SKILL.md" ||
+        skill.error === "sem frontmatter"
+      ) {
+        continue;
+      }
+      const key = String(skill.name || "").toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      skills.push(skill);
+    }
   }
 
   // Ordena por nome (determinístico, case-insensitive).
