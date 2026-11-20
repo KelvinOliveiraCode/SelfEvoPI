@@ -566,25 +566,120 @@ async function runSwarm({ arg, out }) {
   const bruto = String(arg ?? "").trim();
   if (!bruto) {
     out(paint("  uso: /swarm [n] <tarefa>", "muted"));
+    out(paint("  molda N subagentes (provider/modelo em round-robin) e os executa.", "muted"));
+    out(paint("  para um subagente único e nomeado: /subagent <nome> <tarefa>", "muted"));
     return 2;
   }
-  // Provedores vem do roteador; sem nenhum, o swarm diz e para.
-  const provedores = (() => {
-    try {
-      return listConfiguredModels().map((m) => m.provider).filter((v, i, a) => a.indexOf(v) === i);
-    } catch {
-      return [];
-    }
+  // Provedores/modelos vêm do roteador; sem nenhum, o swarm diz e para.
+  const modelos = (() => {
+    try { return listConfiguredModels(); } catch { return []; }
   })();
+  const provedores = [...new Set(modelos.map((m) => m.provider))];
   if (provedores.length === 0) {
     out(paint("  nenhum provedor configurado — /swarm precisa de pelo menos um", "warn"));
     return 2;
   }
   const { n, task } = parseSwarmArgs(bruto);
-  const plano = planSwarm({ task, n, providers: provedores });
+  const plano = planSwarm({ task, n, providers: provedores, models: modelos });
   out(renderSwarm({ plan: plano }).join("\n"));
-  out(paint("  (o modelo principal executa e coleta; /swarm <n> <tarefa> ajusta n)", "muted"));
-  return 0;
+
+  // Execução real: precisa do motor. Sem ele, só o plano (não finge executar).
+  const { findEngine } = await import("../core/agent/pi-rpc.mjs");
+  const engine = findEngine();
+  if (!engine.available) {
+    out(paint("  (motor ausente — só o plano; instale o motor para executar)", "muted"));
+    return 0;
+  }
+
+  out(paint(`  executando ${plano.subtasks.length} subagentes (temporários)…`, "muted"));
+  const { runSwarmExecution, synthesizeSubagents } = await import("../core/agent/subagent.mjs");
+  const specs = plano.subtasks.map((st) => ({
+    name: st.id,
+    provider: st.provider,
+    model: st.model,
+    effort: "medium",
+    mode: "build",
+    task: st.goal,
+  }));
+  const resultados = await runSwarmExecution(specs, { cwd: workspaceRoot });
+  const ok = resultados.filter((r) => r.ok).length;
+  out("");
+  out(synthesizeSubagents(resultados));
+  out("");
+  out(ok === resultados.length
+    ? paint(`  ✓ ${ok}/${resultados.length} subagentes concluíram`, "ok")
+    : paint(`  ${ok}/${resultados.length} subagentes concluíram`, "warn"));
+  return ok === resultados.length ? 0 : 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* /subagent — subagente nomeado e moldado (persistente ou temporário) */
+/* ------------------------------------------------------------------ */
+
+/**
+ * /subagent <nome> <tarefa> [--provider p] [--model m] [--effort e] [--mode m] [--persistent]
+ * Cria um subagente moldado pelo modelo principal (filosofia dsh): escolhe
+ * provider/modelo/esforço/modo e como chamá-lo. `list` lista persistentes,
+ * `close <nome>` encerra um.
+ */
+async function runSubagentCmd({ arg, out }) {
+  const { runSubagent, listPersistent, closePersistent } = await import("../core/agent/subagent.mjs");
+  const bruto = String(arg ?? "").trim();
+  if (!bruto || bruto === "list") {
+    const nomes = listPersistent();
+    out(nomes.length ? paint(`  subagentes persistentes: ${nomes.join(", ")}`, "fg") : paint("  nenhum subagente persistente", "muted"));
+    return 0;
+  }
+  if (bruto === "close") {
+    out(paint("  uso: /subagent close <nome>", "muted"));
+    return 2;
+  }
+
+  const tokens = bruto.split(/\s+/);
+  // extrai flags --x valor / --x=valor
+  const flags = {};
+  const resto = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.startsWith("--")) {
+      const [k, v] = t.slice(2).split("=");
+      if (v !== undefined) flags[k] = v;
+      else if (i + 1 < tokens.length) flags[k] = tokens[++i];
+      else flags[k] = true;
+    } else resto.push(t);
+  }
+  if (resto[0] === "close") {
+    await closePersistent(resto[1]);
+    out(paint(`  subagente "${resto[1]}" encerrado`, "ok"));
+    return 0;
+  }
+
+  const nome = resto.shift();
+  const tarefa = resto.join(" ");
+  if (!nome || !tarefa) {
+    out(paint("  uso: /subagent <nome> <tarefa> [--provider p --model m --effort e --mode plan|build|ask --persistent]", "muted"));
+    return 2;
+  }
+
+  const spec = {
+    name: nome,
+    task: tarefa,
+    provider: flags.provider || null,
+    model: flags.model || null,
+    effort: flags.effort || null,
+    mode: flags.mode || null,
+    persistent: Boolean(flags.persistent),
+  };
+  const { findEngine } = await import("../core/agent/pi-rpc.mjs");
+  if (!findEngine().available) {
+    out(paint("  (motor ausente — não consigo executar o subagente)", "warn"));
+    return 1;
+  }
+  out(paint(`  subagente "${nome}"${spec.persistent ? " (persistente)" : ""} executando…`, "muted"));
+  const r = await runSubagent(spec, { cwd: workspaceRoot });
+  out("");
+  out(r.ok ? paint(`  ✓ ${nome}:`, "ok") + "\n" + String(r.text).trim() : paint(`  ✗ ${nome}: ${r.error}`, "fail"));
+  return r.ok ? 0 : 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -772,7 +867,8 @@ export const COMMANDS = [
   { name: "/goal", args: "[condição|clear]", description: "define/limpa a condição de conclusão", run: runGoal },
   { name: "/settings", args: "", description: "visão de tudo que está configurado", run: runSettingsView },
   { name: "/theme", args: "[escuro|claro|alto-contraste]", description: "tema da interface", run: runTheme },
-  { name: "/swarm", args: "[n] <tarefa>", description: "orquestra n subagentes rumo à tarefa", run: runSwarm },
+  { name: "/swarm", args: "[n] <tarefa>", description: "molda e executa n subagentes rumo à tarefa", run: runSwarm },
+  { name: "/subagent", args: "<nome> <tarefa> [--provider --model --effort --mode --persistent]", description: "subagente moldado (nomeado, persistente ou temporário)", run: runSubagentCmd },
   { name: "/worktree", args: "[list|new|rm]", description: "worktrees git isoladas", run: runWorktree },
   { name: "/workspace", args: "[caminho]", description: "onde os agentes agem (troca o diretório de trabalho)", run: runWorkspace },
   { name: "/explorer", args: "", description: "abre o explorador do Windows e escolhe a pasta/workspace", run: (ctx) => runWorkspace(ctx) },
