@@ -72,6 +72,68 @@ Visão do estado em linhas ≤ 72 colunas.
 
 Ver [[03-Comandos/CLI]] para `/settings`.
 
+## Temas
+
+A TUI tem **3 temas embutidos** (`escuro`, `claro`, `alto-contraste`) e **3 slots
+custom** editáveis pelo usuário (`custom:1`..`custom:3`).
+
+- `/theme` abre o seletor: 3 built-in + os 3 slots + "gerenciar temas custom…".
+- Cada tema define **11 papéis de cor** semânticos: `fg`, `muted`, `accent`, `ok`,
+  `warn`, `fail`, `code`, `tool`, `link`, `rule`, `bg`.
+- "gerenciar temas custom…" abre o editor: modo **geral** (5 papéis, fg, accent,
+  ok, warn, fail) ou **detalhado** (os 11 papéis + bg), com paleta de 12 cores
+  prontas ou hex livre. Os slots vivem em `~/.pi/agent/custom-themes.json`.
+- **Fallback ANSI-256**: sem truecolor (`COLORTERM` ausente, `TERM=dumb`), a paleta
+  vira `\x1b[38;5;Nm` (ANSI-256), funciona em todo terminal moderno, inclusive o
+  console clássico do Windows, sem o bug de "nada muda".
+
+Ver `core/agent/theme.mjs` e `core/agent/theme-custom.mjs`.
+
+## Subagentes
+
+Filosofia dsh: o modelo principal **molda** subagentes (provider/modelo/esforço/modo)
+e os distribui. Dois sabores:
+
+- **Temporário** (default): roda a tarefa e morre.
+- **Persistente** (`--persistent`): mantém sessão própria entre chamadas, reutilizável.
+
+```bash
+# n subagentes temporários em round-robin, executados e sintetizados
+node apps/cli.mjs    # /swarm [n] <tarefa>
+
+# subagente nomeado, moldado, persistente
+node apps/cli.mjs    # /subagent <nome> <tarefa> [--provider p --model m --effort e --mode m --persistent]
+```
+
+- **A2A** (`sendA2A` em `core/agent/subagent.mjs`): um subagente **persistente** manda
+  mensagem para outro persistente, ou para `@orquestrador`/`main` (o chamador injeta a
+  mensagem no turno principal). Temporários não são endereçáveis.
+
+## Painel de atividade (Ctrl+P)
+
+Lista o que está rodando, shells e subagentes, com status (`●`/`✓`/`✗`/`○`) e
+meta (persistente/temporário, provider/modelo, effort).
+
+- Subagente **persistente**: pode ser inspecionado/interagido.
+- Subagente **temporário**: read-only (só parar).
+
+Ver `core/agent/activity.mjs` e `startActivityPanel` em `apps/cli.mjs`.
+
+## Provedores e workspace
+
+- `/providers [list|add|rm|models]`, registra/remove provedores e seus modelos
+  (`core/agent/providers.mjs`), que o roteador passa a enxergar.
+- `/worktree [list|new|rm]`, worktrees git isoladas (`core/agent/worktree.mjs`).
+- `/workspace [caminho]`, `/explorer`, `/pasta`, trocam o diretório de trabalho;
+  `/explorer` e `/pasta` abrem o seletor de pasta do Windows (`core/agent/file-explorer.mjs`).
+
+## Esforço (effort)
+
+`/effort` consulta o modelo em uso (`get_available_thinking_levels`). Modelos que só
+expõem `"none"` (sem raciocínio) agora mostram os **níveis padrão**
+(`off/low/medium/high`) em vez de um seletor inútil de 1 item, o modelo pode ignorá-los,
+mas o usuário tem o que escolher. `EFFORT_FALLBACK` em `apps/cli.mjs`.
+
 ## Medições
 
 ```bash

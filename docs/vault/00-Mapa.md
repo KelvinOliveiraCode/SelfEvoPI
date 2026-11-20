@@ -10,36 +10,36 @@ created: 2026-11-19
 ## Índice
 
 ### Fundamentos
-- [[01-Arquitetura/Visao-Geral]] — camadas e fluxo do sistema
-- [[05-Decisoes/Decisoes]] — decisões com data e motivo
-- [[05-Decisoes/Modos]] — os 5 modos de permissão (plan/build/manual/ask/goal)
+- [[01-Arquitetura/Visao-Geral]], camadas e fluxo do sistema
+- [[05-Decisoes/Decisoes]], decisões com data e motivo
+- [[05-Decisoes/Modos]], os 5 modos de permissão (plan/build/manual/ask/goal)
 
 ### Componentes (`core/` e `apps/`)
-- [[02-Componentes/Agent]] — harness (sessões, banner, inspect, MCP)
-- [[02-Componentes/Roteador]] — camada 2: escolhe provider + modelo
-- [[02-Componentes/Forge]] — auto-evolução: detecta lacunas, gera, promove
-- [[02-Componentes/Governanca]] — modos, aprovação, rollback
-- [[02-Componentes/Sandbox]] — gate estático + Permission Model
-- [[02-Componentes/Memoria]] — store em 3 níveis, teto de 400 tok/turno
-- [[02-Componentes/Grafo]] — executor de DAG com nós human e checkpoints
-- [[02-Componentes/CLI]] — interface de linha de comando (TUI)
-- [[02-Componentes/Desktop]] — janela webview
+- [[02-Componentes/Agent]], harness (sessões, banner, inspect, MCP)
+- [[02-Componentes/Roteador]], camada 2: escolhe provider + modelo
+- [[02-Componentes/Forge]], auto-evolução: detecta lacunas, gera, promove
+- [[02-Componentes/Governanca]], modos, aprovação, rollback
+- [[02-Componentes/Sandbox]], gate estático + Permission Model
+- [[02-Componentes/Memoria]], store em 3 níveis, teto de 400 tok/turno
+- [[02-Componentes/Grafo]], executor de DAG com nós human e checkpoints
+- [[02-Componentes/CLI]], interface de linha de comando (TUI)
+- [[02-Componentes/Desktop]], janela webview
 
 ### Comandos e uso
-- [[03-Comandos/CLI]] — comandos que o usuário digita (`/...`)
-- [[04-Features/Features]] — o que existe e como usar
+- [[03-Comandos/CLI]], comandos que o usuário digita (`/...`)
+- [[04-Features/Features]], o que existe e como usar (inclui temas, subagentes, Ctrl+P, A2A)
 
 ### Evidência e origem
-- [[08-Desempenho/Desempenho]] — números medidos, com data e comando
-- [[06-Pesquisa/Fontes]] — fontes com URL e o que cada uma sustentou
-- [[07-Inspiracoes/Inspiracoes]] — Claude Code, OpenCode, Cursor, Zed, Warp
+- [[08-Desempenho/Desempenho]], números medidos, com data e comando
+- [[06-Pesquisa/Fontes]], fontes com URL e o que cada uma sustentou
+- [[07-Inspiracoes/Inspiracoes]], Claude Code, OpenCode, Cursor, Zed, Warp
 
 ### Reprodução e referência
-- [[09-Replicacao/Replicacao]] — como montar do zero, 1:1
-- [[10-Glossario]] — termos do projeto
+- [[09-Replicacao/Replicacao]], como montar do zero, 1:1
+- [[10-Glossario]], termos do projeto
 
 ### Estado e continuação
-- [[11-Handoff/Estado-Atual]] — retrato em 2026-11-19 (v1.1.3): o que está pronto, o que falta, como rodar, onde estão as coisas
+- [[11-Handoff/Estado-Atual]], retrato no HEAD `fc9aa29` (v1.1.4 + trabalho novo: temas, subagentes, Ctrl+P): o que está pronto, o que falta, como rodar, onde estão as coisas
 
 ## Sobre
 
@@ -47,5 +47,5 @@ O SelfEvoPI é um harness de agente de código ultraleve, rápido, econômico em
 
 - **Repositório privado:** SelfEvoPI-Priv
 - **Repositório público:** SelfEvoPI (release limpa)
-- **HEAD de referência das medições:** ee74ed9 (2026-11-18)
-- **Fases:** P, 0, 1, 2, 3, 4, 5 — todas concluídas
+- **HEAD de referência das medições:** `fc9aa29` (2026-11-20); medições antigas em `ee74ed9` (2026-11-18)
+- **Fases:** P, 0, 1, 2, 3, 4, 5, todas concluídas

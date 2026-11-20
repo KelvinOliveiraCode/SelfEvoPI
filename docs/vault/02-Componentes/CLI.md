@@ -9,19 +9,19 @@ created: 2026-11-19
 
 ## Arquivo
 
-`apps/cli.mjs` — ponto de entrada da CLI. Conversa com o motor (PI Coding Agent), lê
+`apps/cli.mjs`, ponto de entrada da CLI. Conversa com o motor (PI Coding Agent), lê
 e escreve a pasta de sessões e expõe os comandos de barra.
 
 ## Comandos
 
-Os 25 comandos reais, conforme `apps/cli.mjs` (`name: "/..."`):
+Os 30 comandos reais, conforme `apps/cli.mjs` (`name: "/..."`):
 
 | Comando | O que faz |
 |:---|:---|
 | `/model [nome]` | Mostra ou troca o modelo da conversa |
 | `/effort [off\|low\|medium\|high]` | Esforço de raciocínio do modelo atual |
 | `/mode [modo]` | Alterna o modo (plan → build → manual → ask → goal) |
-| `/theme [escuro\|claro\|alto-contraste]` | Tema da interface |
+| `/theme [escuro\|claro\|alto-contraste]` | Tema da interface (3 built-in + 3 slots custom) |
 | `/settings` | Visão de tudo que está configurado |
 | `/sessions [id]` | Lista sessões ou carrega uma |
 | `/cost` | Tokens e custo da sessão |
@@ -30,19 +30,26 @@ Os 25 comandos reais, conforme `apps/cli.mjs` (`name: "/..."`):
 | `/mcp` | Servidores MCP declarados (config global `~/.pi/settings.json`) |
 | `/skills` | Skills do loop + skills do PC (`~/.pi/skills`) |
 | `/memory <termo>` | Busca na memória (lexical + PPMI) |
-| `/evals` | Roda os grupos A/B/C (estruturais) |
-| `/gate` | Gate completo (usa modelo; pode demorar) |
 | `/detect` | Lacunas de ferramenta em aberto |
-| `/forge <meta>` | Inicia um ciclo evolutivo rumo à meta |
+| `/evo <meta>` | **Modo principal**, o harness evolui/modela a si mesmo rumo à meta (substituiu `/forge`) |
 | `/init` | Gera um rascunho de AGENTS.md (pede confirmação) |
+| `/import [importar\|--undo\|--status]` | Traz MCPs e skills para a config própria |
 | `/plan` | Modo plan: lê e propõe, não escreve |
 | `/build` | Modo build: escreve e executa no workspace |
 | `/ask` | Modo ask: só responde, nunca toca em disco |
 | `/goal [condição\|clear]` | Define/limpa a condição de conclusão |
-| `/swarm [n] <tarefa>` | Orquestra n subagentes rumo à tarefa |
+| `/swarm [n] <tarefa>` | Molda e executa n subagentes (temporários) |
+| `/subagent <nome> <tarefa> [...] ` | Subagente moldado (persistente ou temporário) |
+| `/worktree [list\|new\|rm]` | Worktrees git isoladas |
+| `/workspace [caminho]` | Troca o diretório de trabalho |
+| `/explorer` `/pasta` | Abre o explorador do Windows e escolhe a pasta |
+| `/providers [list\|add\|rm\|models]` | Registra/remove provedores e modelos |
 | `/clear` | Limpa a conversa e começa de novo |
 | `/compact` | Compacta o histórico da conversa |
 | `/help` | Mostra a lista de comandos |
+
+> `/evals` e `/gate` **saíram** de `COMMANDS` (as funções existem, mas não são mais
+> digitáveis). Use `node evals/run.mjs` e `node evals/gate.mjs`.
 
 Ver [[03-Comandos/CLI]] para detalhes e atalhos.
 
@@ -64,5 +71,5 @@ tela (correção do 1.1.1, `apps/cli.mjs`).
 
 ## Ver também
 
-- [[02-Componentes/Agent]] — o harness por trás da CLI (sessões, banner, inspect).
-- [[02-Componentes/Roteador]] — quem escolhe o modelo que a CLI usa.
+- [[02-Componentes/Agent]], o harness por trás da CLI (sessões, banner, inspect).
+- [[02-Componentes/Roteador]], quem escolhe o modelo que a CLI usa.

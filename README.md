@@ -24,9 +24,9 @@
 
 SelfEvoPI is an autonomous coding agent that **notices what it is missing and builds it**.
 
-It starts from the [PI Coding Agent](https://github.com/earendil-works/pi) as its engine — not a fork, not an extension, but its own product built on that base, the way Kimi Code is its own agent on the same foundation. Around that engine it adds what a base agent does not have: a multi-provider router, a deterministic evaluation suite with a regression gate, and an **evolutionary core** that detects a capability gap, writes the artifact that closes it, tests it in a Windows sandbox, and promotes it only if nothing else regressed.
+It starts from the [PI Coding Agent](https://github.com/earendil-works/pi) as its engine, not a fork, not an extension, but its own product built on that base, the way Kimi Code is its own agent on the same foundation. Around that engine it adds what a base agent does not have: a multi-provider router, a deterministic evaluation suite with a regression gate, and an **evolutionary core** that detects a capability gap, writes the artifact that closes it, tests it in a Windows sandbox, and promotes it only if nothing else regressed.
 
-The result is not "a harness for pi". It is an agent with its own CLI, its own desktop app, its own brand, and its own name — and the engine underneath is an implementation detail you never have to see.
+The result is not "a harness for pi". It is an agent with its own CLI, its own desktop app, its own brand, and its own name, and the engine underneath is an implementation detail you never have to see.
 
 The whole thing is **~19k lines of production Node ESM** across **65 modules** (56 of them test files, ~10k lines with tests), with **958 passing unit tests** and **29 evaluation tasks**. Cold start is **91 ms** average on `node apps/cli.mjs --version` (7 runs, warm cache). The prompt it adds to the engine is **506 tokens** at the ceiling, against a hard budget of 1,500.
 
@@ -36,11 +36,11 @@ A coding agent's competence is mostly a property of its harness, not of the mode
 
 That has a design consequence. If the harness is the product, then:
 
-- **context is a budget, not a resource** — every token of system prompt is paid on every single turn, forever;
-- **latency is a feature** — an agent that takes 500 ms to start is used differently from one that takes 5 s;
+- **context is a budget, not a resource**, every token of system prompt is paid on every single turn, forever;
+- **latency is a feature**, an agent that takes 500 ms to start is used differently from one that takes 5 s;
 - **quality must be measured, not asserted** - "it works" is not a result, `86/87, with the one miss named` is.
 
-SelfEvoPI takes those three literally — and then goes one step further, because a harness that only measures itself is a dashboard. One that **closes the gap it found** is an agent.
+SelfEvoPI takes those three literally, and then goes one step further, because a harness that only measures itself is a dashboard. One that **closes the gap it found** is an agent.
 
 ## Measured results
 
@@ -49,22 +49,22 @@ Everything below was measured on this repository, on Windows 11, Node 24.13. Rep
 | Metric | Value | Budget | How |
 |:---|:---|:---|:---|
 | Cold start, SelfEvoPI CLI | **91 ms** avg (min 82, max 98) · 7 runs | < 500 ms | `node apps/cli.mjs --version` |
-| Cold start, the engine underneath | **473 ms** median · 1.012–1.806 s cold cache | — | `scripts/measure-overhead.mjs` |
+| Cold start, the engine underneath | **473 ms** median · 1.012–1.806 s cold cache |, | `scripts/measure-overhead.mjs` |
 | Prompt added by SelfEvoPI | **+506 tok** worst case | < 1.500 tok | `scripts/measure-selfevopi-overhead.mjs --runs 3` |
-| Base agent prompt | 8.685 tok | — | same |
-| Evaluation suite | **29 tasks, 86/87 baseline (98.85%)** — B11 is stochastic | no regression | `node evals/gate.mjs` |
+| Base agent prompt | 8.685 tok |, | same |
+| Evaluation suite | **29 tasks, 86/87 baseline (98.85%)**, B11 is stochastic | no regression | `node evals/gate.mjs` |
 | Unit tests | **447** (445 passing, 2 pending) | - | `node --test core/agent/*.test.mjs apps/*.test.mjs apps/desktop/*.test.mjs` |
 | Source URLs | **33 cited sources, all 200** | all reachable | `node scripts/verify-urls.mjs` |
-| Suite cost per task | **US$ 0.00** (free tier) | — | JSONL ledger |
-| Suite latency | ~5.9 s/task average | — | ledger |
-| Codebase | **65 modules** · ~18.9k lines of production code | — | — |
-| Test code | **56 files** · ~10.5k lines | — | — |
+| Suite cost per task | **US$ 0.00** (free tier) |, | JSONL ledger |
+| Suite latency | ~5.9 s/task average |, | ledger |
+| Codebase | **65 modules** · ~18.9k lines of production code |, |, |
+| Test code | **56 files** · ~10.5k lines |, |, |
 
-> **Test-count scope note.** The two test rows above carry different numbers on purpose: `npm test` (958) runs every suite — `core/router`, `core/forge`, `core/memory`, `core/graph`, `core/governance`, `core/sandbox`, `core/agent`, `apps`, `apps/desktop`, `scripts/refine-loop` — while the "Unit tests" row (447) runs only `core/agent` + `apps` + `apps/desktop`. The 2 "pending" tests in both are self-labeled `PENDENTE` placeholders in `apps/desktop/session-api.test.mjs` (no session fixture yet), not regressions.
+> **Test-count scope note.** The two test rows above carry different numbers on purpose: `npm test` (958) runs every suite, `core/router`, `core/forge`, `core/memory`, `core/graph`, `core/governance`, `core/sandbox`, `core/agent`, `apps`, `apps/desktop`, `scripts/refine-loop`, while the "Unit tests" row (447) runs only `core/agent` + `apps` + `apps/desktop`. The 2 "pending" tests in both are self-labeled `PENDENTE` placeholders in `apps/desktop/session-api.test.mjs` (no session fixture yet), not regressions.
 
 ### What the prompt budget actually buys
 
-The base agent already spends ~8.7k tokens before SelfEvoPI does anything. A naive extension set blows the budget on its own — a single orchestration extension measured **+1,653 tokens per turn**, which alone exceeds the entire 1,500-token allowance, with no measured gain in accuracy.
+The base agent already spends ~8.7k tokens before SelfEvoPI does anything. A naive extension set blows the budget on its own, a single orchestration extension measured **+1,653 tokens per turn**, which alone exceeds the entire 1,500-token allowance, with no measured gain in accuracy.
 
 So SelfEvoPI ships its own contribution at **+499 tokens** and loads everything else on demand. That is a third of the budget, with two thirds held in reserve.
 
@@ -144,13 +144,13 @@ The loop always prefers the lightest artifact that satisfies the contract:
 | 4 | `extension` | `index.mjs` | UI inside the agent |
 | 5 | `mcp-server` | `server.mjs` | a new tool server |
 
-A request that no kind covers resolves to `skill` — the only artifact that can always be produced without inventing an interface. Falling through to `cli` would produce the wrong artifact with a success-shaped result.
+A request that no kind covers resolves to `skill`, the only artifact that can always be produced without inventing an interface. Falling through to `cli` would produce the wrong artifact with a success-shaped result.
 
 ### Why a probe instead of a smoke test
 
 An early version of the gate accepted any artifact whose test command exited 0. That promoted a CLI that read positional arguments instead of the flags in its own contract.
 
-The fix was a **per-kind interface probe**: a script written next to the artifact that exercises it the way it is actually invoked — flags for a CLI, JSON-RPC over stdio for a server, a mocked host object for an extension. The probe is a file, not a shell string, so it is readable, auditable, and free of quoting hazards.
+The fix was a **per-kind interface probe**: a script written next to the artifact that exercises it the way it is actually invoked, flags for a CLI, JSON-RPC over stdio for a server, a mocked host object for an extension. The probe is a file, not a shell string, so it is readable, auditable, and free of quoting hazards.
 
 ## Engineering discipline
 
@@ -190,7 +190,7 @@ This is not a formality. During development, a deliberate change to the artifact
 ```
 Regressões (1):
 - `A8-forge-choose-kind` (A): 100% → 0% (3/3 → 0/3)
-✗ GATE REPROVADO — há tarefa abaixo da linha de base.
+✗ GATE REPROVADO, há tarefa abaixo da linha de base.
 ```
 
 The change was correct on the merits; the evaluator had encoded the previous behaviour. The fix was to update the evaluator with the reasoning, then regenerate the baseline. The gate's value is that it forced that decision to be explicit instead of silent.
@@ -210,7 +210,7 @@ The change was correct on the merits; the evaluator had encoded the previous beh
 
 A suite is only worth its pass rate if each checker **separates** a correct answer from a plausible-looking wrong one.
 
-The suite was audited by attacking every task with a **degenerate answer** — an artifact that prints the expected output without computing anything. Seven tasks failed the audit:
+The suite was audited by attacking every task with a **degenerate answer**, an artifact that prints the expected output without computing anything. Seven tasks failed the audit:
 
 | Task | Hole | Fix |
 |:---|:---|:---|
@@ -223,9 +223,9 @@ The remaining 22 import the real module under test and assert behaviour, so a st
 
 Three layers, because no single one is enough:
 
-1. **Static gate** — 13 rules, AST-level, blocks credential access, network, subprocess spawning, destructive filesystem operations, before anything runs.
-2. **Node Permission Model** — read/write confined to the worktree, no network, no child processes.
-3. **Process containment** — full process-tree teardown, so nothing survives the run.
+1. **Static gate**, 13 rules, AST-level, blocks credential access, network, subprocess spawning, destructive filesystem operations, before anything runs.
+2. **Node Permission Model**, read/write confined to the worktree, no network, no child processes.
+3. **Process containment**, full process-tree teardown, so nothing survives the run.
 
 Proven against real escape attempts:
 
@@ -255,7 +255,7 @@ Proven with injected failures rather than mocks that always succeed: 429, timeou
 
 ## Requirements
 
-- **Windows** natively — no Docker, no VM, no WSL
+- **Windows** natively, no Docker, no VM, no WSL
 - **Node.js ≥ 22.19.1** (validated on 24.13)
 - **PI Coding Agent ≥ 1.5.2**
 - **Git ≥ 2.55** with `core.longpaths true`
@@ -270,7 +270,7 @@ cd SelfEvoPI
 npm run verify
 ```
 
-`npm run verify` runs the unit tests, the deterministic evaluation groups, and the source-URL integrity check — the same command CI runs.
+`npm run verify` runs the unit tests, the deterministic evaluation groups, and the source-URL integrity check, the same command CI runs.
 
 ## Usage
 
@@ -278,18 +278,18 @@ npm run verify
 
 Two shortcuts on the Desktop, both carrying the brand icon:
 
-- **`SelfEvoPI`** (`launcher/SelfEvoPI.cmd`) — opens the CLI: a keyboard-driven terminal interface. Type `/` at any time and the command palette opens with every command, filtering as you type.
-- **`SelfEvoPI-Painel`** (`launcher/SelfEvoPI-Painel.cmd`) — opens the desktop app: a native window without an address bar into the conversation, backed by the server on `127.0.0.1:7777`.
+- **`SelfEvoPI`** (`launcher/SelfEvoPI.cmd`), opens the CLI: a keyboard-driven terminal interface. Type `/` at any time and the command palette opens with every command, filtering as you type.
+- **`SelfEvoPI-Painel`** (`launcher/SelfEvoPI-Painel.cmd`), opens the desktop app: a native window without an address bar into the conversation, backed by the server on `127.0.0.1:7777`.
 
 The launcher sources live in `launcher/`, and the shortcuts point at them. Earlier copies are kept in `launcher/antigos/`.
 
-> **A caminho (1.0):** dois executáveis nomeados pela marca — `SelfEvoPI.cmd` (CLI) e
+> **A caminho (1.0):** dois executáveis nomeados pela marca, `SelfEvoPI.cmd` (CLI) e
 > `SelfEvoPI-Desktop.cmd` (desktop). Enquanto o segundo não é integrado, o desktop abre
 > pelo `SelfEvoPI-Painel.cmd`.
 
 ### The CLI
 
-A conversation, not a menu. The engine underneath is invisible — the interface is SelfEvoPI's.
+A conversation, not a menu. The engine underneath is invisible, the interface is SelfEvoPI's.
 
 ```
   ◍  SelfEvoPI                                              v0.5.0
@@ -309,30 +309,59 @@ A conversation, not a menu. The engine underneath is invisible — the interface
 
 | Comando | O que faz |
 |:--|:--|
-| `/evals` `/gate` `/detect` | os grupos estruturais, o gate completo, as lacunas abertas |
-| `/forge <meta>` | inicia um ciclo evolutivo rumo à meta |
+| `/evo <meta>` | **modo principal**, o harness evolui/modela a si mesmo rumo à meta (substituiu `/forge`) |
+| `/detect` | lacunas de ferramenta em aberto |
 | `/memory <termo>` `/skills` | busca na memória (lexical + PPMI) e o que já foi gerado |
 | `/compact` | resume o histórico quando a janela enche |
 | `/sessions` `/sessions <id>` | lista sessões ou carrega uma |
 | `/cost` `/status` `/context` | tokens e custo, estado da sessão, uso da janela |
 | `/mcp` `/init` | servidores declarados e rascunho de `AGENTS.md` |
-| `/model [nome]` `/clear` `/help` | modelo da conversa, limpar, ajuda |
+| `/model [nome]` `/effort [nível]` | modelo da conversa e esforço de raciocínio |
+| `/theme [tema]` | tema da interface (3 built-in + 3 slots custom editáveis) |
+| `/providers [list\|add\|rm\|models]` | registra/remove provedores e seus modelos |
+| `/swarm [n] <tarefa>` | molda e executa n subagentes em round-robin |
+| `/subagent <nome> <tarefa> [--provider --model --effort --mode --persistent]` | subagente moldado (nomeado, persistente ou temporário) |
+| `/worktree [list\|new\|rm]` | worktrees git isoladas |
+| `/workspace [caminho]` `/explorer` `/pasta` | troca o diretório de trabalho / abre o explorador do Windows |
+| `/clear` `/help` | limpar a conversa, ajuda |
 
-**Modos** — mudam o que o agente pode fazer, e aparecem na barra de estado:
+**Modos**, mudam o que o agente pode fazer, e aparecem na barra de estado:
 
 | Modo | Lê | Escreve | Executa | Pausa para perguntar |
 |:--|:--:|:--:|:--:|:--|
-| `/plan` | ✅ | ❌ | só leitura | antes de escrever |
-| `/build` | ✅ | ✅ no workspace | ✅ no workspace | fora do workspace |
-| `/manual` | ✅ | ✅ no workspace | ✅ no workspace | antes de **cada** escrita |
-| `/ask` | ✅ | ❌ | ❌ | — |
-| `/goal <condição>` | ✅ | ✅ | herda do modo base | fora do workspace |
+| `/plan` | sim | não | só leitura | antes de escrever |
+| `/build` | sim | sim no workspace | sim no workspace | fora do workspace |
+| `/manual` | sim | sim no workspace | sim no workspace | antes de cada escrita |
+| `/ask` | sim | não | não | n/a |
+| `/goal <condição>` | sim | sim | herda do modo base | fora do workspace |
 
-`/manual` é como `/build` — escreve e executa no workspace — mas confirma **cada** escrita com você antes de aplicá-la. É o modo de quem quer revisar o diff antes de ele virar arquivo.
+`/manual` é como `/build`, escreve e executa no workspace, mas confirma cada escrita com você antes de aplicá-la. É o modo de quem quer revisar o diff antes de ele virar arquivo.
 
-`/goal <condição>` define uma condição de conclusão. Um avaliador separado checa ao fim de cada turno e a meta se limpa sozinha quando o objetivo é atingido — nunca fica acesa.
+`/goal <condição>` define uma condição de conclusão. Um avaliador separado checa ao fim de cada turno e a meta se limpa sozinha quando o objetivo é atingido, nunca fica acesa.
 
-**O que não é modo.** `full access` e `auto` não são modos. `full access` é o **tipo de permissão** (o que o agente pode tocar); `auto` é o **aprovador** (quem decide quando ele pode). São eixos diferentes, e é por isso que a barra de estado mostra os dois em linhas separadas — modo em cima, permissão e modelo na linha de baixo.
+`full access` e `auto` não são modos. `full access` é o tipo de permissão (o que o agente pode tocar); `auto` é o aprovador (quem decide quando ele pode). São eixos diferentes, e por isso a barra de estado mostra os dois em linhas separadas, modo em cima, permissão e modelo na linha de baixo.
+
+### Temas
+
+A TUI tem 3 temas embutidos (`escuro`, `claro`, `alto-contraste`) e 3 slots custom editáveis pelo usuário. Cada tema define 11 papéis de cor semânticos: `fg`, `muted`, `accent`, `ok`, `warn`, `fail`, `code`, `tool`, `link`, `rule`, `bg`.
+
+- `/theme` abre o seletor (3 built-in + `custom:1..3` + "gerenciar temas custom…").
+- "gerenciar temas custom…" abre o editor: modo **geral** (5 papéis: fg/accent/ok/warn/fail) ou **detalhado** (todos os 11 papéis + bg), com paleta de 12 cores prontas ou hex livre.
+- Os slots custom vivem em `~/.pi/agent/custom-themes.json` (`core/agent/theme-custom.mjs`), independentes do tema ativo.
+- **Fallback ANSI-256**: quando o terminal não anuncia truecolor (`COLORTERM` ausente, `TERM=dumb`), a paleta é convertida para `\x1b[38;5;Nm` (ANSI-256), que funciona em praticamente todo terminal moderno, sem o bug de "nada muda".
+
+### Subagentes
+
+Filosofia dsh: o modelo principal **molda** subagentes (provider/modelo/esforço/modo) e os distribui.
+
+- `/swarm [n] <tarefa>`, cria n subagentes temporários (round-robin entre provedores), executa e sintetiza.
+- `/subagent <nome> <tarefa> [--provider p --model m --effort e --mode plan|build|ask --persistent]`, subagente nomeado. **Temporário** (default) roda e morre; **persistente** (`--persistent`) mantém sessão própria entre chamadas.
+- **A2A** (`sendA2A` em `core/agent/subagent.mjs`): um subagente persistente manda mensagem para outro persistente, ou para `@orquestrador`/`main` (o chamador injeta a mensagem no turno principal). Temporários não são endereçáveis.
+- **Painel Ctrl+P**, atividade: lista shells + subagentes em execução. Persistente pode ser inspecionado/interagido; temporário é read-only (só parar).
+
+### Esforço (effort)
+
+`/effort` consulta o modelo em uso (`get_available_thinking_levels`). Modelos que só expõem `"none"` (sem raciocínio) agora mostram os **níveis padrão** (`off/low/medium/high`) em vez de um seletor inútil de 1 item, o modelo pode ignorá-los, mas o usuário tem o que escolher.
 
 ### From the shell
 
@@ -365,7 +394,7 @@ node core/forge/cli.mjs evolve `
 outcome: promoted
 kind: cli
 verify: pass (exit 0)
-gate: promote — no eval task; gated on the artifact's own evidence
+gate: promote, no eval task; gated on the artifact's own evidence
 ```
 
 The resulting CLI, run by hand:
@@ -379,9 +408,9 @@ $ node cli.mjs --peso 70 --altura 1.75
 
 A single Node process (`scripts/desktop.mjs`) serves the desktop UI on `127.0.0.1` and exposes a small JSON API. The interface is a conversation, not a dashboard:
 
-- **settings menu** (`apps/desktop/settings.js`) — a control bar below the composer (mode, model, permission) and a preferences panel (`Ctrl+,`) for what does not change per turn: mode (`plan`/`build`/`manual`/`ask`/`goal`), model, reasoning effort, permission, confirm-writes, tips. Persists in `localStorage` under `selfevopi.settings`; no file on disk.
-- **sessions** (`apps/desktop/sessions.js`) — list, open and start sessions from the sidebar, with title and turns/tokens per row.
-- **responsive** (`apps/desktop/desktop.css`) — two columns on desktop, the session list becomes an overlay drawer below 900px (it does not disappear), an extra breakpoint below 480px, and `prefers-reduced-motion` is respected.
+- **settings menu** (`apps/desktop/settings.js`), a control bar below the composer (mode, model, permission) and a preferences panel (`Ctrl+,`) for what does not change per turn: mode (`plan`/`build`/`manual`/`ask`/`goal`), model, reasoning effort, permission, confirm-writes, tips. Persists in `localStorage` under `selfevopi.settings`; no file on disk.
+- **sessions** (`apps/desktop/sessions.js`), list, open and start sessions from the sidebar, with title and turns/tokens per row.
+- **responsive** (`apps/desktop/desktop.css`), two columns on desktop, the session list becomes an overlay drawer below 900px (it does not disappear), an extra breakpoint below 480px, and `prefers-reduced-motion` is respected.
 
 The server binds to loopback only, reads nothing outside the repository, and executes nothing that is not on the allowlist. The older metrics panel (`scripts/desktop.mjs`) is still available for evaluation rates, recent executions, promoted artifacts and graph runs.
 
@@ -418,7 +447,7 @@ The server binds to loopback only, reads nothing outside the repository, and exe
 | [`assets/wordmark-circulo.svg`](assets/wordmark-circulo.svg) | circular lockup |
 | [`assets/selfevopi.ico`](assets/selfevopi.ico) | app icon (six sizes, 16 to 256, transparent) |
 
-The README variants exist because the originals use near-black ink (`#111`), which disappears against a dark background. Same geometry, mid-grey (`#6e7781`), legible on both. The full interface system — palette, type scale, and the two surface grammars (terminal and desktop) — is in [`docs/design/marca.md`](docs/design/marca.md).
+The README variants exist because the originals use near-black ink (`#111`), which disappears against a dark background. Same geometry, mid-grey (`#6e7781`), legible on both. The full interface system, palette, type scale, and the two surface grammars (terminal and desktop), is in [`docs/design/marca.md`](docs/design/marca.md).
 
 ## Project layout
 
@@ -446,4 +475,4 @@ docs/               decisions, state, research, design system
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT, see [`LICENSE`](LICENSE).
