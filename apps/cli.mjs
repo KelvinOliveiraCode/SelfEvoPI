@@ -2569,8 +2569,8 @@ export async function refreshStatus(pi) {
 
 /** Linha de status compacta (rodapé): modo · permissão · modelo · raciocínio. */
 export function buildStatusLine(info = statusInfo) {
-  const parts = [paint(info.mode, "fg"), paint(info.permission, "muted")];
-  if (info.model) parts.push(paint(info.model, "muted"));
+  const parts = [paint(info.mode, "fg"), paint(info.permission, "fg")];
+  if (info.model) parts.push(paint(info.model, "fg"));
   if (info.reasoning) parts.push(paint("think:" + info.reasoning, "muted"));
   return parts.join(" · ");
 }
@@ -3078,9 +3078,11 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     const paletteLines = open ? renderPalette(filtered, sel, paletteWidth()) : [];
 
     // Linha de status (sempre visível): modo · permissão · modelo · goal.
-    const statusParts = [paint(currentMode, "fg"), paint(permissionMode, "muted")];
+    // permission/model em "fg" (branco, legível); think em "muted" (secundário).
+    // Antes tudo era "muted" (cinza fraco) e a barra ficava difícil de ler.
+    const statusParts = [paint(currentMode, "fg"), paint(permissionMode, "fg")];
     const model = shortModel(statusInfo.model);
-    if (model) statusParts.push(paint(model, "muted"));
+    if (model) statusParts.push(paint(model, "fg"));
     if (statusInfo.reasoning) statusParts.push(paint("think:" + statusInfo.reasoning, "muted"));
     if (goalTag) statusParts.push(paint(goalTag, "warn"));
     // Trunca cada linha a WIDTH para não quebrar o redraw incremental: uma
@@ -3241,9 +3243,16 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   const chooseValuePicker = async () => {
     if (!valuePicker) return;
     const vp = valuePicker;
-    const item = vp.items[vp.sel];
+    // se o sel ficou inválido (itens mudaram entre abrir e enter), avisa em vez
+    // de fechar em silêncio
+    const item = vp.items[vp.sel] ?? (vp.items.length === 1 ? vp.items[0] : null);
     valuePicker = null;
-    if (!item || !vp.onChoose) { drawInput(); return; }
+    if (!item) {
+      if (vp.items.length === 0) write(paint("  (nada a escolher)", "muted"));
+      drawInput();
+      return;
+    }
+    if (!vp.onChoose) { drawInput(); return; }
     // onChoose pode devolver "keep" para reabrir o picker (ex.: submenus).
     const r = await vp.onChoose(item);
     if (r === "keep") return; // onChoose já chamou startValuePicker/drawInput
