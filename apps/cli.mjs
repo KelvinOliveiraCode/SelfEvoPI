@@ -922,7 +922,6 @@ export const COMMANDS = [
   { name: "/worktree", args: "[list|new|rm]", description: "worktrees git isoladas", run: runWorktree },
   { name: "/workspace", args: "[caminho]", description: "onde os agentes agem (troca o diretório de trabalho)", run: runWorkspace },
   { name: "/explorer", args: "", description: "abre o explorador do Windows e escolhe a pasta/workspace", run: (ctx) => runWorkspace(ctx) },
-  { name: "/pasta", args: "", description: "atalho de /explorer (explorador de arquivos)", run: (ctx) => runWorkspace(ctx) },
   { name: "/providers", args: "[list|add|rm|models]", description: "registra/remove provedores e seus modelos", run: runProviders },
   { name: "/help", args: "", description: "mostra esta lista", run: runHelp },
 ];
@@ -1139,7 +1138,10 @@ export function renderPalette(commands, selectedIndex, width) {
     return [top, mid, bottom];
   }
 
-  const label = (c) => c.name + (c.args ? " " + c.args : "");
+  // Coluna do nome = só o nome (sem args). Os args vão para a descrição,
+  // senão um comando com args longos (ex.: /subagent) espremia a descrição
+  // de todos os outros para 4 chars com "...".
+  const label = (c) => c.name;
   let nameW = 0;
   for (const c of commands) nameW = Math.max(nameW, visibleWidth(label(c)));
   nameW += 2;
@@ -1161,7 +1163,8 @@ export function renderPalette(commands, selectedIndex, width) {
     const marker = isSel ? " > " : "   ";
     let name = label(c);
     name = visibleWidth(name) > nameW ? padVisible(name, nameW) : name + " ".repeat(nameW - visibleWidth(name));
-    let desc = c.description;
+    // descrição = args (se houver) + descrição; args em dim para distinguir
+    let desc = c.args ? paint(c.args, "muted") + " " + c.description : c.description;
     if (visibleWidth(desc) > descW) desc = truncateVisible(desc, descW);
     const content = padVisible(marker + name + desc, inner);
     if (isSel) {
@@ -1682,6 +1685,10 @@ async function runEffort({ arg, out, pi }) {
     doMotor = false;
   }
   if (!doMotor) niveis = normalizeEffortList(null);
+  // "none" não é nível real; filtra e, se sobrar vazio, usa o padrão.
+  const reais = niveis.filter((n) => n !== "none");
+  if (reais.length > 0) niveis = reais;
+  else niveis = [...EFFORT_FALLBACK];
 
   const atual = (statusInfo.reasoning || "").toLowerCase() || null;
 
@@ -1879,15 +1886,23 @@ async function runContext({ out, pi }) {
 }
 
 async function runMcp({ out }) {
-  const { listMcpServers } = await import("../core/agent/mcp.mjs");
-  const servers = await listMcpServers({ root: ROOT });
+  // Lê do settings global (~/.pi/settings.json), a mesma fonte do /plugins:
+  // antes lia só .mcp.json/.pi/settings.json do PROJETO (repo) e aparecia vazio.
+  const { listConfiguredMcp } = await import("../core/agent/mcp-probe.mjs");
+  let servers;
+  try {
+    servers = await listConfiguredMcp({});
+  } catch (err) {
+    out(paint(`  não consegui ler os MCPs: ${String(err?.message || err).slice(0, 140)}`, "fail"));
+    return 1;
+  }
   if (!servers || servers.length === 0) {
-    out(paint("  nenhum servidor MCP declarado (confira .mcp.json ou as configurações do projeto)", "muted"));
+    out(paint("  nenhum servidor MCP configurado (importe com /import ou registre com /providers)", "muted"));
     return 0;
   }
-  const lines = [paint(`  ${servers.length} servidor(es) MCP`, "fg")];
+  const lines = [paint(`  ${servers.length} servidor(es) MCP:`, "fg")];
   for (const s of servers) {
-    const dot = s.status === "configured" ? paint("●", "ok") : s.status === "disabled" ? paint("●", "muted") : paint("●", "fail");
+    const dot = s.status === "configured" ? paint("●", "ok") : s.status === "disabled" ? paint("○", "muted") : paint("✗", "fail");
     const cmd = [s.command, ...(s.args || [])].filter(Boolean).join(" ");
     lines.push(`  ${dot} ${s.name.padEnd(18)} ${paint(s.status, "muted")}`);
     if (cmd) lines.push(`      ${paint(cmd, "muted")}`);
@@ -2538,7 +2553,9 @@ export async function refreshStatus(pi) {
   if (!pi) return statusInfo;
   const st = await pi.getState().catch(() => ({}));
   statusInfo.model = st && st.model ? `${st.model.provider}/${st.model.id}` : null;
-  statusInfo.reasoning = st && st.thinkingLevel ? st.thinkingLevel : null;
+  // "none" não é um nível real (o motor devolve assim quando não expõe); não
+  // polui o status com "think:none".
+  statusInfo.reasoning = st && st.thinkingLevel && st.thinkingLevel !== "none" ? st.thinkingLevel : null;
   statusInfo.sessionId = st && st.sessionId ? st.sessionId : null;
   const stats = await Promise.resolve(
     pi._rpc && pi._rpc.getSessionStats && pi._rpc.getSessionStats(),
@@ -3039,8 +3056,11 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   let valuePicker = null; // seletor genérico de valor único: { title, items, sel, onChoose }
 
   const paletteWidth = () => {
+    // Nunca passa de WIDTH: uma linha de paleta maior que a tela wrapa em 2
+    // linhas visuais mas conta como 1, e o \x1b[<n>A do redraw desalinha
+    // (causa do texto sobrepondo/acumulando ao navegar).
     const cols = (process.stdout && process.stdout.columns) || 80;
-    return Math.max(40, Math.min(cols - 4, 116));
+    return Math.max(40, Math.min(cols - 4, WIDTH));
   };
 
   const shortModel = (m) => {
@@ -3105,7 +3125,12 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     const parts = ["\x1b[?25l"]; // esconde o cursor durante o redraw
     parts.push("\r\x1b[J"); // CR + limpa da linha de entrada para baixo
     parts.push("  " + paint("›", "accent") + " " + shown);
-    for (const bl of belowLines) parts.push("\n" + bl);
+    // Trunca CADA linha abaixo a WIDTH: qualquer linha maior wrapa e desalinha
+    // o \x1b[<n>A (era a causa do acúmulo "provedores 0/3, 1/3..." e do overlap).
+    for (const bl of belowLines) {
+      const linha = visibleWidth(bl) > WIDTH ? truncateVisible(bl, WIDTH) : bl;
+      parts.push("\n" + linha);
+    }
     const below = belowLines.length;
     if (below > 0) parts.push(`\x1b[${below}A`);
     const col = 4 + win.curCol;
@@ -3712,7 +3737,45 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       items,
       footer: "↑↓ navegar · enter carregar · esc cancela",
       onChoose: async (it) => {
-        await switchToSession(it.value);
+        // submenu: abrir ou deletar a sessão
+        startValuePicker({
+          title: `sessão ${String(it.value).slice(0, 8)}`,
+          items: [
+            { label: "abrir", hint: "carregar esta sessão", value: "__open" },
+            { label: "deletar", hint: "remove o arquivo da sessão", value: "__del" },
+            { label: "voltar", value: "__back" },
+          ],
+          onChoose: async (c) => {
+            if (c.value === "__open") { await switchToSession(it.value); return; }
+            if (c.value === "__back") { return; }
+            if (c.value === "__del") {
+              // confirmação antes de apagar
+              startValuePicker({
+                title: `deletar ${String(it.value).slice(0, 8)}?`,
+                items: [
+                  { label: "sim, deletar", hint: "remove o arquivo", value: "__yes" },
+                  { label: "não", value: "__no" },
+                ],
+                onChoose: async (d) => {
+                  if (d.value !== "__yes") { startSessionsPicker(); return "keep"; }
+                  try {
+                    const { readdir, unlink } = await import("node:fs/promises");
+                    const dir = sessionsDirCache || (await sessionDir());
+                    const arq = (await readdir(dir)).find((f) => f.includes(it.value));
+                    if (arq) { await unlink(path.join(dir, arq)); write(paint("  sessão deletada", "ok")); }
+                    else write(paint("  sessão não encontrada (já removida?)", "warn"));
+                  } catch (err) {
+                    write(paint(`  erro ao deletar: ${String(err?.message || err).slice(0, 120)}`, "fail"));
+                  }
+                  startSessionsPicker();
+                  return "keep";
+                },
+              });
+              return "keep";
+            }
+          },
+        });
+        return "keep";
       },
     });
   };
@@ -3879,9 +3942,8 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         prompt();
         return;
       }
-      // /explorer (ou /pasta) abre o explorador do Windows e usa a escolha
-      // como workspace.
-      if (parsed.name === "/explorer" || parsed.name === "/pasta") {
+      // /explorer abre o explorador do Windows e usa a escolha como workspace.
+      if (parsed.name === "/explorer") {
         await pickAndSwitchWorkspace();
         prompt();
         return;
