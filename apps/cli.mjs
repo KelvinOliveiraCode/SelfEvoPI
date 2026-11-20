@@ -903,6 +903,7 @@ export const COMMANDS = [
   { name: "/status", args: "", description: "estado da sessão, modelo e modo", run: runStatus },
   { name: "/context", args: "", description: "quanto da janela de contexto está em uso", run: runContext },
   { name: "/mcp", args: "", description: "servidores MCP declarados", run: runMcp },
+  { name: "/plugins", args: "[nome|test]", description: "lista os plugins (MCP) ativos; sonda um ou todos", run: runPlugins },
   { name: "/init", args: "", description: "gera um rascunho de AGENTS.md (pede confirmação)", run: runInit },
   {
     name: "/import",
@@ -1891,6 +1892,68 @@ async function runMcp({ out }) {
     lines.push(`  ${dot} ${s.name.padEnd(18)} ${paint(s.status, "muted")}`);
     if (cmd) lines.push(`      ${paint(cmd, "muted")}`);
   }
+  out(lines.join("\n"));
+  return 0;
+}
+
+/**
+ * /plugins — lista os plugins (servidores MCP) ativos e permite sondar um
+ * (handshake JSON-RPC + tools/list) ou todos (test). "Plugin" aqui é um
+ * servidor MCP configurado em ~/.pi/settings.json.
+ *
+ *   /plugins            lista com status
+ *   /plugins <nome>     sonda um (mostra as tools que ele expõe)
+ *   /plugins test       sonda todos
+ */
+async function runPlugins({ arg, out }) {
+  const { listConfiguredMcp, probeMcpServer } = await import("../core/agent/mcp-probe.mjs");
+  let servers;
+  try {
+    servers = await listConfiguredMcp({});
+  } catch (err) {
+    out(paint(`  não consegui ler os plugins: ${String(err?.message || err).slice(0, 140)}`, "fail"));
+    return 1;
+  }
+
+  const bruto = String(arg ?? "").trim();
+
+  // sonda um (ou todos)
+  if (bruto && bruto !== "list" && bruto !== "ls") {
+    const alvos = bruto === "test" || bruto === "all" ? servers.filter((s) => s.status !== "disabled").map((s) => s.name) : [bruto];
+    if (alvos.length === 0) {
+      out(paint("  nenhum plugin ativo para sondar", "muted"));
+      return 0;
+    }
+    for (const name of alvos) {
+      out(paint(`  sondando ${name}…`, "muted"));
+      const r = await probeMcpServer({ name, timeoutMs: 6000 });
+      if (r.ok) {
+        const amostra = r.tools.slice(0, 6).join(", ");
+        out(paint(`  ✓ ${name}: ${r.tools.length} tools`, "ok") + (amostra ? paint(` (${amostra}${r.tools.length > 6 ? "…" : ""})`, "muted") : ""));
+      } else {
+        out(paint(`  ✗ ${name}: ${r.error || "sem resposta"}`, "fail"));
+      }
+    }
+    return 0;
+  }
+
+  // lista
+  if (servers.length === 0) {
+    out(paint("  nenhum plugin (MCP) configurado", "muted"));
+    out(paint("  importe com /import ou registre com /providers", "dim"));
+    return 0;
+  }
+  const cont = { configured: 0, disabled: 0, broken: 0 };
+  for (const s of servers) cont[s.status] = (cont[s.status] || 0) + 1;
+
+  const lines = [paint(`  ${servers.length} plugin(s) MCP:`, "fg")];
+  for (const s of servers) {
+    const dot = s.status === "configured" ? paint("●", "ok") : s.status === "disabled" ? paint("○", "muted") : paint("✗", "fail");
+    lines.push(`  ${dot} ${s.name.padEnd(16)} ${paint(s.status, "muted")}`);
+  }
+  lines.push("");
+  lines.push(paint(`  ${cont.configured} ativos · ${cont.disabled} desabilitados · ${cont.broken} quebrados`, "muted"));
+  lines.push(paint("  /plugins <nome> sonda um · /plugins test sonda todos", "dim"));
   out(lines.join("\n"));
   return 0;
 }
