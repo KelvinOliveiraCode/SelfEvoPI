@@ -2535,6 +2535,7 @@ function detectBranch() {
 /** Escreve o banner + estado no topo. */
 function printHeader(write, data) {
   write(renderBanner() + "\n");
+  write(renderTagline() + "\n");
   write(rule() + "\n");
   write(renderStatusLine(data) + "\n");
 }
@@ -2604,12 +2605,15 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
     belowLines.push(statusLine);
     belowLines.push(keysLine);
 
+    // Trunca o texto EXIBIDO (line.buf completo fica para edição) para não
+    // estourar 72 colunas e quebrar o redraw incremental (\r\x1b[J assume 1 linha).
+    const shown = truncateVisible(line.buf, WIDTH - 4);
     write("\r\x1b[J");
-    write("  " + paint("›", "accent") + " " + line.buf);
+    write("  " + paint("›", "accent") + " " + shown);
     for (const bl of belowLines) write("\n" + bl);
     const below = belowLines.length;
     if (below > 0) write(`\x1b[${below}A`);
-    const col = 4 + line.cur;
+    const col = 4 + Math.min(line.cur, visibleWidth(shown));
     write("\r");
     if (col > 0) write(`\x1b[${col}C`);
   };
