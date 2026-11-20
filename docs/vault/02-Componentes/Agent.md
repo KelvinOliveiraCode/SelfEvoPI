@@ -30,8 +30,9 @@ created: 2026-11-19
 | `core/agent/activity.mjs` | Registro do painel Ctrl+P (shells + subagentes) | `registerActivity`, `listActivity`, `getActive` |
 | `core/agent/providers.mjs` | Registro de provedores e modelos (`/providers`) |, |
 | `core/agent/worktree.mjs` | Worktrees git isoladas (`/worktree`) |, |
-| `core/agent/file-explorer.mjs` | Seletor de pasta do Windows (`/explorer`, `/pasta`) |, |
+| `core/agent/file-explorer.mjs` | Seletor de pasta do Windows (`/explorer`) |, |
 | `core/agent/list-window.mjs` | Lista janelas/pastas para escolher workspace |, |
+| `core/agent/mcp-probe.mjs` | Lê MCPs do settings global e sonda handshake/tools (`/mcp`, `/plugins`) |, |
 | `core/agent/pi-rpc.mjs` | Ponte RPC com o engine do PI | `createPiClient`, `findEngine`, `listConfiguredModels` |
 | `core/agent/init.mjs` | Gera rascunho de AGENTS.md | `renderAgentDoc` |
 
@@ -42,7 +43,8 @@ created: 2026-11-19
 - **Status/custo/contexto** (`/status`, `/cost`, `/context`): `inspect.mjs`.
 - **Compactação** (`/compact`): `compact.mjs`, mantém as mensagens recentes e resume
   o resto dentro de um teto de tokens.
-- **MCP** (`/mcp`): `mcp.mjs` (projeto) + `mcp-probe.mjs` (global `~/.pi/settings.json`).
+- **MCP** (`/mcp`, `/plugins`): `mcp-probe.mjs` lê o settings global (`~/.pi/settings.json`).
+  `/mcp` lista; `/plugins` também sonda (handshake JSON-RPC + tools).
 - **Skills** (`/skills`): `skills-user.mjs` (PC, `~/.pi/skills`) + store do loop.
 - **Settings** (`/settings`): `settings-view.mjs` (`renderSettings`).
 - **Tema** (`/theme`): `theme.mjs` (built-in) + `theme-custom.mjs` (slots custom).
@@ -50,7 +52,7 @@ created: 2026-11-19
 - **Atividade** (`Ctrl+P`): `activity.mjs`, lista shells + subagentes; persistente
   interage, temporário é read-only.
 - **Provedores** (`/providers`): `providers.mjs`.
-- **Workspace** (`/workspace`, `/explorer`, `/pasta`): `list-window.mjs` + `file-explorer.mjs`.
+- **Workspace** (`/workspace`, `/explorer`): `list-window.mjs` + `file-explorer.mjs`.
 - **Worktree** (`/worktree`): `worktree.mjs`.
 - **Import** (`import.mjs`): migra MCPs/skills do OpenCode para `~/.pi/` uma vez,
   reversível, ligado ao comando `/import` no `apps/cli.mjs`.
