@@ -87,6 +87,44 @@ test("runGate: sem baseline não há regressão", async () => {
   assert.equal(d.promote, true);
 });
 
+test("runGate: skipped + verifyResult.ok=false reprova (evidência real, não fabricada)", async () => {
+  const runEvals = async () => [{ skipped: true }];
+  const report = await runGate({
+    artifactDir: "/tmp/art",
+    request: REQ,
+    runEvals,
+    verifyResult: { ok: false, status: 1 },
+  });
+  assert.equal(report.skipped, true);
+  assert.equal(report.testEvidence[0].passed, false);
+  const d = decidePromotion(report);
+  assert.equal(d.promote, false);
+  assert.ok(d.reasons.some((r) => /evidência/.test(r)));
+});
+
+test("runGate: skipped + verifyResult.ok=true promove (evidência real)", async () => {
+  const runEvals = async () => [{ skipped: true }];
+  const report = await runGate({
+    artifactDir: "/tmp/art",
+    request: REQ,
+    runEvals,
+    verifyResult: { ok: true, status: 0 },
+  });
+  assert.equal(report.skipped, true);
+  assert.equal(report.testEvidence[0].passed, true);
+  const d = decidePromotion(report);
+  assert.equal(d.promote, true);
+});
+
+test("runGate: skipped SEM verifyResult reprova (sem evidência fabricada)", async () => {
+  const runEvals = async () => [{ skipped: true }];
+  const report = await runGate({ artifactDir: "/tmp/art", request: REQ, runEvals });
+  assert.equal(report.skipped, true);
+  assert.equal(report.testEvidence[0].passed, null);
+  const d = decidePromotion(report);
+  assert.equal(d.promote, false);
+});
+
 /* ------------------------------------------------------------------ */
 /* decidePromotion                                                     */
 /* ------------------------------------------------------------------ */

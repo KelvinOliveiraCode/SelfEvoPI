@@ -49,6 +49,7 @@ export async function runGate(opts = {}) {
     baseline = null,
     toleranceTokens = 0,
     runs = 3,
+    verifyResult = null,
   } = opts;
 
   if (!artifactDir || typeof artifactDir !== "string") {
@@ -65,10 +66,14 @@ export async function runGate(opts = {}) {
   const numTolerance = Number.isFinite(Number(toleranceTokens)) ? Number(toleranceTokens) : 0;
 
   // 1. Evidência de teste do próprio artefato (request.tests), se houver.
-  //    Um verify.mjs que passou é a evidência mínima; sem ela, reprova.
+  //    `passed` vem do resultado REAL do verify (verifyResult), não fabricado.
+  //    Sem verifyResult, o teste fica `passed: null` (não aprovado) — assim um
+  //    consumidor direto de runGate+decidePromotion não promove teste que
+  //    falharia. O loop (loop.mjs) injeta o verify real.
   const tests = Array.isArray(request.tests) ? request.tests : [];
+  const verifyOk = verifyResult && typeof verifyResult === "object" ? verifyResult.ok === true : null;
   const testEvidence = tests.length > 0
-    ? tests.map((t) => ({ name: t.name, passed: true }))
+    ? tests.map((t) => ({ name: t.name, passed: verifyOk }))
     : [];
 
   // 2. Evals reais (injetadas). Podem ser várias tarefas; o request traz a

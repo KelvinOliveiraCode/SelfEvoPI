@@ -55,7 +55,10 @@ function install() {
     process.stdout.write(`✓ "${TASK_NAME}" já está agendado (idempotente)\n`);
     return;
   }
-  const action = `"${NODE_EXE}" "${DAILY_SCRIPT}"`;
+  // schtasks /tr com caminho que tem espaco: aspas simples internas quebram.
+  // O wrapper `cmd /c ""<exe>" "<script>""` (aspas internas dobradas) e a forma
+  // documentada que sobrevive a "C:\Program Files\...".
+  const action = `cmd /c ""${NODE_EXE}" "${DAILY_SCRIPT}""`;
   const r = schtasks([
     "/create",
     "/tn", TASK_NAME,

@@ -31,6 +31,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { findEngine, listConfiguredModels } from "../core/agent/pi-rpc.mjs";
+import { getTheme, themeToAnsi } from "../core/agent/theme.mjs";
 
 // Acoplamento conhecido: usamos pi._rpc (acesso interno do RpcClient) para
 // getSessionStats/getMessages/switchSession, que o wrapper PiClient
@@ -56,26 +57,38 @@ function detectTruecolor() {
 
 const TRUE = detectTruecolor();
 
-const PX = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  italic: "\x1b[3m",
-  fg: TRUE ? "\x1b[38;2;255;255;255m" : "", // #ffffff
-  muted: TRUE ? "\x1b[38;2;120;120;120m" : "\x1b[90m", // #787878
-  rule: TRUE ? "\x1b[38;2;60;60;60m" : "\x1b[90m",
-  accent: TRUE ? "\x1b[38;2;120;120;120m" : "\x1b[90m",
-  code: TRUE ? "\x1b[38;2;200;200;200m" : "\x1b[37m",
-  ok: TRUE ? "\x1b[38;2;63;185;80m" : "\x1b[32m", // #3FB950
-  warn: TRUE ? "\x1b[38;2;210;153;34m" : "\x1b[33m", // #D29922
-  fail: TRUE ? "\x1b[38;2;248;81;73m" : "\x1b[31m", // #F85149
-};
+// A paleta vem do TEMA ATIVO (core/agent/theme.mjs), não de um PX fixo: assim o
+// comando /theme muda de fato as cores da CLI (antes o tema era persistido, mas o
+// render usava um PX hardcoded — /theme não fazia nada). `rule`/`code` derivam do
+// tema; reset/bold/dim/italic são SGR, não cor.
+const SGR = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", italic: "\x1b[3m" };
+let _pxCache = null;
+let _pxTheme = null;
+function px() {
+  const name = getTheme();
+  if (_pxCache && _pxTheme === name) return _pxCache;
+  const a = themeToAnsi(name); // { fg, muted, accent, ok, warn, fail } em truecolor
+  _pxCache = {
+    ...SGR,
+    fg: TRUE ? a.fg : "",
+    muted: TRUE ? a.muted : "\x1b[90m",
+    rule: TRUE ? "\x1b[38;2;74;74;74m" : "\x1b[90m",
+    accent: TRUE ? a.accent : "\x1b[90m",
+    code: TRUE ? "\x1b[38;2;200;200;200m" : "\x1b[37m",
+    ok: TRUE ? a.ok : "\x1b[32m",
+    warn: TRUE ? a.warn : "\x1b[33m",
+    fail: TRUE ? a.fail : "\x1b[31m",
+  };
+  _pxTheme = name;
+  return _pxCache;
+}
 
 const STATE_KEY = { green: "ok", amber: "warn", red: "fail" };
 
 function paint(text, key) {
-  const c = PX[key];
-  return c ? `${c}${text}${PX.reset}` : String(text);
+  const p = px();
+  const c = p[key];
+  return c ? `${c}${text}${p.reset}` : String(text);
 }
 
 export function stripAnsi(s) {
@@ -132,16 +145,27 @@ export function renderStatusLine(data = {}) {
   const t = base.totals || {};
   const cells = t.taskRuns != null && t.passes != null ? `${t.passes}/${t.taskRuns} baseline` : "baseline ?";
   const branch = data.branch || "repo";
-  const mode = data.mode ? ` · ${paint(data.mode, "fg")}` : "";
-  return fit(`  ${dot} ${branch} · ${st.label} · ${cells}${mode}`);
+  const state = paint(st.label, STATE_KEY[st.color] || "warn");
+  const mode = data.mode ? ` · ${paint(data.mode, "accent")}` : "";
+  const line = `  ${dot} ${branch} · ${state} · ${paint(cells, "muted")}${mode}`;
+  // Preserva ANSI (não usa fit(), que removeria as cores e deixava a linha monocromática).
+  return visibleWidth(line) > WIDTH ? truncateVisible(line, WIDTH) : line;
 }
 
-/** Banner: ◍ SelfEvoPI ... v0.5.0. Voz do produto; nunca cita o motor. */
+/** Banner: ◍ SelfEvoPI ... v0.5.0 + tagline. Voz do produto; nunca cita o motor. */
 export function renderBanner() {
-  const left = `  ${paint("◍", "fg")}  ${paint("SelfEvoPI", "bold")}`;
+  const left = `  ${paint("◍", "accent")}  ${paint("SelfEvoPI", "bold")}`;
   const right = paint(`v${VERSION}`, "muted");
   const pad = Math.max(1, WIDTH - visibleWidth(left) - visibleWidth(right));
   return left + " ".repeat(pad) + right;
+}
+
+/**
+ * Tagline do banner (voz do produto). Aparece uma vez, abaixo do banner, no
+ * frame de conversa e nos frames headless — dá identidade sem citar o motor.
+ */
+export function renderTagline() {
+  return `  ${paint("harness de código que mede o que falta e constrói.", "muted")}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -463,7 +487,7 @@ function capLinhas(linhas, largura = 72) {
 async function runSettingsView({ out }) {
   const { renderSettings } = await import("../core/agent/settings-view.mjs");
   const { getTheme } = await import("../core/agent/theme.mjs");
-  const { listOpencodeMcp } = await import("../core/agent/mcp-probe.mjs");
+  const { listConfiguredMcp } = await import("../core/agent/mcp-probe.mjs");
   const { listPcSkills } = await import("../core/agent/skills-user.mjs");
 
   // Cada fonte e opcional: se uma falhar, a visao mostra — e nao derruba.
@@ -476,7 +500,7 @@ async function runSettingsView({ out }) {
   };
 
   const [mcp, skills] = await Promise.all([
-    seguro(() => listOpencodeMcp({}), []),
+    seguro(() => listConfiguredMcp({}), []),
     seguro(() => listPcSkills({}), []),
   ]);
 
@@ -621,24 +645,57 @@ export function parseInput(raw) {
 }
 
 /** Ajuda (/help) — voz do produto, sem citar o motor. Lê de COMMANDS. */
+/** Quebra texto plano em linhas de até `width` colunas (sem ANSI). */
+function wrapPlain(text, width) {
+  const words = String(text ?? "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    if (cur === "") cur = w;
+    else if ([...cur].length + 1 + [...w].length <= width) cur += " " + w;
+    else {
+      lines.push(cur);
+      cur = w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.length > 0 ? lines : [""];
+}
+
+/** Corta texto plano a `w` colunas, com "…" (sem ANSI). */
+function clipPlain(text, w) {
+  const chars = [...String(text ?? "")];
+  if (chars.length <= w) return String(text ?? "");
+  return chars.slice(0, Math.max(1, w - 1)).join("") + "…";
+}
+
 export function renderHelp() {
   const out = [];
   out.push(paint("COMANDOS", "bold"));
   out.push("");
+  const LABEL = 32;
   for (const c of COMMANDS) {
-    const label = c.name + (c.args ? " " + c.args : "");
-    out.push(`  ${paint(label.padEnd(20), "fg")}  ${paint(c.description, "muted")}`);
+    const raw = c.name + (c.args ? " " + c.args : "");
+    const label = clipPlain(raw, LABEL).padEnd(LABEL);
+    const descW = Math.max(8, WIDTH - LABEL - 4);
+    const descLines = wrapPlain(c.description, descW);
+    out.push(`  ${paint(label, "fg")}  ${paint(descLines[0], "muted")}`);
+    for (let i = 1; i < descLines.length; i += 1) {
+      out.push(`  ${" ".repeat(LABEL)}  ${paint(descLines[i], "muted")}`);
+    }
   }
   out.push("");
   out.push(paint("CONVERSA", "bold"));
   out.push("");
   out.push(`  ${paint("escreva", "fg")} e Enter para falar; a resposta aparece em streaming.`);
   out.push(`  ${paint("Ctrl+C", "fg")} cancela a resposta em curso e devolve a linha.`);
-  out.push(`  ${paint("Ctrl+O", "fg")} abre/fecha o painel de estado (modo, permissão, modelo).`);
-  out.push(`  ${paint("Ctrl+K", "fg")} abre/fecha a lista de sessões (a mesma tecla do desktop).`);
-  out.push(`  ${paint("Ctrl+,", "fg")} abre/fecha as configurações (a mesma tecla do desktop).`);
+  out.push(`  ${paint("Ctrl+O", "fg")} abre/fecha o painel de estado.`);
+  out.push(`  ${paint("Ctrl+K", "fg")} abre/fecha a lista de sessões.`);
+  out.push(`  ${paint("Ctrl+,", "fg")} abre/fecha as configurações.`);
   out.push(`  ${paint("q", "fg")} / ${paint("/quit", "fg")} / ${paint("Ctrl+D", "fg")} saem.`);
-  return out.map((line) => wrapAnsi(line, WIDTH)).join("\n");
+  return out
+    .map((line) => (visibleWidth(line) > WIDTH ? truncateVisible(line, WIDTH) : line))
+    .join("\n");
 }
 
 /* ------------------------------------------------------------------ */
@@ -727,8 +784,8 @@ export function filterCommands(query) {
  */
 export function renderPalette(commands, selectedIndex, width) {
   const W = Math.max(40, Math.floor(width));
-  const top = "  ┌" + "─".repeat(W - 4) + "┐";
-  const bottom = "  └" + "─".repeat(W - 4) + "┘";
+  const top = "  ╭" + "─".repeat(W - 4) + "╮";
+  const bottom = "  ╰" + "─".repeat(W - 4) + "╯";
 
   if (!commands || commands.length === 0) {
     const mid = "  │" + padVisible("  nenhum comando", W - 4) + "│";
@@ -760,7 +817,12 @@ export function renderPalette(commands, selectedIndex, width) {
     let desc = c.description;
     if (visibleWidth(desc) > descW) desc = truncateVisible(desc, descW);
     const content = padVisible(marker + name + desc, inner);
-    lines.push("  │" + (isSel ? paint(content, "bold") : content) + "│");
+    if (isSel) {
+      // Seleção: seta ">" em accent (destacada), resto em bold — visível sem poluir.
+      lines.push("  │" + paint(" > ", "accent") + paint(content.slice(3), "bold") + "│");
+    } else {
+      lines.push("  │" + content + "│");
+    }
   }
   lines.push(bottom);
   return lines;
@@ -775,7 +837,7 @@ export function renderPaletteFrame(filterQuery = "", width = WIDTH) {
   out.push(rule());
   out.push(renderStatusLine({}));
   out.push("");
-  out.push(`  ${paint("›", "fg")} /${filterQuery}`);
+  out.push(`  ${paint("›", "accent")} /${filterQuery}`);
   for (const l of palette) out.push(l);
   out.push(paint("  ↑↓ navegar  enter escolher  esc fechar", "dim"));
   return out.map((line) => wrapAnsi(line, width)).join("\n");
@@ -1094,7 +1156,7 @@ export function renderModelPicker({ stage, sel, grupos, niveis, modelo }) {
   if (stage === "effort") {
     linhas.push(paint("  esforço — " + modelo, "fg"));
     for (let i = 0; i < niveis.length; i++) {
-      const marcador = i === sel ? paint("›", "fg") : " ";
+      const marcador = i === sel ? paint("›", "accent") : " ";
       const nome = i === sel ? paint(niveis[i], "bold") : niveis[i];
       linhas.push("    " + marcador + " " + nome);
     }
@@ -1109,7 +1171,7 @@ export function renderModelPicker({ stage, sel, grupos, niveis, modelo }) {
     linhas.push("");
     linhas.push(paint("  " + g.provider, "bold"));
     for (const id of g.ids) {
-      const marcador = idx === sel ? paint("›", "fg") : " ";
+      const marcador = idx === sel ? paint("›", "accent") : " ";
       const nome = idx === sel ? paint(id, "bold") : id;
       linhas.push("    " + marcador + " " + nome);
       idx += 1;
@@ -1890,6 +1952,18 @@ export async function runSlash(name, arg, out, ctx = {}) {
 /* ------------------------------------------------------------------ */
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/**
+ * Movimento reduzido (acessibilidade): respeita `SELFEOPI_REDUCED_MOTION`
+ * (1/true/sim) e o pedido do sistema operacional quando disponível. Com
+ * movimento reduzido, o spinner vira um indicador ESTÁTICO (sem piscar).
+ */
+export function prefersReducedMotion() {
+  const v = String(process.env.SELFEOPI_REDUCED_MOTION || "").trim().toLowerCase();
+  if (["1", "true", "sim", "on"].includes(v)) return true;
+  if (["0", "false", "nao", "off"].includes(v)) return false;
+  return false; // terminal não expõe prefers-reduced-motion nativamente
+}
 const SPINNER_MS = 80;
 
 /** Frame do spinner como função pura do tempo (determinístico, testável). */
@@ -1926,7 +2000,8 @@ function createSpinner(write) {
   let label = "";
   let active = false;
   const render = () => {
-    const frame = spinnerFrame(Date.now() - start);
+    // Movimento reduzido: indicador estático (sem piscar).
+    const frame = prefersReducedMotion() ? "●" : spinnerFrame(Date.now() - start);
     write("\r\x1b[2K  " + paint(frame, "fg") + " " + paint(label, "muted"));
   };
   return {
@@ -1940,8 +2015,11 @@ function createSpinner(write) {
       start = Date.now();
       active = true;
       render();
-      timer = setInterval(render, SPINNER_MS);
-      if (timer && typeof timer.unref === "function") timer.unref();
+      // Sem animação quando movimento reduzido: um único render basta.
+      if (!prefersReducedMotion()) {
+        timer = setInterval(render, SPINNER_MS);
+        if (timer && typeof timer.unref === "function") timer.unref();
+      }
     },
     stop() {
       if (timer) {
@@ -2109,7 +2187,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
       call.args && typeof call.args === "object"
         ? Object.values(call.args).map((v) => String(v)).join(" ").replace(/\s+/g, " ").slice(0, 44)
         : "";
-    write(`  ${paint("⏺", "fg")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
+    write(`  ${paint("⏺", "accent")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
     spin.start("executando " + String(call.name || "ferramenta"));
   });
   const offError = pi.on("error", (message) => {
@@ -2405,10 +2483,11 @@ const SAMPLE_ANSWER = [
 export function renderConversationFrame(data = {}) {
   const out = [];
   out.push(renderBanner());
+  out.push(renderTagline());
   out.push(rule());
   out.push(renderStatusLine(data));
   out.push("");
-  out.push("  " + paint("›", "fg") + " " + SAMPLE_QUESTION);
+  out.push("  " + paint("›", "accent") + " " + SAMPLE_QUESTION);
   out.push("");
   // resposta renderizada (markdown), recuada por "SelfEvoPI  "
   const rendered = renderMarkdown(SAMPLE_ANSWER).split("\n");
@@ -2526,7 +2605,7 @@ export async function repl({ pi, write, input, setRaw, data = {}, sessionsDir: s
     belowLines.push(keysLine);
 
     write("\r\x1b[J");
-    write("  " + paint("›", "fg") + " " + line.buf);
+    write("  " + paint("›", "accent") + " " + line.buf);
     for (const bl of belowLines) write("\n" + bl);
     const below = belowLines.length;
     if (below > 0) write(`\x1b[${below}A`);
@@ -3021,8 +3100,8 @@ async function main() {
     const data = { branch: "main" };
     let frame;
     if (screen === "conversation") frame = renderConversationFrame(data);
-    else if (screen === "help") frame = [renderBanner(), rule(), renderStatusLine(data), "", renderHelp()].join("\n");
-    else if (screen === "banner") frame = [renderBanner(), rule(), renderStatusLine(data)].join("\n");
+    else if (screen === "help") frame = [renderBanner(), renderTagline(), rule(), renderStatusLine(data), "", renderHelp()].join("\n");
+    else if (screen === "banner") frame = [renderBanner(), renderTagline(), rule(), renderStatusLine(data)].join("\n");
     else if (screen === "palette") frame = renderPaletteFrame("", 72);
     else if (screen === "menu") frame = renderPaletteFrame("", 72);
     else if (screen === "palette-filtered") frame = renderPaletteFrame("ev", 72);
@@ -3062,7 +3141,7 @@ async function main() {
         rule(),
         renderStatusLine({ ...data, mode: currentMode }),
         "",
-        "  " + paint("›", "fg") + " " + SAMPLE_QUESTION,
+        "  " + paint("›", "accent") + " " + SAMPLE_QUESTION,
         "",
         "  " + paint(f, "fg") + " " + paint("pensando…", "muted"),
         "  " + paint("⏺", "fg") + " " + paint("read".padEnd(10), "fg") + " " + paint("src/index.ts", "muted"),

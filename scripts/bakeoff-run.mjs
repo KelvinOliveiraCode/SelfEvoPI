@@ -80,7 +80,7 @@ function runCapture(cmd, args, { timeout = DEFAULT_TIMEOUT_MS, cwd, env } = {}) 
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try { child.kill(); } catch { /* já morreu */ }
+      killTree(child);
       resolve({ ok: false, stdout, stderr, code: null, timedOut: true });
     }, timeout);
 
@@ -114,6 +114,28 @@ async function rmrf(dir) {
     } catch {
       await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
     }
+  }
+}
+
+/**
+ * Mata a árvore do processo no timeout. No Windows `child.kill()` derruba só o
+ * processo direto e deixa netos órfãos (o Pi spawna subprocessos); `taskkill /T`
+ * alcança a árvore inteira. Fora do Windows, SIGKILL no grupo.
+ */
+function killTree(child) {
+  if (!child || child.pid == null) return;
+  if (IS_WIN) {
+    try {
+      spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+    } catch {
+      /* best-effort */
+    }
+    return;
+  }
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    /* já morreu */
   }
 }
 
@@ -235,7 +257,7 @@ function runPiSession({ cli, args, cwd, env, timeout }) {
     };
 
     const timer = setTimeout(() => {
-      try { child.kill(); } catch { /* já morreu */ }
+      killTree(child);
       finish({ ok: false, timedOut: true, code: null });
     }, timeout);
 

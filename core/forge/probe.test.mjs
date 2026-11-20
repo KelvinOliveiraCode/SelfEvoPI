@@ -77,6 +77,21 @@ test("sonda de mcp-server fala JSON-RPC, nao flags", async () => {
   }
 });
 
+test("sonda de mcp-server passa com inputs vazios (nao exige ferramenta)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "probe-mcp-vazio-"));
+  try {
+    // mcp-server sem entradas: server.mjs expõe tools:[]; a sonda não pode
+    // exigir uma ferramenta ("ferramenta") inexistente.
+    const r0 = req("mcp-server", { inputs: {}, outputs: { ok: "booleano" } });
+    await defaultGenerate(r0, dir);
+    writeFileSync(join(dir, "probe.mjs"), renderProbe(r0), "utf8");
+    const r = runProbe(dir);
+    assert.equal(r.status, 0, `${r.stdout} ${r.stderr}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("sonda de extension importa com pi falso e chama o handler", async () => {
   const dir = mkdtempSync(join(tmpdir(), "probe-ext-"));
   try {

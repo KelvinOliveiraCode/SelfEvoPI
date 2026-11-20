@@ -202,7 +202,13 @@ export class Router {
     }
 
     const pool = chosen.models.filter((m) => (m.contextWindow ?? 0) >= need);
-    const modelList = pool.length > 0 ? pool : chosen.models;
+    // Se nenhum modelo atinge o mínimo do perfil, o fallback honesto é o de MAIOR
+    // contexto disponível (não o primeiro da lista, que é arbitrário). Antes, um
+    // perfil orchestrator (200k) podia receber um modelo minúsculo silenciosamente.
+    const modelList =
+      pool.length > 0
+        ? pool
+        : [...chosen.models].sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
     const picked = modelList[0];
 
     if (!picked) throw new Error(`router: provider "${chosen.id}" sem modelo utilizavel`);

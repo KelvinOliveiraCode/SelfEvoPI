@@ -58,12 +58,35 @@ function normPath(p) {
 
 /**
  * Diz se um texto aponta para dentro de uma área protegida.
- * Aceita o texto livre da lacuna (capability/goal) ou um caminho.
+ *
+ * Aceita o texto livre da lacuna (capability/goal) ou um caminho. A comparação
+ * é por **prefixo de caminho** (o texto é/começa com a área, ou um token que
+ * parece caminho começa com ela), nunca por substring solta — assim
+ * "myevals/run.mjs" não casa com "evals/" e um gap que só *menciona* o
+ * diretório em prosa não é recusado sem um caminho real.
  */
 export function isProtectedPath(text) {
   const t = normPath(text);
   if (t === "") return false;
-  return PROTECTED_AREAS.some((area) => t === area || t.startsWith(area) || t.includes(area));
+
+  // 1) caminho explícito: o texto inteiro é/começa com a área protegida.
+  for (const area of PROTECTED_AREAS) {
+    if (t === area || t.startsWith(area)) return true;
+  }
+
+  // 2) tokens que parecem caminho (separados por espaço/aspas/parênteses),
+  //    casando a área na fronteira do token.
+  const candidates = t
+    .split(/[\s"'`()[\],;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const cand of candidates) {
+    for (const area of PROTECTED_AREAS) {
+      if (cand === area || cand.startsWith(area)) return true;
+    }
+  }
+
+  return false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -160,6 +183,8 @@ export async function runAutoPass(opts = {}) {
     writeLedger = null,
     evalTaskIds = null,
     tasksDir = null,
+    baseline = null,
+    runs = undefined,
     now = () => new Date(),
     onEvent = null,
   } = opts;
@@ -228,10 +253,11 @@ export async function runAutoPass(opts = {}) {
       gapKind: gap.kind,
       capability: gap.capability,
       goal: gap.goal,
+      gap,
       command: buildPlanCommand(gap),
     };
     actions.push(plan);
-    emit({ event: "plan", ...plan });
+    emit({ event: "plan", ...plan, gap: undefined });
   }
 
   // 4. Dry-run: só o plano. Nada é escrito, nada é promovido.
@@ -250,7 +276,17 @@ export async function runAutoPass(opts = {}) {
       const { createEvolutionLoop } = await import("./loop.mjs");
       const { realPromote, realRunEvals } = await import("./cli.mjs");
       const loop = createEvolutionLoop({ runEvals: realRunEvals, promote: realPromote });
-      report = await loop.evolve({ goal: plan.goal, taskId: plan.taskId, forceKind: undefined });
+      // Passa o gap ORIGINAL (preserva kind/meta/evidence), não só o goal —
+      // senão a lacuna do ledger (tool-failing/fragile) vira tool-missing do goal.
+      // `baseline`/`runs` habilitam a checagem de regressão/token no auto.
+      report = await loop.evolve({
+        gap: plan.gap,
+        goal: plan.goal,
+        taskId: plan.taskId,
+        baseline: baseline ?? null,
+        runs: Number.isFinite(Number(opts.runs)) ? Number(opts.runs) : undefined,
+        forceKind: undefined,
+      });
     }
     results.push(report);
     emit({ event: "auto-result", taskId: plan.taskId, outcome: report?.outcome ?? "error" });

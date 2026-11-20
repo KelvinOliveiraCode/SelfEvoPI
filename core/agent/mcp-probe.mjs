@@ -39,11 +39,11 @@ import path from "node:path";
  * produto em runtime. Quem já tem MCPs em outro lugar usa o `/import` para
  * trazê-los para `~/.pi/settings.json` (importação explícita, uma vez).
  *
- * O formato aceito é `mcpServers` (nativo do SelfEvoPI); `listOpencodeMcp`
+ * O formato aceito é `mcpServers` (nativo do SelfEvoPI); `listConfiguredMcp`
  * mantém compatibilidade com o formato aninhado `mcp.servers` para não quebrar
  * configs legadas que já estejam em `~/.pi/settings.json`.
  */
-export const OPENCODE_CONFIG_FILES = [
+export const MCP_CONFIG_FILES = [
   path.join(".pi", "settings.json"),
 ];
 
@@ -274,7 +274,7 @@ function resolveHome(home) {
  * @param {{ home?: string, configPath?: string }} [opts]
  * @returns {Promise<string|null>}
  */
-export async function findOpencodeConfig({ home, configPath } = {}) {
+export async function findMcpConfig({ home, configPath } = {}) {
   if (typeof configPath === "string" && configPath.trim() !== "") {
     const abs = path.resolve(configPath);
     try {
@@ -286,7 +286,7 @@ export async function findOpencodeConfig({ home, configPath } = {}) {
   }
 
   const base = resolveHome(home);
-  for (const rel of OPENCODE_CONFIG_FILES) {
+  for (const rel of MCP_CONFIG_FILES) {
     const abs = path.join(base, rel);
     try {
       const st = await stat(abs);
@@ -310,7 +310,7 @@ export async function findOpencodeConfig({ home, configPath } = {}) {
  * "não tem comando" e "tem" é o que define `status`, então ela não pode se
  * perder no caminho.
  */
-export function normalizeOpencodeServer(name, raw) {
+export function normalizeServerEntry(name, raw) {
   const entry = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {};
 
   const type = typeof entry.type === "string" && entry.type.trim() !== "" ? entry.type.trim() : "local";
@@ -400,8 +400,8 @@ export function statusOf(server, { home } = {}) {
  * @param {{ home?: string, configPath?: string }} [opts]
  * @returns {Promise<Array<{name:string,type:string,command:string|null,args:string[],cwd:string|null,environment:object,timeout:object,status:"configured"|"disabled"|"broken"}>>}
  */
-export async function listOpencodeMcp({ home, configPath } = {}) {
-  const file = await findOpencodeConfig({ home, configPath });
+export async function listConfiguredMcp({ home, configPath } = {}) {
+  const file = await findMcpConfig({ home, configPath });
   if (!file) return [];
 
   let raw;
@@ -431,7 +431,7 @@ export async function listOpencodeMcp({ home, configPath } = {}) {
 
   return Object.entries(map)
     .map(([name, raw2]) => {
-      const server = normalizeOpencodeServer(name, raw2);
+      const server = normalizeServerEntry(name, raw2);
       return {
         name: server.name,
         type: server.type,
@@ -483,14 +483,14 @@ async function killTree(child) {
  * @param {{ name: string, home?: string, configPath?: string, timeoutMs?: number }} opts
  * @returns {Promise<{ok: boolean, tools: string[], error: string|null}>}
  */
-export async function probeOpencodeMcp({ name, home, configPath, timeoutMs = 5_000 } = {}) {
+export async function probeMcpServer({ name, home, configPath, timeoutMs = 5_000 } = {}) {
   const vazio = { ok: false, tools: [], error: null };
 
   if (typeof name !== "string" || name.trim() === "") {
     return { ...vazio, error: "informe o nome do servidor" };
   }
 
-  const servidores = await listOpencodeMcp({ home, configPath });
+  const servidores = await listConfiguredMcp({ home, configPath });
   const alvo = servidores.find((s) => s.name === name);
   if (!alvo) return { ...vazio, error: `servidor "${name}" não está na configuração` };
   if (alvo.type === "remote") {
@@ -709,14 +709,26 @@ export async function probeOpencodeMcp({ name, home, configPath, timeoutMs = 5_0
   }
 }
 
+// Alias de compatibilidade: o nome legado `listOpencodeMcp` continua exportado
+// para importadores antigos (probe-mcps, testes). Este módulo lê
+// ~/.pi/settings.json (config do próprio SelfEvoPI), não a de outro produto.
+export const listOpencodeMcp = listConfiguredMcp;
+
+// Aliases legados dos demais símbolos (nomes antigos com "Opencode"). Mantidos
+// só por compatibilidade — o código novo usa os nomes agnósticos acima.
+export const OPENCODE_CONFIG_FILES = MCP_CONFIG_FILES;
+export const findOpencodeConfig = findMcpConfig;
+export const normalizeOpencodeServer = normalizeServerEntry;
+export const probeOpencodeMcp = probeMcpServer;
+
 export default {
-  OPENCODE_CONFIG_FILES,
+  MCP_CONFIG_FILES,
   STATUS,
   stripJsonc,
   stripTrailingCommas,
-  findOpencodeConfig,
-  normalizeOpencodeServer,
+  findMcpConfig,
+  normalizeServerEntry,
   statusOf,
-  listOpencodeMcp,
-  probeOpencodeMcp,
+  listConfiguredMcp,
+  probeMcpServer,
 };

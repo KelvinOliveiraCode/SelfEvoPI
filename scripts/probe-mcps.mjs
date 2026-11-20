@@ -27,7 +27,7 @@
  * Código de saída: 0 se nenhum servidor local falhou, 1 se algum falhou.
  */
 
-import { findOpencodeConfig, listOpencodeMcp, probeOpencodeMcp } from "../core/agent/mcp-probe.mjs";
+import { findMcpConfig, listConfiguredMcp, probeMcpServer } from "../core/agent/mcp-probe.mjs";
 
 /* ------------------------------------------------------------------ */
 /* Argumentos                                                          */
@@ -136,7 +136,7 @@ async function emLotes(lista, n, fn) {
 
 async function sondarUm(server, opts) {
   const inicio = Date.now();
-  const resultado = await probeOpencodeMcp({
+  const resultado = await probeMcpServer({
     name: server.name,
     timeoutMs: opts.timeoutMs,
   });
@@ -195,7 +195,7 @@ async function main() {
     return 0;
   }
 
-  const config = await findOpencodeConfig({});
+  const config = await findMcpConfig({});
   if (!config) {
     process.stdout.write(
       "nenhuma config em ~/.pi/settings.json — rode /import para migrar do OpenCode\n"
@@ -205,7 +205,7 @@ async function main() {
 
   let servidores;
   try {
-    servidores = await listOpencodeMcp({});
+    servidores = await listConfiguredMcp({});
   } catch (err) {
     process.stdout.write(`não consegui ler ${config}: ${err?.message ?? err}\n`);
     return 1;

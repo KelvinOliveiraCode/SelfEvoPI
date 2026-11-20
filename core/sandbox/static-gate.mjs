@@ -352,8 +352,8 @@ const RAW_RULES = [
     title: "Leitura de variável de ambiente sensível",
     why: "process.env.GITHUB_TOKEN e afins entregam a chave para o código gerado.",
     test: (raw, masked) => {
-      // forma pontuada mora em código (sobrevive à máscara)
-      const dot = /\bprocess\s*\.\s*env\s*\.\s*([A-Za-z_$][\w$]*)/g;
+      // forma pontuada mora em código (sobrevive à máscara); aceita optional chaining
+      const dot = /\bprocess\s*\.\s*env\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/g;
       let m;
       while ((m = dot.exec(masked)) !== null) if (SECRET_NAME.test(m[1])) return true;
       // forma com colchete / Python / Deno: o nome está em string, logo só o texto cru serve

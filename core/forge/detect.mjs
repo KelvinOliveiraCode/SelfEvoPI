@@ -182,10 +182,23 @@ function detectMissing(rows, capabilities) {
       continue;
     }
 
-    // 2) catálogo informado: só aí a ausência é comparável
+    // 2) catálogo informado: só aí a ausência é comparável.
+    //    Casa por token/prefixo com fronteira (não substring crua) e ignora
+    //    capabilities curtas (<2 chars) que casariam com quase tudo — evita
+    //    falso-positivo (cap "cr" em "micro") e falso-negativo por substring.
     if (catalog.length === 0) continue;
-    const hay = `${r.taskId} ${r.group ?? ""}`.toLowerCase();
-    const covered = catalog.some((cap) => hay.includes(cap));
+    const tokens = `${r.taskId} ${r.group ?? ""}`
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean);
+    const usable = catalog.filter((cap) => cap.replace(/[^a-z0-9]/g, "").length >= 2);
+    const covered = usable.some((cap) => {
+      const parts = cap.split(/[^a-z0-9]+/).filter(Boolean);
+      if (parts.length === 0) return false;
+      // capability de uma palavra: casa token exato ou prefixo de token;
+      // de várias palavras: exige que cada parte apareça como token.
+      return parts.every((p) => tokens.some((tok) => tok === p || tok.startsWith(p)));
+    });
     if (!covered) {
       push(r, `capacidade para ${r.taskId}`, `cobrir a lacuna da tarefa ${r.taskId}`, { source: "catalogo" });
     }

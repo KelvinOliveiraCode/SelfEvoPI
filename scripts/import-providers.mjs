@@ -1,9 +1,15 @@
 #!/usr/bin/env node
 /**
- * import-providers.mjs — traduz as contas do OpenCode para o formato do PI.
+ * import-providers.mjs — importa contas de provedor para o models.json do PI,
+ * de forma A G N Ó S T I C A (sem dependência do OpenCode).
  *
- * Lê o opencode.jsonc local, extrai SOMENTE as 8 contas do SelfEvoPI
- * (kilo1..kilo4 e or1..or4) e gera um models.json do PI em ~/.pi/agent/.
+ * Lê uma fonte e gera/atualiza um models.json do PI em ~/.pi/agent/. A fonte
+ * pode ser:
+ *   - opencode.jsonc  (formato OpenCode: `provider` no singular, `options.baseURL`)
+ *   - models.json     (formato NATIVO do PI: `providers` no plural, reaproveitado
+ *                      sem conversão)
+ *
+ * O formato é detectado pelo schema, ou forçado com --source-format pi|opencode.
  *
  * Seguranca:
  *  - Nunca imprime o valor de apiKey (apenas "presente" + tamanho + fingerprint).
@@ -13,9 +19,11 @@
  *  - O repositorio recebe apenas config/providers.example.json (placeholders).
  *
  * Uso:
- *   node scripts/import-providers.mjs              # dry-run (nada e escrito)
- *   node scripts/import-providers.mjs --apply      # escreve models.json + icacls
+ *   node scripts/import-providers.mjs                            # dry-run (nada e escrito)
+ *   node scripts/import-providers.mjs --apply                    # escreve models.json + icacls
  *   node scripts/import-providers.mjs --apply --out "C:/tmp/models.json"
+ *   node scripts/import-providers.mjs --source ~/.pi/agent/models.json   # fonte PI nativa
+ *   node scripts/import-providers.mjs --source-format pi|opencode        # forca o formato
  */
 
 import { readFile, writeFile, copyFile, stat } from "node:fs/promises";
@@ -27,7 +35,8 @@ import process from "node:process";
 
 const TARGETS = ["kilo1", "kilo2", "kilo3", "kilo4", "or1", "or2", "or3", "or4"];
 const HOME = os.homedir();
-const DEFAULT_SOURCE = path.join(HOME, ".config", "opencode", "opencode.jsonc");
+const OPENCODE_SOURCE = path.join(HOME, ".config", "opencode", "opencode.jsonc");
+const PI_SOURCE = path.join(HOME, ".pi", "agent", "models.json");
 const DEFAULT_OUT = path.join(HOME, ".pi", "agent", "models.json");
 
 function argValue(flag, fallback) {
@@ -35,7 +44,25 @@ function argValue(flag, fallback) {
   return i !== -1 && i + 1 < process.argv.length ? process.argv[i + 1] : fallback;
 }
 
-const source = path.resolve(argValue("--source", DEFAULT_SOURCE));
+/** Primeira fonte existente entre os candidatos, ou o 1º candidato (para o erro). */
+async function firstExisting(candidates) {
+  for (const c of candidates) {
+    const st = await stat(c).catch(() => null);
+    if (st?.isFile()) return c;
+  }
+  return candidates[0];
+}
+
+const sourceFormatArg = (() => {
+  const v = argValue("--source-format", null);
+  if (v === null) return null;
+  const s = String(v).toLowerCase();
+  if (s === "pi" || s === "opencode") return s;
+  console.error(`✗ --source-format inválido: ${JSON.stringify(v)} (use: pi | opencode)`);
+  process.exit(2);
+})();
+
+const source = path.resolve(argValue("--source", null) ?? (await firstExisting([OPENCODE_SOURCE, PI_SOURCE])));
 const out = path.resolve(argValue("--out", DEFAULT_OUT));
 const apply = process.argv.includes("--apply");
 
@@ -100,6 +127,66 @@ function buildModel(raw, id, meta) {
   return model;
 }
 
+/* ------------------------------------------------------------------ */
+/* Deteccao de formato (agnostico: PI nativo vs OpenCode)               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Decide o formato do arquivo de origem:
+ *  - "pi"       — models.json nativo do PI (`providers` no plural, `baseUrl`/`api`
+ *                 diretos, ou `$schema` apontando para pi.dev/schemas/models).
+ *  - "opencode" — opencode.jsonc (`provider` no singular, `options.baseURL`).
+ *  - null       — nenhum reconhecido.
+ */
+function detectFormat(config) {
+  if (!config || typeof config !== "object") return null;
+  const schema = typeof config.$schema === "string" ? config.$schema : "";
+  if (/pi\.dev\/schemas\/models/i.test(schema)) return "pi";
+
+  const providerMap = config.provider && typeof config.provider === "object" ? config.provider : null;
+  const opencodeShape =
+    providerMap &&
+    Object.values(providerMap).some(
+      (p) => p && typeof p === "object" && (p.options?.baseURL || p.options?.base_url),
+    );
+  if (opencodeShape) return "opencode";
+
+  if (config.providers && typeof config.providers === "object") return "pi";
+  if (providerMap) return "opencode";
+  return null;
+}
+
+/**
+ * Extrai provedores de um models.json NATIVO do PI — sem conversão. Cada
+ * provedor já está no formato do PI; apenas filtramos os alvos e montamos o
+ * resumo (mesma forma que o caminho OpenCode devolve).
+ */
+function fromPiNative(providers) {
+  const models = {};
+  const summary = [];
+  for (const id of Object.keys(providers)) {
+    const p = providers[id];
+    const baseUrl = p?.baseUrl ?? null;
+    const apiKey = p?.apiKey ?? null;
+    const modelList = Array.isArray(p?.models) ? p.models : [];
+    models[id] = {
+      name: p.name ?? id,
+      baseUrl,
+      api: p.api ?? "openai-completions",
+      ...(apiKey ? { apiKey } : {}),
+      models: modelList,
+    };
+    summary.push({
+      id,
+      baseUrl,
+      models: modelList.length,
+      apiKey: apiKey ? `presente (${String(apiKey).length} chars)` : "ausente (usar env/auth.json)",
+      fp: apiKey ? createHash("sha256").update(String(apiKey)).digest("hex").slice(0, 10) : null,
+    });
+  }
+  return { models, summary };
+}
+
 async function main() {
   let raw;
   try {
@@ -117,45 +204,75 @@ async function main() {
     process.exit(2);
   }
 
-  const providers = config?.provider ?? config?.providers ?? {};
-  const found = TARGETS.filter((id) => providers[id]);
-  const missing = TARGETS.filter((id) => !providers[id]);
+  // ---- deteccao de formato (agnostico) --------------------------------
+  const format = sourceFormatArg ?? detectFormat(config);
+  if (!format) {
+    console.error(
+      `✗ formato nao reconhecido em ${source}.\n` +
+        "  Esperado: models.json do PI (`providers`) ou opencode.jsonc (`provider` com `options.baseURL`).\n" +
+        "  Force com --source-format pi|opencode.",
+    );
+    process.exit(2);
+  }
+
+  let models;
+  let summary;
+
+  if (format === "pi") {
+    // models.json NATIVO do PI: reaproveita o schema sem conversao.
+    const providers = config.providers && typeof config.providers === "object" ? config.providers : {};
+    const extracted = fromPiNative(providers);
+    // filtra apenas os alvos, preservando a ordem de TARGETS
+    models = {};
+    for (const id of TARGETS) if (extracted.models[id]) models[id] = extracted.models[id];
+    summary = TARGETS.filter((id) => extracted.models[id])
+      .map((id) => extracted.summary.find((s) => s.id === id))
+      .filter(Boolean);
+    console.log(`Formato: pi (nativo, sem conversao)`);
+  } else {
+    // OpenCode: mantem a conversao atual (provider singular, options.baseURL).
+    const providers = config.provider && typeof config.provider === "object" ? config.provider : {};
+    const found = TARGETS.filter((id) => providers[id]);
+
+    models = {};
+    summary = [];
+    for (const id of found) {
+      const p = providers[id];
+      const baseUrl = p?.options?.baseURL ?? p?.baseURL ?? p?.options?.base_url ?? null;
+      const apiKey = p?.options?.apiKey ?? p?.apiKey ?? null;
+      if (!baseUrl) {
+        summary.push({ id, status: "ignorado", reason: "sem baseURL" });
+        continue;
+      }
+      const modelList = Object.entries(p.models ?? {}).map(([mid, meta]) => buildModel(raw, mid, meta));
+      if (modelList.length === 0) {
+        summary.push({ id, status: "ignorado", reason: "sem modelos" });
+        continue;
+      }
+      models[id] = {
+        name: p.name ?? id,
+        baseUrl,
+        api: "openai-completions",
+        ...(apiKey ? { apiKey } : {}),
+        models: modelList,
+      };
+      summary.push({
+        id,
+        baseUrl,
+        models: modelList.length,
+        apiKey: apiKey ? `presente (${String(apiKey).length} chars)` : "ausente (usar env/auth.json)",
+        fp: apiKey ? createHash("sha256").update(String(apiKey)).digest("hex").slice(0, 10) : null,
+      });
+    }
+    console.log(`Formato: opencode (convertido para o schema do PI)`);
+  }
+
+  const found = TARGETS.filter((id) => models[id]);
+  const missing = TARGETS.filter((id) => !models[id]);
 
   if (found.length === 0) {
     console.error("✗ nenhum dos provedores alvo foi encontrado no arquivo de origem");
     process.exit(2);
-  }
-
-  const models = {};
-  const summary = [];
-
-  for (const id of found) {
-    const p = providers[id];
-    const baseUrl = p?.options?.baseURL ?? p?.baseURL ?? p?.options?.base_url ?? null;
-    const apiKey = p?.options?.apiKey ?? p?.apiKey ?? null;
-    if (!baseUrl) {
-      summary.push({ id, status: "ignorado", reason: "sem baseURL" });
-      continue;
-    }
-    const modelList = Object.entries(p.models ?? {}).map(([mid, meta]) => buildModel(raw, mid, meta));
-    if (modelList.length === 0) {
-      summary.push({ id, status: "ignorado", reason: "sem modelos" });
-      continue;
-    }
-    models[id] = {
-      name: p.name ?? id,
-      baseUrl,
-      api: "openai-completions",
-      ...(apiKey ? { apiKey } : {}),
-      models: modelList,
-    };
-    summary.push({
-      id,
-      baseUrl,
-      models: modelList.length,
-      apiKey: apiKey ? `presente (${String(apiKey).length} chars)` : "ausente (usar env/auth.json)",
-      fp: apiKey ? createHash("sha256").update(String(apiKey)).digest("hex").slice(0, 10) : null,
-    });
   }
 
   const document = {

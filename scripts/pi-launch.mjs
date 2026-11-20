@@ -80,7 +80,7 @@ if (process.argv.includes("--list")) {
     console.log(`  --${name.padEnd(11)} ${String(info.tokens).padStart(5)} tok  ${present ? "" : "[ausente] "}${info.note}`);
   }
   console.log("");
-  console.log("Sem flags, o PI sobe com o system prompt puro (8.684 tok).");
+  console.log("Sem flags, o PI sobe com o system prompt puro (custo medido por scripts/measure-overhead.mjs).");
   process.exit(0);
 }
 

@@ -48,6 +48,20 @@ if (dirs.length === 0) {
   process.exit(1);
 }
 
+/**
+ * Descobre o branch default do repositório: `main`, depois `master`, depois
+ * o alvo de `refs/remotes/origin/HEAD`. Devolve null quando nenhum existe —
+ * e nesse caso behind/ahead ficam null (não 0, que mentiria "sincronizado").
+ */
+function defaultBranch(cwd) {
+  for (const nome of ["main", "master"]) {
+    if (git(["rev-parse", "--verify", nome], cwd)) return nome;
+  }
+  const sym = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd);
+  if (sym) return sym.replace(/^origin\//, "");
+  return null;
+}
+
 const rows = [];
 for (const name of dirs) {
   const cwd = path.join(WT_DIR, name);
@@ -55,8 +69,10 @@ for (const name of dirs) {
 
   const branch = git(["rev-parse", "--abbrev-ref", "HEAD"], cwd) || "?";
   const head = git(["rev-parse", "--short", "HEAD"], cwd) || "?";
-  const behind = Number(git(["rev-list", "--count", `HEAD..main`], cwd) || 0);
-  const ahead = Number(git(["rev-list", "--count", `main..HEAD`], cwd) || 0);
+  const base = defaultBranch(cwd);
+  // Sem branch default não dá para comparar: null é "desconhecido", não 0.
+  const behind = base ? Number(git(["rev-list", "--count", `HEAD..${base}`], cwd)) || 0 : null;
+  const ahead = base ? Number(git(["rev-list", "--count", `${base}..HEAD`], cwd)) || 0 : null;
   const status = readStatus(cwd);
   const dirty = status.modified.length + status.untracked.length;
 
@@ -64,6 +80,7 @@ for (const name of dirs) {
     name,
     branch,
     head,
+    base,
     behind,
     ahead,
     dirty,
@@ -74,22 +91,27 @@ for (const name of dirs) {
 
 if (PORCELAIN) {
   console.log(JSON.stringify(rows, null, 2));
-  process.exit(rows.some((r) => r.dirty > 0 || r.ahead > 0) ? 1 : 0);
+  process.exit(rows.some((r) => (r.dirty ?? 0) > 0 || (r.ahead ?? 0) > 0) ? 1 : 0);
 }
 
 console.log("worktree  branch                 head    atras  frente  pendentes");
 for (const r of rows) {
   const pend = r.dirty === 0 ? "limpo" : `${r.dirty} arquivo(s)`;
+  const fmt = (v) => (v === null ? "?" : String(v));
   console.log(
-    `  ${r.name.padEnd(8)} ${r.branch.padEnd(22)} ${r.head.padEnd(7)} ${String(r.behind).padStart(5)} ${String(r.ahead).padStart(7)}  ${pend}`,
+    `  ${r.name.padEnd(8)} ${r.branch.padEnd(22)} ${r.head.padEnd(7)} ${fmt(r.behind).padStart(5)} ${fmt(r.ahead).padStart(7)}  ${pend}`,
   );
   for (const f of r.modified) console.log(`      M  ${f}`);
   for (const f of r.untracked) console.log(`      ?  ${f}`);
 }
 
-const withWork = rows.filter((r) => r.dirty > 0 || r.ahead > 0);
-const stale = rows.filter((r) => r.behind > 0);
+const withWork = rows.filter((r) => (r.dirty ?? 0) > 0 || (r.ahead ?? 0) > 0);
+const stale = rows.filter((r) => (r.behind ?? 0) > 0);
+const semBase = rows.filter((r) => r.base === null);
 console.log("");
-console.log(`  ${withWork.length} worktree(s) com trabalho; ${stale.length} desatualizado(s) em relação à main`);
+console.log(`  ${withWork.length} worktree(s) com trabalho; ${stale.length} desatualizado(s) em relação ao branch default`);
+if (semBase.length > 0) {
+  console.log(`  ${semBase.length} worktree(s) sem branch default (main/master/origin HEAD ausente) — atras/frente desconhecido`);
+}
 
 process.exit(0);

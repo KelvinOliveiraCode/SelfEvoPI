@@ -254,3 +254,34 @@ test("segunda promocao do mesmo conteudo nao falha: registra 'nada a registrar'"
     rmSync(artifact, { recursive: true, force: true });
   }
 });
+
+test("re-promover a mesma tarefa atualiza o destino na memoria (nao duplica)", async () => {
+  const repo = tempRepo();
+  const memoryDir = mkdtempSync(join(tmpdir(), "selfevopi-mem-"));
+  try {
+    const a1 = tempArtifact({ "cli.mjs": "// v1\n" });
+    const r1 = await promoteArtifact({
+      artifactDir: a1, taskId: "B2-atualiza", repoRoot: repo,
+      commit: false, checkpoint: false, memoryRoot: memoryDir,
+    });
+    assert.equal(r1.ok, true, JSON.stringify(r1.reasons));
+    rmSync(a1, { recursive: true, force: true });
+
+    const a2 = tempArtifact({ "cli.mjs": "// v2\n" });
+    const r2 = await promoteArtifact({
+      artifactDir: a2, taskId: "B2-atualiza", repoRoot: repo,
+      commit: false, checkpoint: false, memoryRoot: memoryDir,
+    });
+    assert.equal(r2.ok, true, JSON.stringify(r2.reasons));
+    rmSync(a2, { recursive: true, force: true });
+
+    const { openStore } = await import("../memory/store.mjs");
+    const skills = openStore({ root: memoryDir }).query({ level: "skills" });
+    assert.equal(skills.length, 1, "uma entrada por tarefa (nao duplica)");
+    const destSeg = String(r2.path).split(/[\\/]/).pop();
+    assert.ok(destSeg && skills[0].text.includes(destSeg), "memoria deve apontar para o artefato mais recente");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(memoryDir, { recursive: true, force: true });
+  }
+});

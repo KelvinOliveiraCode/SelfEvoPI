@@ -225,7 +225,11 @@ export async function runRefineCycle({ store, level = "project", apply = false, 
   }
 
   // Estado anterior (para desfazer em caso de regressão).
-  const before = store.query({ level, includeInvalid: true });
+  // Guardamos o TEXTO BRUTO do arquivo, não só as entradas normalizadas do
+  // store.query(): o rollback precisa restaurar o arquivo exatamente como estava
+  // (inclusive linhas inválidas e formatação), senão corrompe o formato.
+  const levelPath = levelFile(store.root, level);
+  const rawBefore = existsSync(levelPath) ? readFileSync(levelPath, "utf8") : null;
   const applied = applyDeltas(store, deltas, { level });
 
   // Re-roda o gate: delta de memória só sobrevive se não piorar os evals.
@@ -238,38 +242,28 @@ export async function runRefineCycle({ store, level = "project", apply = false, 
   const gateOk = gate?.ok === true;
 
   if (!gateOk) {
-    // Desfaz: regrava o estado anterior do nível.
-    rollbackLevel(store, level, before);
+    // Desfaz: restaura o texto bruto original do arquivo (preserva o formato).
+    rollbackLevel(levelPath, rawBefore);
     return { ...base, applied, gate, reverted: true, gateOk: false };
   }
 
   return { ...base, applied, gate, reverted: false, gateOk: true };
 }
 
-/** Regrava o nível exatamente com o estado anterior (desfaz um apply). */
-function rollbackLevel(store, level, beforeEntries) {
-  // Remove as entradas atuais do nível e reinsere as anteriores, preservando id/at.
-  const current = store.query({ level, includeInvalid: true });
-  const currentIds = new Set(current.map((e) => e.id).filter((id) => id != null));
-  // Remove do arquivo tudo que não é inválido (regravar via promote não serve:
-  // precisamos do arquivo bruto). Usamos o módulo de refine para reescrever.
-  // applyDeltas já sabe remover por id; aqui removemos as entradas novas e
-  // reinserimos as antigas.
-  // Estratégia: reescreve o arquivo do nível com o snapshot anterior.
-  const file = levelFile(store.root, level);
-  if (!existsSync(file)) return;
-  writeFileSync(file, serialize(beforeEntries), "utf8");
+/**
+ * Restaura o arquivo do nível ao conteúdo bruto anterior (desfaz um apply).
+ * Regrava exatamente o texto guardado antes do apply — inclusive linhas
+ * inválidas e formatação — em vez de re-serializar entradas normalizadas.
+ */
+function rollbackLevel(levelPath, rawBefore) {
+  if (rawBefore === null) return; // arquivo não existia antes; nada a restaurar
+  writeFileSync(levelPath, rawBefore, "utf8");
 }
 
 function levelFile(root, level) {
   const name = { session: "session.jsonl", project: "project.jsonl", skills: "skills.jsonl" }[level];
   if (!name) throw new Error(`refine-loop: nível inválido "${level}"`);
   return join(root, name);
-}
-
-function serialize(entries) {
-  if (entries.length === 0) return "";
-  return entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
 }
 
 /* ------------------------------------------------------------------ */

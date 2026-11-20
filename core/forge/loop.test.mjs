@@ -286,3 +286,38 @@ test("loop: kind invalido falha com error honesto (sem fallback silencioso)", as
   assert.ok(report.reasons.some((r) => /kind.*inválido|inválido|esperado um de/.test(r)));
   await rm(out, { recursive: true, force: true });
 });
+
+test("loop: evento kind usa o kind do request (base do SpecWriter), nao skill", async () => {
+  const out = await tempDir();
+  const events = [];
+  // SpecWriter propõe cli; sem capabilities e sem forceKind, o kind final tem
+  // que vir de base.kind ("cli") — e o evento kind tem que refletir isso.
+  const base = {
+    goal: "cli do spec",
+    kind: "cli",
+    inputs: {},
+    outputs: {},
+    forbidden: ["acessar rede"],
+    tests: [{ name: "smoke", command: 'node -e "process.exit(0)"' }],
+  };
+  const loop = createEvolutionLoop({
+    workRoot: out,
+    specify: async () => ({ request: base, basis: "model", notes: [] }),
+    runEvals: async () => [{ passed: true, tokens: 10 }],
+    runVerification: async () => ({ ok: true, status: 0, stdout: "PASS", stderr: "" }),
+    staticGate: async () => ({ decision: "allow" }),
+    onEvent: (e) => events.push(e),
+  });
+
+  const report = await loop.evolve({
+    gap: { kind: "tool-missing", taskId: "K", capability: "cli do spec" },
+    baseline: { K: { tokens: 10 } },
+    runs: 1,
+  });
+
+  assert.equal(report.kind, "cli", "kind do relatório deve ser cli");
+  const kindEvt = events.find((e) => e.event === "kind");
+  assert.ok(kindEvt, "deve emitir evento kind");
+  assert.equal(kindEvt.kind, "cli", "evento kind deve bater com o kind do request (base do SpecWriter), nao skill");
+  await rm(out, { recursive: true, force: true });
+});

@@ -42,7 +42,7 @@ import path from "node:path";
 import os from "node:os";
 
 import {
-  normalizeOpencodeServer,
+  normalizeServerEntry,
   statusOf,
   stripJsonc,
   stripTrailingCommas,
@@ -164,7 +164,7 @@ export async function scanSource({ home } = {}) {
     const mapa = mapaDeServidores(doc);
     mcpServers = Object.entries(mapa)
       .map(([name, raw2]) => {
-        const s = normalizeOpencodeServer(name, raw2);
+        const s = normalizeServerEntry(name, raw2);
         return {
           name: s.name,
           type: s.type,

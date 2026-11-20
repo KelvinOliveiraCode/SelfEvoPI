@@ -18,7 +18,7 @@
  *  - cópia recusa sobrescrever destino existente.
  */
 
-import { cp, mkdir, readdir, stat } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -27,6 +27,8 @@ import { openStore } from "../memory/store.mjs";
 
 const DEFAULT_ARTIFACTS_REL = path.join(".pi", "harness", "artifacts");
 const DEFAULT_MEMORY_REL = path.join(".pi", "harness", "memory");
+/** Arquivo do nível `skills` no store de memória (mesmo nome do store). */
+const SKILLS_FILE = "skills.jsonl";
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -67,9 +69,12 @@ async function hasFiles(dir) {
  * não sabe que a capacidade foi criada, e o loop re-gera a mesma coisa. É a
  * diferença entre "arquivar" e "aprender".
  *
- * A entrada é idempotente: se já existe uma com o mesmo caminho, não duplica.
+ * A identidade é a **tarefa** (`tarefa:<taskId>`), não o caminho. Quando a
+ * tarefa já está registrada e o destino mudou (re-promoção de um artefato
+ * melhorado), a entrada existente é **atualizada** com o novo destino em vez de
+ * duplicar ou continuar apontando para o diretório antigo.
  *
- * @returns {{ registered: boolean, id?: string, reason?: string }}
+ * @returns {{ registered: boolean, id?: string, reason?: string, updated?: boolean }}
  */
 async function registerInMemory({ repoRoot, dest, taskId, request, memoryRoot = null } = {}) {
   const root = memoryRoot ?? path.join(repoRoot, DEFAULT_MEMORY_REL);
@@ -81,28 +86,82 @@ async function registerInMemory({ repoRoot, dest, taskId, request, memoryRoot = 
   }
 
   const rel = path.relative(repoRoot, dest).split(path.sep).join("/");
-  // A identidade é a **tarefa**, não o caminho: cada promoção cria um diretório
-  // novo (com timestamp), então deduplicar por caminho duplicaria a cada ciclo.
   const tag = `tarefa:${taskId}`;
+  const capability = request?.goal ?? taskId;
+  const kindTag = request?.kind ?? "cli";
+  const text = `${capability} — artefato em \`${rel}\` (gerado a partir da lacuna "${taskId}")`;
+  const tags = ["artefato", kindTag, tag];
+
   const existing = store.query({ level: "skills" });
   const dupe = existing.find(
     (e) => !e.invalid && Array.isArray(e.tags) && e.tags.includes(tag),
   );
+
   if (dupe) {
-    return { registered: false, reason: `já registrado (tarefa ${taskId})`, id: dupe.id };
+    // Já aponta para este destino: idempotente, nada a fazer.
+    if (String(dupe.text).includes(rel)) {
+      return { registered: false, reason: `já registrado (tarefa ${taskId})`, id: dupe.id };
+    }
+    // Re-promoção da mesma tarefa: atualiza o destino da entrada existente.
+    const updated = await updateSkillEntry({ root, id: dupe.id, text, tags, tag });
+    if (updated.ok) {
+      return { registered: true, updated: true, id: dupe.id, reason: `registro atualizado (tarefa ${taskId})` };
+    }
+    // Se a reescrita falhar, não perde o registro: anexa uma nova entrada.
   }
 
-  const capability = request?.goal ?? taskId;
-  const text = `${capability} — artefato em \`${rel}\` (gerado a partir da lacuna "${taskId}")`;
   try {
-    const entry = store.append("skills", {
-      text,
-      tags: ["artefato", request?.kind ?? "cli", tag],
-      source: "evo",
-    });
+    const entry = store.append("skills", { text, tags, source: "evo" });
     return { registered: true, id: entry.id };
   } catch (err) {
     return { registered: false, reason: `falha ao registrar: ${err?.message ?? err}` };
+  }
+}
+
+/**
+ * Reescreve a entrada `id` no `skills.jsonl` com novo `text`/`tags`, preservando
+ * as demais linhas (inclusive corrompidas) e o id/at/source originais.
+ */
+async function updateSkillEntry({ root, id, text, tags, tag }) {
+  const file = path.join(root, SKILLS_FILE);
+  let raw;
+  try {
+    raw = await readFile(file, "utf8");
+  } catch {
+    return { ok: false };
+  }
+  const lines = raw.split(/\r?\n/);
+  const out = [];
+  let changed = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      out.push(line);
+      continue;
+    }
+    let e;
+    try {
+      e = JSON.parse(trimmed);
+    } catch {
+      out.push(line); // preserva linha corrompida verbatim
+      continue;
+    }
+    if (!e.invalid && e.id === id && Array.isArray(e.tags) && e.tags.includes(tag)) {
+      e.text = text;
+      e.tags = tags;
+      out.push(JSON.stringify(e));
+      changed = true;
+    } else {
+      out.push(line);
+    }
+  }
+  if (!changed) return { ok: false };
+  const trailing = raw.endsWith("\n") ? "\n" : "";
+  try {
+    await writeFile(file, out.join("\n") + trailing, "utf8");
+    return { ok: true };
+  } catch {
+    return { ok: false };
   }
 }
 

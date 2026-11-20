@@ -107,6 +107,25 @@ for (const [regra, code] of CASOS) {
   });
 }
 
+test("secret-env-read pega optional chaining (process.env?.TOKEN)", () => {
+  const ataques = [
+    `const t = process.env?.GITHUB_TOKEN;`,
+    `const k = process.env?.API_KEY;`,
+  ];
+  for (const code of ataques) {
+    const vs = scanSource(code, { workspace: WS });
+    const v = vs.find((x) => x.rule === "secret-env-read");
+    assert.ok(v, `esperava secret-env-read para: ${code} -> ${JSON.stringify(vs.map((x) => x.rule))}`);
+    assert.equal(v.severity, "block");
+  }
+});
+
+test("secret-env-read nao bloqueia env nao-secreta com optional chaining", () => {
+  const code = `const home = process.env?.PATH;`;
+  const vs = scanSource(code, { workspace: WS });
+  assert.ok(!vs.some((v) => v.rule === "secret-env-read"), `nao devia marcar secret-env-read: ${JSON.stringify(vs.map((v) => v.rule))}`);
+});
+
 test("numero da linha aponta a linha certa", () => {
   const code = ["const a = 1;", "const b = 2;", 'const k = "sk-abcdefghijklmnopqrstuvwx";'].join("\n");
   const vs = scanSource(code, { workspace: WS });

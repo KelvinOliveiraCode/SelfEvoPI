@@ -57,40 +57,36 @@ function classify(status) {
 }
 
 async function probe(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    // HEAD primeiro (barato); alguns servidores recusam HEAD → GET.
-    for (const method of ["HEAD", "GET"]) {
-      try {
-        const res = await fetch(url, {
+  // HEAD primeiro (barato); alguns servidores recusam HEAD → GET.
+  // Cada método recebe seu próprio teto de tempo: um HEAD lento não pode
+  // abortar o GET que vem depois (o bug do controller único compartilhado).
+  for (const method of ["HEAD", "GET"]) {
+    try {
+      const res = await fetch(url, {
+        method,
+        redirect: "follow",
+        signal: AbortSignal.timeout(timeoutMs),
+        headers: {
+          "user-agent": "SelfEvoPI-verify-urls/1.0 (+local research gate)",
+          accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+        },
+      });
+      const kind = classify(res.status);
+      if (kind !== "fail" || method === "GET") {
+        return {
+          url,
+          status: res.status,
+          kind,
           method,
-          redirect: "follow",
-          signal: controller.signal,
-          headers: {
-            "user-agent": "SelfEvoPI-verify-urls/1.0 (+local research gate)",
-            accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-          },
-        });
-        const kind = classify(res.status);
-        if (kind !== "fail" || method === "GET") {
-          return {
-            url,
-            status: res.status,
-            kind,
-            method,
-            finalUrl: res.url || url,
-          };
-        }
-        // 404 no HEAD: tenta GET para confirmar.
-      } catch {
-        // tenta o próximo método
+          finalUrl: res.url || url,
+        };
       }
+      // 404 no HEAD: tenta GET para confirmar.
+    } catch {
+      // tenta o próximo método
     }
-    return { url, status: 0, kind: "error", method: "-", finalUrl: url, error: "timeout/network" };
-  } finally {
-    clearTimeout(timer);
   }
+  return { url, status: 0, kind: "error", method: "-", finalUrl: url, error: "timeout/network" };
 }
 
 async function mapWithConcurrency(items, limit, fn) {

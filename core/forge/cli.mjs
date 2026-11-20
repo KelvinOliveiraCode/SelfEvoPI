@@ -74,31 +74,70 @@ async function readJson(file, fallback = null) {
 }
 
 /**
+ * Extrai a contagem de tokens da linha resumo do `evals/run.mjs`:
+ *   "  resultado: 3/3  ·  1234 ms  ·  5678 tokens"
+ *
+ * `parsed` é false quando a linha não aparece (ex.: eval que falhou antes de
+ * imprimir o resumo) — o chamador decide o que fazer com tokens=0 nesses casos.
+ */
+function parseEvalTokens(stdout) {
+  const text = String(stdout ?? "");
+  const matches = [...text.matchAll(/resultado:[^\n]*?(\d+)\s*tokens/gi)];
+  if (matches.length === 0) return { tokens: 0, parsed: false };
+  const last = matches[matches.length - 1];
+  const n = Number(last[1]);
+  return { tokens: Number.isFinite(n) && n >= 0 ? n : 0, parsed: true };
+}
+
+/**
  * runEvals real: chama `evals/run.mjs --task <id>` N vezes.
  *
  * Quando a tarefa não existe (artefato gerado para um objetivo novo, sem tarefa
  * no ledger), devolve `{ skipped: true }` em vez de reprovar: o gate passa a
  * julgar pela evidência do próprio artefato, e diz isso no laudo.
+ *
+ * O stdout do eval é capturado e a linha `resultado: P/N · <ms> ms · <T> tokens`
+ * fornece os tokens reais — sem isso `avgTokens` seria sempre 0 e a regressão de
+ * tokens nunca reprovaria. `deps` existe para injetar um runner/tarefas em teste.
  */
-export async function realRunEvals({ taskId, runs }) {
-  if (!taskId || !existsSync(path.join(TASKS_DIR, `${taskId}.json`))) {
+export async function realRunEvals({ taskId, runs } = {}, deps = {}) {
+  const {
+    tasksDir = TASKS_DIR,
+    runScript = path.join(ROOT, "evals", "run.mjs"),
+    exec = null,
+  } = deps;
+
+  if (!taskId || !existsSync(path.join(tasksDir, `${taskId}.json`))) {
     return [{ skipped: true, reason: `sem tarefa de eval "${taskId}"` }];
   }
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const execFileAsync = promisify(execFile);
+
+  let execFileAsync;
+  if (typeof exec === "function") {
+    execFileAsync = exec;
+  } else {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    execFileAsync = promisify(execFile);
+  }
+
   const results = [];
   for (let i = 0; i < (runs ?? 1); i++) {
     try {
-      await execFileAsync(process.execPath, [path.join(ROOT, "evals", "run.mjs"), "--task", taskId, "--no-ledger"], {
+      const { stdout } = await execFileAsync(process.execPath, [runScript, "--task", taskId, "--no-ledger"], {
         cwd: ROOT,
         timeout: 200_000,
         windowsHide: true,
         maxBuffer: 8 * 1024 * 1024,
       });
-      results.push({ passed: true, tokens: 0 });
+      const parsed = parseEvalTokens(stdout);
+      const rec = { passed: true, tokens: parsed.tokens };
+      if (!parsed.parsed) rec.tokenWarning = "linha de tokens ausente no stdout do eval";
+      results.push(rec);
     } catch (err) {
-      results.push({ passed: false, tokens: 0, error: String(err?.message ?? err).slice(0, 200) });
+      const parsed = parseEvalTokens(err?.stdout);
+      const rec = { passed: false, tokens: parsed.tokens, error: String(err?.message ?? err).slice(0, 200) };
+      if (!parsed.parsed) rec.tokenWarning = "linha de tokens ausente no stdout do eval";
+      results.push(rec);
     }
   }
   return results;
@@ -381,7 +420,6 @@ async function cmdAuto(args) {
   // default é dry-run: sem --auto, só imprime o plano.
   const auto = Boolean(args.flags.auto);
   const watch = Boolean(args.flags.watch);
-  const once = Boolean(args.flags.once) || !watch;
   const interval = Number(args.flags.interval ?? 60);
   const threshold = Number(args.flags.threshold ?? 3);
   const maxGaps = Number(args.flags["max-gaps"] ?? 5);

@@ -61,8 +61,21 @@ export function renderProbe(request, opts = {}) {
   const target = PRIMARY_FILE[kind] ?? "cli.mjs";
 
   if (kind === "mcp-server") {
-    // Servidor stdio: manda initialize + tools/list e exige uma ferramenta.
-    const tool = inputs[0] ?? "ferramenta";
+    // Servidor stdio: manda initialize + tools/list e valida o array de tools.
+    // Com entradas, exige que a 1ª esteja nomeada no tools/list; sem entradas,
+    // basta o tools/list responder um array (evita falso-negativo de server vazio).
+    const tool = inputs[0] ?? null;
+    const toolCheck = tool !== null
+      ? `
+if (ok) {
+  const nomes = list.result.tools.map((t) => t && t.name);
+  if (!nomes.includes(${JSON.stringify(tool)})) {
+    console.error("  tools/list não devolveu a ferramenta " + ${JSON.stringify(tool)});
+    ok = false;
+  }
+}`
+      : "";
+
     return `#!/usr/bin/env node
 // Sonda do artefato MCP (gerada pelo Forge).
 import { spawnSync } from "node:child_process";
@@ -86,15 +99,25 @@ const r = spawnSync(process.execPath, [${JSON.stringify(target)}], {
 });
 
 const saida = String(r.stdout ?? "");
+const msgs = saida
+  .split("\\n")
+  .map((l) => l.trim())
+  .filter(Boolean)
+  .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+  .filter((m) => m && m.jsonrpc === "2.0");
+
+const list = msgs.find((m) => m.id === 2 && m.result && Array.isArray(m.result.tools));
+
 let ok = r.status === 0;
-if (ok && !saida.includes(${JSON.stringify(tool)})) {
-  console.error("  tools/list não devolveu a ferramenta ${" + JSON.stringify(tool) + "}");
-  ok = false;
-}
-if (ok && !saida.includes("jsonrpc")) {
+if (ok && msgs.length === 0) {
   console.error("  resposta não é JSON-RPC");
   ok = false;
 }
+if (ok && !list) {
+  console.error("  tools/list não respondeu um array de tools");
+  ok = false;
+}
+${toolCheck}
 process.exit(ok ? 0 : 1);
 `;
   }

@@ -328,10 +328,6 @@ export function createEvolutionLoop(deps = {}) {
       // Um kind pedido explicitamente (input.forceKind ou input.kind, vindos do
       // CLI) tem prioridade sobre o palpite do chooseKind.
       const forced = input.forceKind ?? input.kind ?? null;
-      const kind = forced ?? choice?.kind ?? "skill";
-      // Sem gerador => erro honesto no generate (nunca artefato errado).
-      report.kind = kind;
-      emit({ event: "kind", kind, covers: choice?.covers ?? null, fallback: choice?.fallback ?? false });
 
       // 3. Especifica (SpecWriter do plano) e monta o request.
       //
@@ -386,8 +382,13 @@ export function createEvolutionLoop(deps = {}) {
         });
         request.taskId = gap.taskId ?? null;
       }
+      // kind unificado: o request final já incorpora base?.kind (SpecWriter) e o
+      // palpite do chooseKind; é ele que vale para o emit e para o relatório.
+      const kind = request.kind ?? forced ?? choice?.kind ?? "skill";
       report.request = request;
-      report.kind = request.kind ?? report.kind;
+      report.kind = kind;
+      // Sem gerador => erro honesto no generate (nunca artefato errado).
+      emit({ event: "kind", kind, covers: choice?.covers ?? null, fallback: choice?.fallback ?? false });
 
       // 4. Gera em isolamento (mkdtemp: nunca a raiz do projeto).
       artifactDir = input.outDir;
@@ -462,6 +463,7 @@ export function createEvolutionLoop(deps = {}) {
         baseline: input.baseline ?? null,
         toleranceTokens: input.toleranceTokens,
         runs: input.runs,
+        verifyResult: verify,
       });
       report.gate = gateReport;
 

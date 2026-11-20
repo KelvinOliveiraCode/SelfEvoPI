@@ -87,9 +87,14 @@ async function create(label, checksFile) {
   }
   const dirty = git(["status", "--porcelain"]);
   if (dirty) {
-    console.error("  ! há alterações não commitadas:");
+    console.error("  ✗ há alterações não commitadas:");
     for (const line of dirty.split("\n")) console.error(`      ${line}`);
-    console.error("  commit ou descarte antes de criar um checkpoint.\n");
+    console.error(
+      "  checkpoint abortado: a tag apontaria para o HEAD (sem estas mudanças) e o\n" +
+        "  last-known-good não representaria o working tree. Faça commit ou stash primeiro.\n",
+    );
+    // Aborta: taggar um estado que não inclui o working tree corromperia o LKG.
+    process.exit(1);
   }
 
   const tag = `ckpt/${label}`;

@@ -16,15 +16,62 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import process from "node:process";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const MODEL = process.env.PI_MEASURE_MODEL || "kilo1/nvidia/nemotron-3-ultra-550b-a55b:free";
+const DEFAULT_MODEL = process.env.PI_MEASURE_MODEL || "kilo1/nvidia/nemotron-3-ultra-550b-a55b:free";
 const MEMORY_EXT = path.join(ROOT, "core", "memory", "extension.mjs");
 const BUDGET_TOKENS = 1_500;
+
+/**
+ * Valida que o provider do modelo default existe no models.json do PI.
+ * Se faltar, cai para o primeiro provider+modelo disponível e avisa; se não há
+ * provider nenhum com modelo, falha com mensagem explícita (não morre calado).
+ */
+function resolveModel() {
+  const modelsFile = process.env.SELFEOPI_MODELS_JSON
+    ? path.resolve(process.env.SELFEOPI_MODELS_JSON)
+    : path.join(os.homedir(), ".pi", "agent", "models.json");
+
+  let doc = null;
+  if (existsSync(modelsFile)) {
+    try {
+      doc = JSON.parse(readFileSync(modelsFile, "utf8"));
+    } catch {
+      doc = null;
+    }
+  }
+  const providers = doc?.providers && typeof doc.providers === "object" ? doc.providers : {};
+  const ids = Object.keys(providers);
+  if (ids.length === 0) {
+    return { model: DEFAULT_MODEL, note: null };
+  }
+
+  const provedorDefault = String(DEFAULT_MODEL).split("/")[0];
+  if (providers[provedorDefault]) {
+    return { model: DEFAULT_MODEL, note: null };
+  }
+
+  for (const id of ids) {
+    const firstModel = providers[id]?.models?.[0]?.id;
+    if (firstModel) {
+      const model = `${id}/${firstModel}`;
+      return {
+        model,
+        note: `modelo default indisponível (provider "${provedorDefault}" ausente); usando ${model}`,
+      };
+    }
+  }
+  process.stderr.write(
+    `measure-selfevopi-overhead: nenhum modelo utilizável em ${modelsFile} (provider "${provedorDefault}" ausente e nenhum provider com models)\n`,
+  );
+  process.exit(2);
+}
+
+const { model: MODEL, note: MODEL_NOTE } = resolveModel();
 
 /**
  * Diretório "nu" para medir o PI sem configuração de projeto nenhuma.
@@ -182,8 +229,13 @@ try {
 const base = results[0].median; // PI nu: zero SelfEvoPI
 const increment = (r) => (base != null && r.median != null ? r.median - base : null);
 const author = results.filter((r) => r.label.startsWith("memoria"));
-const worst = author.reduce((a, b) => (increment(b) > increment(a) ? b : a), author[0]);
-const worstIncrement = increment(worst);
+// Só compara configurações com incremento mensurável (não-null). Sem isso,
+// `null > null === false` fazia o reduce escolher o primeiro arbitrariamente.
+const mensuraveis = author.filter((r) => increment(r) != null);
+const worst = mensuraveis.length
+  ? mensuraveis.reduce((a, b) => (increment(b) > increment(a) ? b : a), mensuraveis[0])
+  : null;
+const worstIncrement = worst ? increment(worst) : null;
 const withinBudget = worstIncrement != null ? worstIncrement <= BUDGET_TOKENS : null;
 
 const report = {
@@ -196,7 +248,7 @@ const report = {
     incrementOverPi: increment(r),
     samples: r.samples,
   })),
-  worstCase: { config: worst.label, increment: worstIncrement },
+  worstCase: { config: worst?.label ?? null, increment: worstIncrement },
   withinBudget,
   verdict:
     worstIncrement == null

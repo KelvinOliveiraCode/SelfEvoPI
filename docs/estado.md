@@ -1,8 +1,8 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-18 · **HEAD:** `ee74ed9` em `main` (branch de release `agent/A7-f2-memoria`)
+> **Atualizado:** 2026-11-19 · **HEAD:** `8df16d2` em `main` (v1.1.4)
 > **Repositórios:** `SelfEvoPI-Priv` (privado, histórico completo) e `SelfEvoPI` (público, release limpa)
-> **Verificação:** todos os comandos abaixo foram executados nesta data (2026-11-18).
+> **Verificação:** todos os comandos abaixo foram executados nesta data (2026-11-19).
 
 ---
 
@@ -32,22 +32,22 @@ lacunas, gera artefatos e só promove o que não causa regressão.
 
 ## 3. Números (medidos, não estimados)
 
-> Medidos em **2026-11-18** no HEAD `ee74ed9`. Cada linha traz o comando que a produziu.
+> Medidos em **2026-11-19** no HEAD `8df16d2` (v1.1.4). Cada linha traz o comando que a produziu.
 
 | Métrica | Valor | Meta | Comando |
 |:---|:---|:---|:---|
-| Cold start, só a CLI | **91 ms** média (mín 82, máx 98) · 7 execuções | < 500 ms | `node apps/cli.mjs --version` |
-| Cold start, só o motor | **473 ms** mediana · 1,0–1,8 s na 1ª execução | — | `scripts/measure-overhead.mjs` |
-| Prompt do PI puro | **8.685 tok** | — | `node scripts/measure-selfevopi-overhead.mjs --runs 3` |
-| Incremento do SelfEvoPI | **+506 tok** (memória no teto) | < 1.500 tok | idem |
-| `pi-subagents` (sob demanda) | +1.659 tok | — | idem |
-| Evals | **86/87 baseline (98,85%)** · B11 é estocástico | sem regressão | `node evals/gate.mjs` |
-| Testes unitários | **665** (664 passam, 1 skip: integração sem servidor) | — | `npm test` |
+| Cold start, só a CLI | **111 ms** média (mín 97, máx 147) · 7 execuções | < 500 ms | `node apps/cli.mjs --version` |
+| Cold start, só o motor | **[NÃO MEDIDO nesta rodada]** · última medição 473 ms | — | `scripts/measure-overhead.mjs` |
+| Prompt do PI puro | **9.188 tok** | — | `node scripts/measure-selfevopi-overhead.mjs --runs 3` |
+| Incremento do SelfEvoPI | **+499 tok** (memória no teto) | < 1.500 tok | idem |
+| `pi-subagents` (sob demanda) | +1.652 tok | — | idem |
+| Evals | **85/87 (98%)** nesta rodada · B10-schema-cli e B11-html-extract são estocásticos (reexecução confirma) | sem regressão | `node evals/gate.mjs` |
+| Testes unitários | **977** (976 passam, 1 skip: integração sem servidor) | — | `npm test` |
 | Integridade das URLs | **ok=33, fail=0** | todas 200 | `node scripts/verify-urls.mjs` |
-| Módulos de produção | **65** | — | `Get-ChildItem -Recurse -Filter *.mjs` (apps+core+scripts, excl. testes) |
-| Linhas de produção | **18.869** | — | idem |
-| Arquivos de teste | **56** | — | `*.test.mjs` |
-| Linhas de teste | **10.458** | — | idem |
+| Módulos de produção | **74** | — | `Get-ChildItem -Recurse -Filter *.mjs` (apps+core+scripts, excl. `.worktrees/`/`.pi/`/`node_modules`/testes) |
+| Linhas de produção | **22.216** | — | idem |
+| Arquivos de teste | **65** | — | `*.test.mjs` (excl. node_modules/.worktrees) |
+| Linhas de teste | **13.551** | — | idem |
 | Custo | US$ 0,00 (free tier) | — | ledger |
 | Verificação de um comando | **exit 0** | — | `npm run verify` |
 | Agendamento diário | **SelfEvoPI-Daily** (07:00, Windows Task Scheduler) | — | `node scripts/schedule.mjs --status` |

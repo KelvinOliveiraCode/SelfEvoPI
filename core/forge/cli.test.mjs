@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+
+import { realRunEvals } from "./cli.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, "cli.mjs");
@@ -98,4 +102,51 @@ test("cli evolve dry-run --json tem exit 0 mesmo quando promove", () => {
   assert.equal(r.status, 0);
   const j = lastJson(r.stdout);
   assert.equal(j.report.outcome, "promoted");
+});
+
+/* ------------------------------------------------------------------ */
+/* realRunEvals: tokens reais do stdout do eval (bug #1)                */
+/* ------------------------------------------------------------------ */
+
+test("realRunEvals devolve tokens reais quando o eval imprime a linha resultado", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "forge-runevals-"));
+  try {
+    await writeFile(path.join(dir, "T1.json"), JSON.stringify({ id: "T1" }), "utf8");
+    // runner falso: imprime exatamente o formato de evals/run.mjs:241
+    const exec = async () => ({
+      stdout: "Executando 1 tarefa(s)\n  \u2713 T1  10 ms  123 tok\n\n  resultado: 1/1  \u00b7  10 ms  \u00b7  123 tokens\n",
+      stderr: "",
+    });
+    const out = await realRunEvals({ taskId: "T1", runs: 1 }, { tasksDir: dir, exec });
+    assert.equal(out.length, 1);
+    assert.equal(out[0].passed, true);
+    assert.equal(out[0].tokens, 123, "tokens deve vir do stdout, nao 0 fixo");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("realRunEvals: tokens 0 com aviso quando nao ha linha de tokens", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "forge-runevals-"));
+  try {
+    await writeFile(path.join(dir, "T2.json"), JSON.stringify({ id: "T2" }), "utf8");
+    const exec = async () => ({ stdout: "Executando 1 tarefa(s)\n  \u2713 T2  10 ms\n", stderr: "" });
+    const out = await realRunEvals({ taskId: "T2", runs: 1 }, { tasksDir: dir, exec });
+    assert.equal(out[0].passed, true);
+    assert.equal(out[0].tokens, 0);
+    assert.match(out[0].tokenWarning ?? "", /linha de tokens ausente/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("realRunEvals: tarefa inexistente => skipped (nao reprova)", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "forge-runevals-"));
+  try {
+    const out = await realRunEvals({ taskId: "NaoExiste", runs: 1 }, { tasksDir: dir, exec: async () => ({ stdout: "" }) });
+    assert.equal(out.length, 1);
+    assert.equal(out[0].skipped, true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

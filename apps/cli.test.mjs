@@ -65,6 +65,7 @@ import {
   groupModelsByProvider,
   flattenModelGroups,
   renderModelPicker,
+  prefersReducedMotion,
 } from "./cli.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -662,6 +663,23 @@ test("spinnerFrame: determinístico e cicla os frames", () => {
   assert.notEqual(b, c, "frame muda de novo");
   assert.equal(spinnerFrame(0), a, "t=0 é determinístico");
   assert.ok("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏".includes(spinnerFrame(80 * 3)));
+});
+
+test("prefersReducedMotion: respeita SELFEOPI_REDUCED_MOTION", () => {
+  const orig = process.env.SELFEOPI_REDUCED_MOTION;
+  try {
+    delete process.env.SELFEOPI_REDUCED_MOTION;
+    assert.equal(prefersReducedMotion(), false, "default: movimento normal");
+    process.env.SELFEOPI_REDUCED_MOTION = "1";
+    assert.equal(prefersReducedMotion(), true);
+    process.env.SELFEOPI_REDUCED_MOTION = "true";
+    assert.equal(prefersReducedMotion(), true);
+    process.env.SELFEOPI_REDUCED_MOTION = "0";
+    assert.equal(prefersReducedMotion(), false);
+  } finally {
+    if (orig === undefined) delete process.env.SELFEOPI_REDUCED_MOTION;
+    else process.env.SELFEOPI_REDUCED_MOTION = orig;
+  }
 });
 
 test("renderThinking: vazio → [] (não quebra)", () => {

@@ -117,7 +117,9 @@ export function openStore({ root } = {}) {
       });
       // Mais recentes primeiro (o `at` é ISO-8601, ordenável lexicograficamente).
       rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
-      if (typeof limit === "number" && limit >= 0) rows = rows.slice(0, limit);
+      // `limit > 0` é teto; 0 ou ausente = sem teto. Antes, `limit: 0` caía em
+    // `slice(0, 0)` e devolvia vazio — surpreendia quem usava 0 como "sem limite".
+    if (typeof limit === "number" && limit > 0) rows = rows.slice(0, limit);
       return rows;
     },
 
