@@ -16,6 +16,9 @@
  */
 
 import { createPiClient as _createPiClient } from "./pi-rpc.mjs";
+import { registerActivity, updateActivity, unregisterActivity } from "./activity.mjs";
+
+const activityId = (name) => `sub:${name}`;
 
 /** Registro de subagentes PERSISTENTES (sessão própria), por nome. */
 const persistent = new Map();
@@ -29,6 +32,7 @@ export function listPersistent() {
 export async function closePersistent(name) {
   const c = persistent.get(name);
   persistent.delete(name);
+  unregisterActivity(activityId(name));
   if (c) {
     try { await c.close(); } catch { /* fechar nunca derruba */ }
   }
@@ -108,14 +112,27 @@ export async function runSubagent(spec = {}, opts = {}) {
     return { name, provider, model, effort, mode, task, text: "", ok: false, error: "subagent: sem cliente (motor ausente?)" };
   }
 
+  // registra a atividade (para o painel Ctrl+P)
+  registerActivity({
+    id: activityId(name),
+    kind: "subagent",
+    name,
+    status: "running",
+    startedAt: new Date().toISOString(),
+    meta: { persistent: Boolean(spec.persistent), provider, model, effort, mode, task },
+  });
+
   try {
     const text = await client.promptAndWait(task, timeoutMs);
+    updateActivity(activityId(name), { status: "done", endedAt: new Date().toISOString() });
     return { name, provider, model, effort, mode, task, text: text ?? "", ok: true };
   } catch (err) {
+    updateActivity(activityId(name), { status: "crashed", endedAt: new Date().toISOString(), meta: { error: String(err?.message || err) } });
     return { name, provider, model, effort, mode, task, text: "", ok: false, error: String(err?.message || err) };
   } finally {
     if (closeAfter && client) {
       try { await client.close(); } catch { /* idem */ }
+      unregisterActivity(activityId(name));
     }
   }
 }
@@ -145,6 +162,39 @@ export async function runSwarmExecution(specs, opts = {}) {
           error: String(r.reason?.message || r.reason),
         },
   );
+}
+
+/**
+ * A2A (agente-para-agente): um subagente PERSISTENTE manda uma mensagem para
+ * outro subagente persistente (ou para o orquestrador). Só persistentes têm
+ * sessão própria para receber; temporários não são endereçáveis.
+ *
+ * @param {object} p
+ * @param {string} p.from  nome do subagente de origem (persistente)
+ * @param {string} p.to    nome do subagente de destino, ou "orquestrador"/"main"
+ * @param {string} p.message
+ * @param {number} [p.timeoutMs]
+ * @returns {Promise<{ok, from, to, text?, error?, deliver?: "orchestrator"}>}
+ */
+export async function sendA2A({ from, to, message, timeoutMs = 120_000 } = {}) {
+  const origem = persistent.get(from);
+  if (!origem) return { ok: false, from, to, error: `subagente "${from}" não existe ou não é persistente` };
+  if (!String(message ?? "").trim()) return { ok: false, from, to, error: "mensagem vazia" };
+
+  // @orquestrador: não há canal direto no módulo; devolve para o chamador injetar
+  if (to === "orquestrador" || to === "@orquestrador" || to === "main") {
+    return { ok: true, from, to: "orquestrador", text: message, deliver: "orchestrator" };
+  }
+
+  const alvo = persistent.get(to);
+  if (!alvo) return { ok: false, from, to, error: `destinatário "${to}" não existe ou não é persistente` };
+  try {
+    const text = await alvo.promptAndWait(message, timeoutMs);
+    updateActivity(activityId(to), { meta: { lastA2A: { from, at: new Date().toISOString() } } });
+    return { ok: true, from, to, text: text ?? "" };
+  } catch (err) {
+    return { ok: false, from, to, error: String(err?.message || err) };
+  }
 }
 
 /**

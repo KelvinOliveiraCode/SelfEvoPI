@@ -83,6 +83,26 @@ test("runSwarmExecution: paralelo, cada um com sua spec, falha isolada", async (
   await closeAllPersistent();
 });
 
+test("sendA2A: entrega entre persistentes e devolve msg vazia/erro", async () => {
+  const a = fakeClient("resposta do A");
+  const b = fakeClient("resposta do B");
+  // A e B persistentes
+  await runSubagent({ name: "A", task: "ta", persistent: true }, { createClient: async () => a });
+  await runSubagent({ name: "B", task: "tb", persistent: true }, { createClient: async () => b });
+  const { sendA2A } = await import("./subagent.mjs");
+  const r1 = await sendA2A({ from: "A", to: "B", message: "oi B" });
+  assert.equal(r1.ok, true);
+  assert.equal(r1.text, "resposta do B");
+  const r2 = await sendA2A({ from: "A", to: "inexistente", message: "x" });
+  assert.equal(r2.ok, false);
+  const r3 = await sendA2A({ from: "A", to: "B", message: "  " });
+  assert.equal(r3.ok, false);
+  const r4 = await sendA2A({ from: "A", to: "orquestrador", message: "oi chefe" });
+  assert.equal(r4.ok, true);
+  assert.equal(r4.deliver, "orchestrator");
+  await closeAllPersistent();
+});
+
 test("synthesizeSubagents: cita cada subagente e lista falhas", () => {
   const md = synthesizeSubagents([
     { name: "a", provider: "p", model: "m", effort: "high", ok: true, text: "descobri X" },

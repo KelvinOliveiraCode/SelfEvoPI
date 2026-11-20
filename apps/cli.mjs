@@ -31,7 +31,14 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { findEngine, listConfiguredModels } from "../core/agent/pi-rpc.mjs";
-import { getTheme, themeToAnsi, themeToAnsi256 } from "../core/agent/theme.mjs";
+import {
+  getTheme,
+  getThemeColors,
+  themeToAnsi,
+  themeToAnsi256,
+  themeToAnsiFromColors,
+  themeToAnsi256FromColors,
+} from "../core/agent/theme.mjs";
 
 // Acoplamento conhecido: usamos pi._rpc (acesso interno do RpcClient) para
 // getSessionStats/getMessages/switchSession, que o wrapper PiClient
@@ -74,26 +81,61 @@ const TRUE = detectTruecolor();
 // tema; reset/bold/dim/italic são SGR, não cor.
 const SGR = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", italic: "\x1b[3m" };
 let _pxCache = null;
-let _pxTheme = null;
+let _pxKey = null;
+let _customHex = null; // paleta hex do tema custom ativo (pré-carregada)
+
+/** Paleta hex do tema ativo (built-in ou custom). */
+function currentPaletteHex() {
+  const name = getTheme();
+  if (String(name).startsWith("custom")) return _customHex || getThemeColors("escuro");
+  return getThemeColors(name);
+}
+
 function px() {
   const name = getTheme();
-  if (_pxCache && _pxTheme === name) return _pxCache;
-  // truecolor quando o terminal anuncia; senão ANSI-256 (funciona em
-  // xterm-256color e afins). Tudo vem do tema; rule/code derivam de muted/fg.
-  const a = TRUE ? themeToAnsi(name) : themeToAnsi256(name);
+  const key = String(name).startsWith("custom") ? "custom:" + JSON.stringify(_customHex) : String(name);
+  if (_pxCache && _pxKey === key) return _pxCache;
+  // truecolor quando o terminal anuncia; senão ANSI-256. Tudo vem do tema
+  // (inclui code/tool/link/rule, cada um com sua cor).
+  const colors = currentPaletteHex();
+  const a = TRUE ? themeToAnsiFromColors(colors) : themeToAnsi256FromColors(colors);
   _pxCache = {
     ...SGR,
     fg: a.fg,
     muted: a.muted,
-    rule: a.muted,
     accent: a.accent,
-    code: a.fg,
     ok: a.ok,
     warn: a.warn,
     fail: a.fail,
+    code: a.code,
+    tool: a.tool,
+    link: a.link,
+    rule: a.rule,
   };
-  _pxTheme = name;
+  _pxKey = key;
   return _pxCache;
+}
+
+/**
+ * (Re)carrega a paleta do tema custom ativo. Chamar após setTheme("custom:N")
+ * ou após salvar um slot custom. Deixa px() síncrono (lê do cache).
+ */
+async function refreshThemeCache() {
+  const name = getTheme();
+  if (String(name).startsWith("custom")) {
+    const slot = Number(String(name).split(":")[1]);
+    try {
+      const { getCustomTheme } = await import("../core/agent/theme-custom.mjs");
+      const c = await getCustomTheme(slot);
+      _customHex = { ...getThemeColors("escuro"), ...(c?.colors || {}) };
+    } catch {
+      _customHex = null;
+    }
+  } else {
+    _customHex = null;
+  }
+  _pxCache = null;
+  _pxKey = null;
 }
 
 const STATE_KEY = { green: "ok", amber: "warn", red: "fail" };
@@ -554,9 +596,12 @@ async function runTheme({ arg, out }) {
     const antes = getTheme();
     const ok = setTheme(nome);
     if (!ok) {
-      out(paint(`  tema "${nome}" nao existe. Disponiveis: ${listThemes().join(", ")}`, "fail"));
+      const disp = [...listThemes(), "custom:1", "custom:2", "custom:3"].join(", ");
+      out(paint(`  tema "${nome}" nao existe. Disponiveis: ${disp}`, "fail"));
       return 1;
     }
+    // tema customizado: recarrega a paleta do slot para px() usar
+    if (String(nome).startsWith("custom")) await refreshThemeCache();
     out(paint(`  tema: ${antes} -> ${getTheme()}`, "ok"));
     return 0;
   } catch (err) {
@@ -3123,18 +3168,180 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
 
   const startThemePicker = async () => {
     const _th = await import("../core/agent/theme.mjs");
+    const tc = await import("../core/agent/theme-custom.mjs");
     const atual = _th.getTheme();
-    const items = _th.listThemes().map((nome) => ({
-      label: nome,
-      hint: nome === atual ? "(atual)" : "",
-      value: nome,
-    }));
+    const customs = await tc.listCustomThemes();
+    const items = [
+      ..._th.listThemes().map((nome) => ({
+        label: nome,
+        hint: nome === atual ? "(atual)" : "",
+        value: nome,
+      })),
+      ...customs.map((c) => ({
+        label: `custom ${c.slot}`,
+        hint: `custom:${c.slot} · ${c.name || "(vazio)"}`,
+        value: `custom:${c.slot}`,
+      })),
+      { label: "gerenciar temas custom…", hint: "editar os 3 slots (geral/detalhado)", value: "__manage" },
+    ];
     startValuePicker({
       title: "tema",
       items,
       onChoose: async (it) => {
+        if (it.value === "__manage") {
+          startValuePicker({
+            title: "qual slot custom editar?",
+            items: [
+              { label: "custom 1", hint: customs[0]?.name || "vazio", value: 1 },
+              { label: "custom 2", hint: customs[1]?.name || "vazio", value: 2 },
+              { label: "custom 3", hint: customs[2]?.name || "vazio", value: 3 },
+            ],
+            onChoose: (s) => {
+              startThemeEditor(s.value);
+              return "keep";
+            },
+          });
+          return "keep";
+        }
         const ok = _th.setTheme(it.value);
+        if (ok && String(it.value).startsWith("custom")) await refreshThemeCache();
         write(ok ? `  tema: ${atual} -> ${_th.getTheme()}\n` : `  tema "${it.value}" indisponível\n`);
+      },
+    });
+  };
+
+  // Paleta de cores para escolher a cor de cada papel do tema.
+  const SWATCHES = [
+    { name: "branco", hex: "#ffffff" }, { name: "preto", hex: "#000000" },
+    { name: "cinza", hex: "#9a9a9a" }, { name: "vermelho", hex: "#ef4444" },
+    { name: "laranja", hex: "#f59e0b" }, { name: "amarelo", hex: "#facc15" },
+    { name: "verde", hex: "#22c55e" }, { name: "ciano", hex: "#00d4ff" },
+    { name: "azul", hex: "#4a9eff" }, { name: "roxo", hex: "#a78bfa" },
+    { name: "rosa", hex: "#ec4899" }, { name: "marrom", hex: "#b45309" },
+  ];
+
+  // Editor de um tema custom: geral (5 papéis) ou detalhado (todos).
+  const startThemeEditor = async (slot) => {
+    const tc = await import("../core/agent/theme-custom.mjs");
+    const base = getThemeColors("escuro");
+    const custom = (await tc.getCustomTheme(slot)) || { name: `meu tema ${slot}`, colors: {} };
+    let colors = { ...base, ...custom.colors };
+    let nome = custom.name || `meu tema ${slot}`;
+    let detalhado = false;
+
+    const save = async (ativar) => {
+      await tc.saveCustomTheme(slot, { name: nome, colors });
+      if (ativar) {
+        setTheme(`custom:${slot}`);
+        await refreshThemeCache();
+      }
+    };
+
+    const render = () => {
+      const roles = detalhado ? tc.CUSTOM_ROLES : tc.GENERAL_ROLES;
+      const itens = roles.map((r) => ({ label: r, hint: colors[r] || "(padrão)", value: r }));
+      itens.push(
+        { label: detalhado ? "→ modo geral" : "→ modo detalhado", hint: detalhado ? "5 papéis" : "todos os papéis", value: "__toggle" },
+        { label: "salvar e ativar", hint: `custom:${slot}`, value: "__save" },
+        { label: "salvar sem ativar", hint: "mantém o tema atual", value: "__saveonly" },
+        { label: "voltar", hint: "sem salvar", value: "__back" },
+      );
+      startValuePicker({
+        title: `editar tema ${slot} · ${nome} · ${detalhado ? "detalhado" : "geral"}`,
+        items: itens,
+        footer: "enter escolhe o papel · depois a cor · salvar",
+        onChoose: async (it) => {
+          if (it.value === "__toggle") { detalhado = !detalhado; render(); return "keep"; }
+          if (it.value === "__save") { await save(true); write(paint(`  tema custom ${slot} salvo e ativo`, "ok")); return; }
+          if (it.value === "__saveonly") { await save(false); write(paint(`  tema custom ${slot} salvo`, "ok")); return; }
+          if (it.value === "__back") { return; }
+          const role = it.value;
+          startValuePicker({
+            title: `cor de "${role}"`,
+            items: SWATCHES.map((s) => ({ label: s.name, hint: colors[role] === s.hex ? "• atual" : "", value: s.hex })),
+            onChoose: async (sw) => {
+              colors[role] = sw.value;
+              render();
+              return "keep";
+            },
+          });
+          return "keep";
+        },
+      });
+    };
+    render();
+  };
+
+  // ------------------------------------------------------ atividade (Ctrl+P)
+  // Lista shells e subagentes em execução. Subagente persistente pode ser
+  // inspecionado/interagido; temporário é read-only (só parar).
+  const startActivityPanel = async () => {
+    const ac = await import("../core/agent/activity.mjs");
+    const itens = ac.listActivity();
+    const linhas = itens.map((a) => {
+      const st = a.status === "running" ? "●" : a.status === "done" ? "✓" : a.status === "crashed" ? "✗" : "○";
+      const meta = a.meta
+        ? [a.meta.persistent ? "persistente" : "temporário", a.meta.provider && a.meta.model ? `${a.meta.provider}/${a.meta.model}` : null, a.meta.effort ? `think:${a.meta.effort}` : null]
+            .filter(Boolean).join(" · ")
+        : "";
+      return { label: `${st} ${a.name}`, hint: `${a.kind} · ${a.status} · ${meta}`, value: a.id };
+    });
+    if (linhas.length === 0) linhas.push({ label: "(nada rodando)", hint: "shells e subagentes", value: "__empty" });
+    linhas.push({ label: "atualizar", hint: "reler", value: "__refresh" });
+    startValuePicker({
+      title: `atividade (${itens.length})`,
+      items: linhas,
+      footer: "enter inspecionar/parar · esc voltar",
+      onChoose: async (it) => {
+        if (it.value === "__refresh") { startActivityPanel(); return "keep"; }
+        if (it.value === "__empty") return;
+        const a = ac.getActivity(it.value);
+        if (!a) { write(paint("  atividade não encontrada", "muted")); return; }
+        // detalhe + ações
+        const meta = a.meta || {};
+        const info = [
+          `  ${a.name} · ${a.kind} · ${a.status}`,
+          meta.task ? `    tarefa: ${String(meta.task).slice(0, 100)}` : null,
+          meta.persistent ? "    persistente (sessão própria)" : "    temporário (read-only)",
+        ].filter(Boolean);
+        info.forEach((l) => write(l + "\n"));
+        if (a.kind !== "subagent" || !meta.persistent) {
+          // temporário/shell: só pode parar
+          startValuePicker({
+            title: `${a.name} (temporário — read-only)`,
+            items: [{ label: "parar", hint: "encerra", value: "__stop" }, { label: "voltar", value: "__back" }],
+            onChoose: async (c) => {
+              if (c.value === "__stop") {
+                if (a.kind === "subagent") { const { closePersistent } = await import("../core/agent/subagent.mjs"); await closePersistent(a.name); }
+                else ac.unregisterActivity(a.id);
+                write(paint(`  ${a.name} parado`, "ok"));
+                startActivityPanel();
+                return "keep";
+              }
+            },
+          });
+          return "keep";
+        }
+        // persistente: ver / interagir / parar
+        startValuePicker({
+          title: `${a.name} (persistente)`,
+          items: [
+            { label: "ver detalhes", hint: `${a.kind} · ${a.status}`, value: "__info" },
+            { label: "parar", hint: "encerra a sessão", value: "__stop" },
+            { label: "voltar", value: "__back" },
+          ],
+          onChoose: async (c) => {
+            if (c.value === "__info") { startActivityPanel(); return "keep"; }
+            if (c.value === "__stop") {
+              const { closePersistent } = await import("../core/agent/subagent.mjs");
+              await closePersistent(a.name);
+              write(paint(`  subagente "${a.name}" parado`, "ok"));
+              startActivityPanel();
+              return "keep";
+            }
+          },
+        });
+        return "keep";
       },
     });
   };
@@ -3667,6 +3874,16 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         } else drawInput();
         continue;
       }
+      if (key === "ctrl-p" && !running) {
+        // Ctrl+P: painel de atividade (shells + subagentes)
+        settingsOpen = false;
+        sessionsOpen = false;
+        panelOpen = false;
+        modelPicker = null;
+        valuePicker = null;
+        await startActivityPanel();
+        continue;
+      }
       // O seletor tem prioridade: enquanto ele está aberto, as setas andam
       // na lista, enter escolhe e esc cancela — nada disso chega ao editor.
       if (modelPicker) {
@@ -3742,6 +3959,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   input.setEncoding("utf8");
   input.on("data", onData);
   await refreshStatus(pi); // painel já nasce com modo/permissão/modelo
+  await refreshThemeCache(); // se o tema ativo for custom, carrega a paleta
   prompt();
 
   return new Promise((resolve) => {
@@ -3823,6 +4041,10 @@ function makeKeyMap() {
       }
       if (code === 0x1c) { // Ctrl+, não tem código ASCII próprio; 0x1C é o que
         yield "ctrl-comma"; // a maioria dos terminais manda (Ctrl+ inclusive)
+        continue;
+      }
+      if (code === 0x10) { // Ctrl+P — painel de atividade (shells + subagentes)
+        yield "ctrl-p";
         continue;
       }
       if (code === 0x0d || code === 0x0a) {

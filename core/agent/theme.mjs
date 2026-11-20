@@ -49,6 +49,10 @@ export const THEMES = {
     ok: "#22c55e",
     warn: "#f59e0b",
     fail: "#ef4444",
+    code: "#c8c8c8",
+    tool: "#e5c07b",
+    link: "#4a9eff",
+    rule: "#3a3a3a",
   },
   claro: {
     name: "claro",
@@ -59,6 +63,10 @@ export const THEMES = {
     ok: "#15803d",
     warn: "#b45309",
     fail: "#dc2626",
+    code: "#4a4a4a",
+    tool: "#b45309",
+    link: "#1565c0",
+    rule: "#d0d0d0",
   },
   "alto-contraste": {
     name: "alto-contraste",
@@ -69,6 +77,10 @@ export const THEMES = {
     ok: "#39ff14",
     warn: "#ffd700",
     fail: "#ff4d4d",
+    code: "#e0e0e0",
+    tool: "#00e5ff",
+    link: "#00d4ff",
+    rule: "#555555",
   },
 };
 
@@ -154,7 +166,9 @@ export function getThemeColors(nome) {
  * @returns {boolean} true se aplicou
  */
 export function setTheme(nome) {
-  if (!THEMES[nome]) return false;
+  // aceita temas embutidos E slots customizados ("custom:1".."custom:3")
+  const isCustom = typeof nome === "string" && /^custom:[1-3]$/.test(nome);
+  if (!THEMES[nome] && !isCustom) return false;
   current = nome;
   writeThemeFile(nome);
   writeLocalStorage(nome);
@@ -212,6 +226,10 @@ export function themeToAnsi(nome) {
     ok: seq(t.ok),
     warn: seq(t.warn),
     fail: seq(t.fail),
+    code: seq(t.code),
+    tool: seq(t.tool),
+    link: seq(t.link),
+    rule: seq(t.rule),
   };
 }
 
@@ -253,6 +271,39 @@ export function themeToAnsi256(nome) {
     ok: seq(t.ok),
     warn: seq(t.warn),
     fail: seq(t.fail),
+    code: seq(t.code),
+    tool: seq(t.tool),
+    link: seq(t.link),
+    rule: seq(t.rule),
+  };
+}
+
+/**
+ * Paleta (objeto de hex) → ANSI truecolor. Usada por temas customizados,
+ * que não estão em THEMES mas têm as mesmas chaves.
+ * @param {{fg:string,muted:string,accent:string,ok:string,warn:string,fail:string,code?:string,tool?:string,link?:string,rule?:string}} colors
+ */
+export function themeToAnsiFromColors(colors = {}) {
+  const seq = (hex) => {
+    const { r, g, b } = hexToRgb(hex);
+    return `\x1b[38;2;${r};${g};${b}m`;
+  };
+  return {
+    fg: seq(colors.fg), muted: seq(colors.muted), accent: seq(colors.accent),
+    ok: seq(colors.ok), warn: seq(colors.warn), fail: seq(colors.fail),
+    code: seq(colors.code || colors.fg), tool: seq(colors.tool || colors.accent),
+    link: seq(colors.link || colors.accent), rule: seq(colors.rule || colors.muted),
+  };
+}
+
+/** Paleta (objeto de hex) → ANSI-256. */
+export function themeToAnsi256FromColors(colors = {}) {
+  const seq = (hex) => `\x1b[38;5;${hexToAnsi256(hex)}m`;
+  return {
+    fg: seq(colors.fg), muted: seq(colors.muted), accent: seq(colors.accent),
+    ok: seq(colors.ok), warn: seq(colors.warn), fail: seq(colors.fail),
+    code: seq(colors.code || colors.fg), tool: seq(colors.tool || colors.accent),
+    link: seq(colors.link || colors.accent), rule: seq(colors.rule || colors.muted),
   };
 }
 
