@@ -4,8 +4,8 @@
  * Sem dependências. Node ESM puro. Windows nativo (sem `.sh`).
  *
  * O runtime (`runtime.mjs`) salva um formato próprio em `.pi/harness/graph/`. O
- * `scripts/checkpoint.mjs` salva outro (git: sha/branch/checks). Um desktop
- * precisaria entender os dois. Este módulo traduz o estado do runtime para um
+ * `scripts/checkpoint.mjs` salva outro (git: sha/branch/checks). Um consumidor
+ * externo precisaria entender os dois. Este módulo traduz o estado do runtime para um
  * formato único, git-nativo e legível — e de volta.
  *
  * Formato da ponte (harness-state):

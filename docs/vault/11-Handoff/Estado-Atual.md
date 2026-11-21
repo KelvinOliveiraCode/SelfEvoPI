@@ -50,7 +50,8 @@ npm run verify  # exit 0
   implementados; exigem roteamento de modelo auxiliar ou camada de config ainda
   inexistente.
 - Recuperação de skills é lexical (sem embeddings).
-- Auto-disparo do loop evolutivo ainda depende de gatilho externo.
+- Auto-disparo do loop evolutivo existe via `core/forge/auto.mjs` (`--watch`,
+  dry-run por padrão), mas ainda não reage a eventos externos como webhooks.
 
 ## Índice de código
 

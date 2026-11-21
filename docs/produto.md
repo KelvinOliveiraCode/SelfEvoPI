@@ -226,7 +226,9 @@ docs/vault/         índice navegável em Obsidian
 - `/btw`, keybindings customizáveis, hooks e barra de progresso no título não
   existem: exigem roteamento de modelo auxiliar ou camada de config própria.
 - Recuperação de skills é lexical (texto e tags), sem embeddings.
-- O auto-disparo do loop evolutivo depende de um gatilho externo.
+- O auto-disparo do loop já existe (`core/forge/auto.mjs`, comando `auto` e
+  modo `--watch`), mas ainda não reage a eventos externos: é disparado por
+  relógio, ledger ou chamada explícita.
 - Alguns modelos do catálogo terminam uma chamada sem texto; a CLI recupera o
   texto final da mensagem e, mesmo assim vazio, reporta o comportamento do
   provedor sem fingir sucesso.

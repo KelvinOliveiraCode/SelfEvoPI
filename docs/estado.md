@@ -100,7 +100,7 @@ A sonda pega isso antes.
 |:--|:--|
 | `/btw`, keybindings customizáveis, hooks e barra de progresso no título | não implementados: exigem roteamento de modelo auxiliar ou camada de config que ainda não existe. Decisão registrada em `round2.md`. |
 | Recuperação de skills é lexical | busca por termo em texto e tags, sem embeddings. |
-| Auto-disparo do loop evolutivo | o ciclo é autônomo dado um gatilho; nada o agenda automaticamente. |
+| Auto-disparo do loop evolutivo | `core/forge/auto.mjs` já faz `--once`/`--watch` com dry-run por padrão e travas; falta reagir a eventos externos (webhook, fila, ticket). |
 | Grupo B do gate com chamadas reais de modelo | não roda no CI; fica local para quem tem credencial. |
 | 4 modelos do catálogo não devolvem texto ao prompt mínimo | `stealth/crouton-alpha`, `thinkingmachines/inkling-2-small`, `inclusionai/ling-3.2-flash` e `liquid/lfm-3-1.7b` terminam `settled` sem texto em parte dos provedores. A CLI recupera `get_last_assistant_text`; quando ainda assim vem vazio, é comportamento do provedor, não divergência de capacidade. |
 
