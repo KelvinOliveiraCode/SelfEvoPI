@@ -1,10 +1,10 @@
-# Verificação — SelfEvoPI 1.2.2
+# Verificação — SelfEvoPI 1.2.4
 
 Medições feitas em 21/11/2026. Cada número tem origem rastreável.
 
 | Verificação | Resultado | Como reproduzir |
 |:--|:--|:--|
-| Suíte completa | 1029 testes, 1028 passam, 1 skip | `npm test` |
+| Suíte completa | 1041 testes, 1040 passam, 1 skip | `npm test` |
 | Verificação completa | exit 0 | `npm run verify` |
 | Fontes citadas | 33/33 respondem 200 | `node scripts/verify-urls.mjs` |
 | Cold start da CLI | 82 ms médio (7 execuções, 75–96 ms) | cronômetro sobre `node apps/cli.mjs --version` |

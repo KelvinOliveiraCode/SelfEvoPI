@@ -182,6 +182,11 @@ result goes to `~/.pi/agent/models.json`, outside the repository, with a backup
 and a Windows ACL. You can also add a single model by hand with
 `--add-model <id> --provider <id> --efforts low,high --image --apply`.
 
+**Several accounts of the same gateway** are first-class: each gets its own id
+and key (`kilo1`, `kilo2`, `or1`, `or2`…). The setup never reuses an existing id,
+detects duplicate keys, and can clone a sibling's catalog with
+`--clone-from kilo1 --api-key-env KILO2_API_KEY --apply`.
+
 ## Verify
 
 ```powershell

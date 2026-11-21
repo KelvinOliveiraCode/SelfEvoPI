@@ -4,6 +4,20 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.4] - 2026-11-21
+
+**Várias contas do mesmo gateway.**
+
+- `providers-setup` nunca reutiliza o id de uma conta existente: sugere
+  `kilo1`, `kilo2`…, recusa sobrescrever chave sem `--replace-key` e avisa quando
+  a mesma chave já está cadastrada para aquele endpoint.
+- `--clone-from <id>` copia o catálogo de uma conta irmã com outra chave, sem
+  precisar redescobrir modelos.
+- `--list` agrupa contas por endpoint e mostra fingerprint da chave (nunca o
+  valor). `models-config` ganhou `providersForEndpoint`, `nextProviderId`,
+  `keyFingerprint` e `isDuplicateKey`.
+- Endpoints com IP recebem id `gateway1`, `gateway2`… em vez de `128`, `129`.
+
 ## [1.2.3] - 2026-11-21
 
 **Providers configuráveis pelo usuário, sem nada pré-configurado no release público.**

@@ -46,6 +46,27 @@ node scripts/providers-setup.mjs --list --json
 
 Também dá para descobrir pela CLI: `/providers discover <url> [ENV_DA_CHAVE]`.
 
+### Várias contas do mesmo gateway
+
+Vários ids podem apontar para o **mesmo endpoint** com chaves diferentes
+(`kilo1`, `kilo2`, `or1`, `or2`…). O assistente nunca reutiliza um id existente:
+sugere `kilo1`, `kilo2`, `kilo3`… e recusa sobrescrever a chave de uma conta
+sem `--replace-key`. Se a chave já estiver cadastrada para aquele gateway, ele
+avisa em `warnings` — evita conta duplicada por engano.
+
+```powershell
+# 2ª conta do mesmo gateway, com chave própria e catálogo clonado da 1ª
+node scripts/providers-setup.mjs --clone-from kilo1 `
+  --api-key-env KILO2_API_KEY --json --apply
+
+# ou com descoberta fresca e id explícito
+node scripts/providers-setup.mjs --base-url https://ai-gateway.kilo.ai/api/v1 `
+  --api-key-env KILO2_API_KEY --provider kilo2 --json --apply
+```
+
+`--list` mostra as contas agrupadas por endpoint, com fingerprint da chave
+(nunca o valor). `--remove-provider <id>` remove só aquela conta.
+
 O padrão é **dry-run**; `--apply` grava. A chave nunca aparece na saída — só
 `{ present, length }`. `core/agent/provider-discovery.mjs` normaliza catálogos
 OpenRouter, Kilo, Nous e genéricos, infere efforts, reasoning, imagem e variantes

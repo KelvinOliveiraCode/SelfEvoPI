@@ -7,6 +7,7 @@
 
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
@@ -60,7 +61,50 @@ export async function writeModels(doc, { file = modelsPath(), backup = true, acl
 /** Só metadados seguros de uma chave — nunca o valor. */
 export function keyInfo(key) {
   if (!key) return { present: false };
-  return { present: true, length: String(key).length };
+  return { present: true, length: String(key).length, fingerprint: keyFingerprint(key) };
+}
+
+/** Fingerprint curto: permite comparar chaves sem imprimi-las. */
+export function keyFingerprint(key) {
+  if (!key) return null;
+  return createHash("sha256").update(String(key)).digest("hex").slice(0, 8);
+}
+
+function normalizeEndpoint(url) {
+  return String(url || "").trim().toLowerCase().replace(/\/+$/, "").replace(/\/v\d+(?:\/models)?$/, "");
+}
+
+/** Ids cadastrados para o mesmo gateway (endpoints equivalentes). */
+export function providersForEndpoint(doc, baseUrl) {
+  const alvo = normalizeEndpoint(baseUrl);
+  if (!alvo) return [];
+  return Object.entries(doc.providers || {})
+    .filter(([, p]) => normalizeEndpoint(p?.baseUrl) === alvo)
+    .map(([id]) => id);
+}
+
+/**
+ * Sugere o próximo id livre para o mesmo gateway.
+ * "kilo" → kilo1, kilo2…; "kilo3" → kilo4, kilo5…
+ */
+export function nextProviderId(base, doc) {
+  const ids = new Set(Object.keys(doc.providers || {}));
+  const nome = String(base || "gateway").replace(/[^a-z0-9_-]/gi, "-").toLowerCase() || "gateway";
+  const match = /^(.*?)(\d+)$/.exec(nome);
+  const prefixo = match ? match[1] : nome;
+  const inicio = match ? Number(match[2]) + 1 : 1;
+  for (let i = inicio; i < inicio + 1000; i++) {
+    const candidato = `${prefixo}${i}`;
+    if (!ids.has(candidato)) return candidato;
+  }
+  return `${prefixo}-${Date.now()}`;
+}
+
+/** Verdadeiro se outra conta do mesmo gateway já usa exatamente esta chave. */
+export function isDuplicateKey(doc, baseUrl, key) {
+  if (!key) return false;
+  const fp = keyFingerprint(key);
+  return providersForEndpoint(doc, baseUrl).some((id) => keyFingerprint(doc.providers[id]?.apiKey) === fp);
 }
 
 export function upsertProvider(doc, { id, name, baseUrl, apiKey, api = "openai-completions", models = [], mode = "merge" }) {
@@ -110,6 +154,7 @@ export function removeModel(doc, providerId, modelId) {
 }
 
 export default {
-  modelsPath, readModels, writeModels, keyInfo,
+  modelsPath, readModels, writeModels, keyInfo, keyFingerprint,
+  providersForEndpoint, nextProviderId, isDuplicateKey,
   upsertProvider, removeProvider, upsertModels, removeModel,
 };

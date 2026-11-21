@@ -50,6 +50,28 @@ test("writeModels faz backup e não expõe a chave no JSON de relatório", async
   assert.equal(JSON.stringify(second).includes("SEGREDO"), false);
 });
 
+test("múltiplas contas do mesmo gateway com chaves distintas", async () => {
+  const doc = withProvider();
+  doc.providers.kilo2 = {
+    baseUrl: "https://gw/v1/", apiKey: "CHAVE_DIFERENTE", models: [model("b")],
+  };
+  assert.deepEqual(cfg.providersForEndpoint(doc, "https://gw/v1").sort(), ["gw", "kilo2"]);
+  assert.equal(cfg.isDuplicateKey(doc, "https://gw/v1", "SEGREDO"), true);
+  assert.equal(cfg.isDuplicateKey(doc, "https://gw/v1", "OUTRA"), false);
+  assert.equal(cfg.keyFingerprint("SEGREDO").length, 8);
+  assert.equal(cfg.keyInfo("SEGREDO").present, true);
+});
+
+test("nextProviderId nunca reutiliza conta existente", async () => {
+  const doc = { providers: {} };
+  assert.equal(cfg.nextProviderId("gateway", doc), "gateway1");
+  cfg.upsertProvider(doc, { id: "gateway1", baseUrl: "https://gw/v1" });
+  cfg.upsertProvider(doc, { id: "gateway2", baseUrl: "https://gw/v1" });
+  assert.equal(cfg.nextProviderId("gateway", doc), "gateway3");
+  cfg.upsertProvider(doc, { id: "kilo3", baseUrl: "https://gw/v1" });
+  assert.equal(cfg.nextProviderId("kilo3", doc), "kilo4");
+});
+
 test("remoção seletiva e de provider", async () => {
   const doc = withProvider();
   cfg.upsertModels(doc, "gw", [model("a"), model("b")], { mode: "merge" });
