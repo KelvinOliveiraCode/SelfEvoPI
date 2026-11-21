@@ -12,7 +12,8 @@ updated: 2026-11-20
 
 ## Comandos de barra (`/`)
 
-Os 30 comandos reais, conforme `apps/cli.mjs` (linhas 883 a 927):
+Os comandos reais, conforme a lista `COMMANDS` em `apps/cli.mjs` (a fonte
+única — `/help` e a paleta leem dela):
 
 ### Conversa e sessão
 
@@ -26,6 +27,13 @@ Os 30 comandos reais, conforme `apps/cli.mjs` (linhas 883 a 927):
 | `/mode [modo]` | Alterna o modo (plan, build, manual, ask, goal) | `core/governance/modes.mjs` |
 | `/theme [escuro\|violeta\|alto-contraste]` | Tema da interface (3 built-in escuros + 3 slots custom) | `apps/cli.mjs`, `core/agent/theme.mjs`, `core/agent/theme-custom.mjs` |
 | `/settings` | Visão de tudo que está configurado | `apps/cli.mjs` (`renderSettings`) |
+| `/fork [nome]` | Bifurca a sessão preservando a original | `core/agent/sessions.mjs` |
+| `/export [md\|json]` | Exporta a conversa | `apps/cli.mjs` |
+| `/undo` / `/redo` | Desfaz/refaz a última troca | `apps/cli.mjs` |
+| `/diff` | Mostra mudanças git no workspace | `apps/cli.mjs` |
+| `/language [en\|pt]` | Idioma da interface (inglês por padrão) | `core/agent/i18n.mjs` |
+| `/verbosity [nível]` | Quanto feedback aparece no turno | `core/agent/verbosity.mjs` |
+| `/paste` / `/attach` / `/images` | Anexos de imagem | `core/agent/attachments.mjs` |
 
 ### Diagnóstico
 

@@ -41,14 +41,14 @@ test.after(() => {
 
 test("novos comandos estão registrados", () => {
   const names = COMMANDS.map((c) => c.name);
-  for (const name of ["/language", "/fork", "/diff", "/export", "/undo", "/redo", "/copy", "/reload"]) {
+  for (const name of ["/language", "/fork", "/diff", "/export", "/undo", "/redo", "/copy", "/reload", "/verbosity"]) {
     assert.ok(names.includes(name), `falta ${name}`);
   }
 });
 
 test("comandos novos não lançam sem motor", async () => {
   process.env.SELFEOPI_LOCALE = "en";
-  for (const name of ["/language", "/fork", "/diff", "/export", "/undo", "/redo", "/reload"]) {
+  for (const name of ["/language", "/fork", "/diff", "/export", "/undo", "/redo", "/reload", "/verbosity"]) {
     let out = "";
     const code = await runSlash(name, "", (s) => (out += s + "\n"), { pi: null });
     assert.equal(code, 0, `${name} saiu ${code}`);

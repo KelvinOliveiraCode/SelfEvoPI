@@ -100,6 +100,7 @@ A conversation, not a menu. Type `/` at any time for the command palette.
 | `/workspace [path]` / `/explorer` | change the working directory |
 | `/reload` | reapply configuration without restarting |
 | `/paste` / `/attach <file>` / `/images [clear]` | attach clipboard/file images to the next message |
+| `/verbosity [level]` | choose what appears during a turn: `minimal`, `tools`, `reasoning`, `full`, `verbose` |
 | `/clear` / `/help` | clear the conversation, show this list |
 
 **Keyboard.** `Ctrl+O` status view · `Ctrl+,` settings editor · `Ctrl+K` sessions
@@ -120,6 +121,12 @@ switches the whole interface to Portuguese. The choice lives outside the repo
 in `~/.pi/agent/cli-locale.json`; `SELFEOPI_LOCALE` overrides it for a single
 run. Nothing about the engine, the prompts sent to it, or the artifacts it
 writes depends on this setting.
+
+**Feedback control.** `/verbosity` chooses how much appears while the agent
+works: `minimal` (final answer only), `tools`, `reasoning`, `full` (default) or
+`verbose` (adds timer and token counter). Tool lines name the target file, not
+the content being written. The choice persists outside the repo and
+`SELFEOPI_VERBOSITY` overrides it for one run.
 
 **Images and model capabilities.** `/paste` reads a Windows clipboard image,
 `/attach <file>` attaches a file, `@image.png` works inline and `/images clear`

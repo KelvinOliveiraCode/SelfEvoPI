@@ -97,7 +97,7 @@ skill — recair para CLI gerava sucesso com a interface errada.
 | Contexto | `/cost`, `/status`, `/context`, `/settings`, `/reload` |
 | Integrações | `/mcp`, `/plugins`, `/init`, `/import`, `/providers`, `/workspace`, `/explorer` |
 | Agentes | `/swarm`, `/subagent`, `/worktree` |
-| Aparência | `/theme`, `/language` |
+| Aparência | `/theme`, `/language`, `/verbosity` |
 | Anexos | `/paste`, `/attach`, `/images` |
 | Ajuda | `/help` |
 
@@ -144,7 +144,24 @@ erro — sem reiniciar. A preferência fica em `~/.pi/agent/cli-locale.json` e
 `SELFEOPI_LOCALE` a sobrescreve por execução. Nada do que é enviado ao modelo
 depende dessa preferência.
 
-### 4.6 Modelos, provedores e esforço
+### 4.6 Detalhamento do feedback
+
+`/verbosity [nível]` controla o que aparece durante um turno:
+
+| Nível | O que aparece |
+|:--|:--|
+| `minimal` | só a resposta final |
+| `tools` | chamadas `⏺` e a resposta final |
+| `reasoning` | bloco `⤷` de raciocínio e a resposta final |
+| `full` (padrão) | raciocínio, ferramentas, resultados `⎿` e resposta final |
+| `verbose` | tudo isso, mais tempo decorrido e contador de tokens |
+
+A preferência fica em `~/.pi/agent/cli-verbosity.json` e
+`SELFEOPI_VERBOSITY` a sobrescreve por execução. `Alt+T` alterna o raciocínio
+apenas na sessão corrente, sem mudar a preferência salva. As linhas de
+ferramenta mostram o **alvo** (`⏺ write  arquivo.md`), não o conteúdo escrito.
+
+### 4.7 Modelos, provedores e esforço
 
 O catálogo vivo é `~/.pi/agent/models.json`, gerado pelo importador a partir
 das configurações locais e enriquecido com os catálogos públicos de OpenRouter
@@ -163,7 +180,7 @@ npm run models:check    # compara capacidades de todos os modelos, sem chamar a 
 npm run models:prompt   # envia um prompt mínimo a cada modelo
 ```
 
-### 4.7 Imagens
+### 4.8 Imagens
 
 Terminais transmitem texto, não binário. `/paste` lê a área de transferência
 do Windows via PowerShell em STA, `/attach <arquivo>` anexa um arquivo e

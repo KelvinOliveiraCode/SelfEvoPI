@@ -3,7 +3,7 @@ tags: [handoff, estado, cli]
 updated: 2026-11-21
 ---
 
-# Estado atual — 1.2.1
+# Estado atual — 1.2.2
 
 > Uma superfície: a CLI. Inglês por padrão, `/language pt` para português.
 
@@ -24,6 +24,12 @@ updated: 2026-11-21
 - Mensagens enfileiradas: digitar enquanto o agente trabalha não perde texto.
 - `!comando` executa shell no workspace; `@arquivo` injeta arquivo no prompt.
 
+### Feedback controlável
+
+`/verbosity` (`minimal` / `tools` / `reasoning` / `full` / `verbose`) escolhe o
+que aparece durante o turno; `Alt+T` alterna o raciocínio só na sessão. Linhas de
+ferramenta mostram o arquivo-alvo, não o conteúdo escrito.
+
 ### Comandos de sessão e inspeção
 
 `/fork`, `/diff`, `/export`, `/undo`, `/redo`, `/copy`, `/reload`, `/compact`,
@@ -40,7 +46,7 @@ interface por kind de artefato. Áreas protegidas: `evals/` e `core/governance/`
 ### Verificação
 
 ```
-npm test        # 1025 testes, 1024 passam, 1 skip
+npm test        # 1029 testes, 1028 passam, 1 skip
 npm run verify  # exit 0
 ```
 

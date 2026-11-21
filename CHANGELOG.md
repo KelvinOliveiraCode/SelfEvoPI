@@ -4,6 +4,24 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.2] - 2026-11-21
+
+**Controle de feedback e polimento observado em uso real.**
+
+- **`/verbosity [minimal|tools|reasoning|full|verbose]`**: escolha o que aparece
+  durante um turno. `minimal` mostra só a resposta final; `tools` mostra as
+  chamadas de ferramenta; `reasoning` mostra o raciocínio; `full` (padrão) mostra
+  raciocínio, ferramentas e resultados; `verbose` acrescenta tempo e tokens.
+  A preferência persiste em `~/.pi/agent/cli-verbosity.json`; `SELFEOPI_VERBOSITY`
+  sobrescreve por execução. `Alt+T` continua valendo como override da sessão.
+- **Linha de ferramenta mais útil**: `⏺ write  <caminho>` em vez de mostrar o
+  conteúdo que está sendo escrito.
+- **Contador de tokens no spinner** passou a usar também o total de tokens da
+  sessão quando `contextUsage` ainda está zerado.
+- **Validação em uso real**: duas tarefas pequenas (um app Node e um site HTML)
+  criaram os arquivos corretos com tool calling, 7,4 s e 9,2 s; dois subagentes
+  em paralelo responderam em 3,1 s. Ver `VERIFICACAO.md` no pacote organizado.
+
 ## [1.2.1] - 2026-11-21
 
 **Modelos, esforços e anexos de imagem.**

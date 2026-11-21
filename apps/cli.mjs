@@ -40,6 +40,13 @@ import {
   themeToAnsi256FromColors,
 } from "../core/agent/theme.mjs";
 import { t as tr, getLocale, setLocale, listLocales, isLocale } from "../core/agent/i18n.mjs";
+import {
+  LEVELS as VERBOSITY_LEVELS,
+  getVerbosity,
+  setVerbosity,
+  normalize as normalizeVerbosity,
+  shows,
+} from "../core/agent/verbosity.mjs";
 import { effortLevelsFor, listModelMetadata } from "../core/agent/model-metadata.mjs";
 import {
   captureClipboardImage,
@@ -1094,6 +1101,37 @@ function runImages({ arg, out }) {
   return 0;
 }
 
+/** /verbosity [nível] — quanto feedback aparece durante o turno. */
+function runVerbosity({ arg, out }) {
+  const alvo = String(arg ?? "").trim().toLowerCase();
+  if (alvo) {
+    const nivel = normalizeVerbosity(alvo);
+    if (!nivel) {
+      out(paint(`  ${tr("verb.invalid", { value: alvo })}`, "fail"));
+      out(paint(`  ${VERBOSITY_LEVELS.join(" | ")}`, "muted"));
+      return 2;
+    }
+    setVerbosity(nivel);
+    reasoningToggle = null;
+    out(paint(`  ${tr("verb.set", { level: nivel })}`, "ok"));
+    out(paint(`    ${tr(`verb.${nivel}`)}`, "muted"));
+    return 0;
+  }
+  const atual = getVerbosity();
+  const lines = [
+    paint(`  ${tr("verb.title")}`, "fg"),
+    `    ${padLabel(tr("verb.current"))}${atual} · ${tr(`verb.${atual}`)}`,
+    "",
+  ];
+  for (const nivel of VERBOSITY_LEVELS) {
+    lines.push(`    ${nivel.padEnd(10)} ${tr(`verb.${nivel}`)}`);
+  }
+  lines.push("");
+  lines.push(paint(`  /verbosity <nível> · ${VERBOSITY_LEVELS.join(" | ")}`, "muted"));
+  out(capLinhas(lines).join("\n"));
+  return 0;
+}
+
 // FONTE ÚNICA dos comandos de barra. A paleta e o /help leem daqui; o `run`
 // é o executor. Nada de lista duplicada.
 export const COMMANDS = [
@@ -1144,6 +1182,7 @@ export const COMMANDS = [
   { name: "/paste", args: "", description: tr("cmd.paste"), run: runPaste },
   { name: "/attach", args: "<arquivo>", description: tr("cmd.attach"), run: runAttach },
   { name: "/images", args: "[clear]", description: tr("cmd.images"), run: runImages },
+  { name: "/verbosity", args: "[nível]", description: tr("cmd.verbosity"), run: runVerbosity },
   { name: "/swarm", args: "[n] <tarefa>", description: tr("cmd.swarm"), run: runSwarm },
   { name: "/subagent", args: "<nome> <tarefa> [--provider --model --effort --mode --persistent]", description: tr("cmd.subagent"), run: runSubagentCmd },
   { name: "/worktree", args: "[list|new|rm]", description: tr("cmd.worktree"), run: runWorktree },
@@ -1169,6 +1208,7 @@ const ARG_TR = {
       "<name> <task> [--provider --model --effort --mode --persistent]",
     "[list|new|rm]": "[list|new|rm]",
     "[caminho]": "[path]",
+    "[nível]": "[level]",
     "[list|add|rm|models]": "[list|add|rm|models]",
   },
   pt: {},
@@ -2852,10 +2892,12 @@ function createSpinner(write, stats = () => ({})) {
     const frame = prefersReducedMotion() ? "●" : spinnerFrame(now - start);
     const s = stats() || {};
     const parts = [paint(frame, "fg"), paint(label, "muted")];
-    const seconds = Math.floor(((s.elapsedMs ?? (now - start)) / 1000));
-    parts.push(paint(tr("spin.elapsed", { s: seconds }), "muted"));
-    if (s.tokens != null && Number.isFinite(Number(s.tokens))) {
-      parts.push(paint(tr("spin.tokens", { n: s.tokens }), "muted"));
+    if (shows("metrics")) {
+      const seconds = Math.floor(((s.elapsedMs ?? (now - start)) / 1000));
+      parts.push(paint(tr("spin.elapsed", { s: seconds }), "muted"));
+      if (s.tokens != null && Number.isFinite(Number(s.tokens))) {
+        parts.push(paint(tr("spin.tokens", { n: s.tokens }), "muted"));
+      }
     }
     write("\r\x1b[2K  " + parts.join(" "));
   };
@@ -2896,7 +2938,11 @@ let permissionMode = "full access";
 // Estado leve da sessão de interface: fila de mensagens, última resposta e
 // pilha de desfazer. Fora do REPL para que os comandos de barra leiam o mesmo
 // estado sem plumbagem — a CLI é um processo por sessão.
-let thinkingVisible = true; // Alt+T: mostrar/ocultar blocos de raciocínio
+// null = segue o /verbosity; Alt+T define um override apenas nesta sessão.
+let reasoningToggle = null;
+function reasoningOn() {
+  return reasoningToggle ?? shows("reasoning");
+}
 let pendingImages = []; // caminhos de imagens anexadas ao próximo prompt
 let queued = [];
 let lastAnswer = "";
@@ -3055,7 +3101,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   const pollTokens = async () => {
     for (let i = 0; i < 600 && spin.active; i += 1) {
       const st = await Promise.resolve(pi._rpc?.getSessionStats?.()).catch(() => null);
-      const used = st?.contextUsage?.tokens;
+      const used = st?.contextUsage?.tokens ?? st?.tokens;
       if (used != null) liveTokens = used;
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, 400);
@@ -3069,12 +3115,13 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   let thinkCommitted = false;
   let thinkStart = 0;
   const commitThink = (force = false) => {
+    if (!reasoningOn()) return;
     if (thinkCommitted || thinkBuf.trim() === "") return;
     // Não injeta no meio do streaming; no fim do turno o force=true garante
     // que o raciocínio tardio apareça em vez de ser descartado.
     if (buf && buf.length > 0 && !force) return;
     const seconds = Math.floor((Date.now() - (thinkStart || Date.now())) / 1000);
-    const lines = renderThinking(thinkBuf, { collapsed: !thinkingVisible, seconds });
+    const lines = renderThinking(thinkBuf, { collapsed: !reasoningOn(), seconds });
     if (lines.length === 0) return;
     thinkCommitted = true;
     spin.stop();
@@ -3093,13 +3140,16 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
       commitThink(); // raciocínio vem antes da chamada de ferramenta
       spin.stop();
       flush();
-      const argHint =
-        call.args && typeof call.args === "object"
-          ? Object.values(call.args).map((v) => String(v)).join(" ").replace(/\s+/g, " ").slice(0, 44)
-          : "";
+      const args = call.args && typeof call.args === "object" ? call.args : {};
+      // Mostre o ALVO da ferramenta, não o conteúdo que ela escreve. O
+      // princípio da interface compacta (ACI) vale também aqui.
+      const target = args.path ?? args.file ?? args.filename ?? args.command ?? args.pattern ?? "";
+      const argHint = String(target).replace(/\s+/g, " ").slice(0, 44);
       toolStart.set(call.id, Date.now());
-      write(`  ${paint("⏺", "accent")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
-      spin.start(tr("spin.running", { name: String(call.name || "tool") }));
+      if (shows("tools")) {
+        write(`  ${paint("⏺", "accent")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
+      }
+      if (shows("activity")) spin.start(tr("spin.running", { name: String(call.name || "tool") }));
       return;
     }
     if (call.phase !== "end") return;
@@ -3115,8 +3165,10 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
       : secs != null
         ? tr("spin.elapsed", { s: secs })
         : tr("tool.done");
-    const marker = call.isError ? paint(tr("tool.failed"), "fail") : paint(detail, "muted");
-    write(`    ${paint("⎿", "muted")} ${marker}${call.isError ? "" : ""}\n`);
+    if (shows("toolResult") || call.isError) {
+      const marker = call.isError ? paint(tr("tool.failed"), "fail") : paint(detail, "muted");
+      write(`    ${paint("⎿", "muted")} ${marker}\n`);
+    }
   });
   const offError = pi.on("error", (message) => {
     hadError = true;
@@ -3149,8 +3201,10 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   }
 
   setBusy(true);
-  void pollTokens();
-  spin.start(tr("spin.thinking"));
+  if (shows("activity")) {
+    void pollTokens();
+    spin.start(tr("spin.thinking"));
+  }
   const settled = waitForSettle(pi, settleTimeoutMs); // arma o listener de settled ANTES do prompt
   try {
     await pi.prompt(text, images.length ? images : undefined);
@@ -3928,6 +3982,22 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     });
   };
 
+  const startVerbosityPicker = async () => {
+    const atual = getVerbosity();
+    startValuePicker({
+      title: tr("verb.title"),
+      items: VERBOSITY_LEVELS.map((nivel) => ({
+        label: `${nivel} · ${tr(`verb.${nivel}`)}`,
+        hint: nivel === atual ? "•" : "",
+        value: nivel,
+      })),
+      footer: tr("verb.hint"),
+      onChoose: async (it) => {
+        runVerbosity({ arg: it.value, out: (s) => write(s + "\n") });
+      },
+    });
+  };
+
   const startLanguagePicker = async () => {
     startValuePicker({
       title: tr("lang.title"),
@@ -3954,6 +4024,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         { label: tr("cmd.model"), hint: shortModel(statusInfo.model) || "—", value: "__model" },
         { label: tr("cmd.effort"), hint: statusInfo.reasoning || "—", value: "__effort" },
         { label: tr("cmd.language"), hint: getLocale(), value: "__language" },
+        { label: tr("cmd.verbosity"), hint: getVerbosity(), value: "__verbosity" },
       ];
       startValuePicker({
         title: tr("settings.title"),
@@ -3965,6 +4036,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
           if (it.value === "__model") { startModelPicker(); return "keep"; }
           if (it.value === "__effort") { await startEffortPicker(); return "keep"; }
           if (it.value === "__language") { await startLanguagePicker(); return "keep"; }
+          if (it.value === "__verbosity") { await startVerbosityPicker(); return "keep"; }
         },
       });
     };
@@ -4445,6 +4517,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         if (parsed.name === "/effort") { await startEffortPicker(); return; }
         if (parsed.name === "/settings") { await startSettingsPicker(); return; }
         if (parsed.name === "/language") { await startLanguagePicker(); return; }
+        if (parsed.name === "/verbosity") { await startVerbosityPicker(); return; }
         if (parsed.name === "/workspace") { await startWorkspacePicker(); return; }
         if (parsed.name === "/providers") { await startProvidersPicker(); return; }
       }
@@ -4501,8 +4574,8 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     for (const key of keymap(chunk)) {
       if (quitting) return;
       if (key === "alt-t") {
-        thinkingVisible = !thinkingVisible;
-        write(paint("  " + (thinkingVisible ? tr("think.show") : tr("think.hide")), "muted") + "\n");
+        reasoningToggle = !reasoningOn();
+        write(paint("  " + (reasoningToggle ? tr("think.show") : tr("think.hide")), "muted") + "\n");
         drawInput();
         continue;
       }
