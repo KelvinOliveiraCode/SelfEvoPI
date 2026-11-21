@@ -2895,7 +2895,7 @@ function createSpinner(write, stats = () => ({})) {
     if (shows("metrics")) {
       const seconds = Math.floor(((s.elapsedMs ?? (now - start)) / 1000));
       parts.push(paint(tr("spin.elapsed", { s: seconds }), "muted"));
-      if (s.tokens != null && Number.isFinite(Number(s.tokens))) {
+      if (Number(s.tokens) > 0 && Number.isFinite(Number(s.tokens))) {
         parts.push(paint(tr("spin.tokens", { n: s.tokens }), "muted"));
       }
     }
@@ -3144,7 +3144,11 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
       // Mostre o ALVO da ferramenta, não o conteúdo que ela escreve. O
       // princípio da interface compacta (ACI) vale também aqui.
       const target = args.path ?? args.file ?? args.filename ?? args.command ?? args.pattern ?? "";
-      const argHint = String(target).replace(/\s+/g, " ").slice(0, 44);
+      let argHint = String(target).replace(/\s+/g, " ").slice(0, 44);
+      if (argHint.length === 44 && target) {
+        const parts = String(target).replace(/\\/g, "/").split("/").filter(Boolean);
+        argHint = (parts.slice(-2).join("/") || argHint).slice(0, 44);
+      }
       toolStart.set(call.id, Date.now());
       if (shows("tools")) {
         write(`  ${paint("⏺", "accent")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
@@ -3202,8 +3206,8 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
 
   setBusy(true);
   if (shows("activity")) {
-    void pollTokens();
     spin.start(tr("spin.thinking"));
+    void pollTokens(); // depois do start: o loop depende de spin.active
   }
   const settled = waitForSettle(pi, settleTimeoutMs); // arma o listener de settled ANTES do prompt
   try {
