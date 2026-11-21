@@ -11,6 +11,9 @@
 | `core/agent/providers.mjs` | `listProviders`, `addProvider`, `removeProvider`, `fetchModels` (via `/providers`). |
 | `core/router/` | perfis, retry, circuit breaker, teto de tokens. |
 | `core/agent/pi-rpc.mjs` | `listConfiguredModels()` lê só id/nome — nunca chaves. |
+| `core/agent/provider-discovery.mjs` | descobre modelos e infere efforts/imagem/variantes a partir de endpoint+chave. |
+| `core/agent/models-config.mjs` | leitura/escrita segura de `models.json`, backup e ACL. |
+| `scripts/providers-setup.mjs` | assistente interativo e modo agente (JSON/flags). |
 
 ## O que não mexer
 
@@ -20,6 +23,41 @@
   string e todos os outros níveis como `null`.
 - Não edite `evals/` se o gate reprovar por mudança de comportamento — regenere
   a baseline com justificativa (`node evals/gate.mjs --update`).
+
+## Duas formas de configurar
+
+**Humano (TTY):** rode `node scripts/providers-setup.mjs` sem argumentos. O
+assistente pede endpoint, nome da variável com a chave, id do provider e quais
+modelos adicionar (`enter` = todos, `f` = free/fast, ou números). Ele mostra
+efforts, imagem e variantes antes de gravar.
+
+**Agente (sem TTY):** use flags e JSON:
+
+```powershell
+node scripts/providers-setup.mjs --base-url https://gateway/v1 `
+  --api-key-env MINHA_CHAVE --json --all            # dry-run
+node scripts/providers-setup.mjs --base-url https://gateway/v1 `
+  --api-key-env MINHA_CHAVE --json --free-only --apply
+node scripts/providers-setup.mjs --add-model id/modelo --provider meu `
+  --efforts low,high --image --apply
+node scripts/providers-setup.mjs --remove-model id/modelo --provider meu --apply
+node scripts/providers-setup.mjs --list --json
+```
+
+Também dá para descobrir pela CLI: `/providers discover <url> [ENV_DA_CHAVE]`.
+
+O padrão é **dry-run**; `--apply` grava. A chave nunca aparece na saída — só
+`{ present, length }`. `core/agent/provider-discovery.mjs` normaliza catálogos
+OpenRouter, Kilo, Nous e genéricos, infere efforts, reasoning, imagem e variantes
+`free`/`fast`, e tenta Bearer antes de `X-API-Key`.
+
+## Repositório público vs privado
+
+O repositório público **não vem com provider pré-configurado**. Quem baixar
+configura o primeiro provider no início, pelos comandos acima. Overrides
+específicos do mantenedor vivem em `config/providers.private.json` (ignorado pelo
+Git), lidos por `scripts/import-providers.mjs`. Nunca copie esse arquivo para o
+repositório público.
 
 ## Passos
 

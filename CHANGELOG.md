@@ -4,6 +4,25 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.3] - 2026-11-21
+
+**Providers configuráveis pelo usuário, sem nada pré-configurado no release público.**
+
+- **`core/agent/provider-discovery.mjs`**: dado endpoint + chave, descobre
+  modelos e infere efforts de raciocínio, `thinkingLevelMap`, suporte a imagem,
+  limites de contexto e variantes `free`/`fast`. Normaliza catálogos da
+  OpenRouter, Kilo, Nous e genéricos; tenta Bearer antes de `X-API-Key`.
+- **`core/agent/models-config.mjs` + `scripts/providers-setup.mjs`**: leitura
+  e escrita segura de `~/.pi/agent/models.json` com backup e ACL; assistente
+  interativo para humanos e modo `--json`/flags para agentes. Padrão é dry-run;
+  `--apply` grava. A chave nunca é impressa.
+- **`/providers discover <url> [ENV]`** na CLI.
+- **Overrides privados** saem do código: `config/providers.private.json` (fora
+  do release público) é lido por `scripts/import-providers.mjs`. O provider
+  `nous` do mantenedor vive aí, não no repositório público.
+- Release público sem providers pré-configurados; o download fica só no repo
+  privado até virar asset do site.
+
 ## [1.2.2] - 2026-11-21
 
 **Controle de feedback e polimento observado em uso real.**

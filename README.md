@@ -159,6 +159,29 @@ Or create the Desktop shortcut with `pwsh launcher/instalar-atalhos.ps1`.
 Requirements: Windows (native, no Docker/WSL/VM), Node ≥ 22.19.1, the engine
 CLI installed, Git ≥ 2.55 with `core.longpaths true`.
 
+## First run: configure a provider
+
+The public release ships with **no pre-configured provider**. Point the CLI at
+your gateway and let it discover models, reasoning efforts, image support and
+free/fast variants:
+
+```powershell
+# guided, in a terminal
+node scripts/providers-setup.mjs
+
+# agent-friendly, JSON, dry-run then apply
+node scripts/providers-setup.mjs --base-url https://your-gateway/v1 `
+  --api-key-env YOUR_API_KEY --json --free-only --apply
+
+# from inside the CLI
+/providers discover https://your-gateway/v1 YOUR_API_KEY
+```
+
+The API key is read from an environment variable and is never printed. The
+result goes to `~/.pi/agent/models.json`, outside the repository, with a backup
+and a Windows ACL. You can also add a single model by hand with
+`--add-model <id> --provider <id> --efforts low,high --image --apply`.
+
 ## Verify
 
 ```powershell

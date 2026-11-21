@@ -1,6 +1,6 @@
 {
   "name": "selfevopi",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "type": "module",
   "description": "Harness auto-evolutivo, leve e Windows-nativo sobre o PI Coding Agent",
@@ -20,6 +20,7 @@
     "providers:import": "node scripts/import-providers.mjs --apply",
     "providers:dry": "node scripts/import-providers.mjs",
     "providers:check": "node scripts/check-providers.mjs",
+    "providers:setup": "node scripts/providers-setup.mjs",
     "models:check": "node scripts/check-models.mjs",
     "models:prompt": "node scripts/check-models.mjs --prompt",
     "router": "node core/router/cli.mjs",

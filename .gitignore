@@ -15,6 +15,7 @@ secrets/
 secrets.json
 credentials.json
 providers.local.json
+config/providers.private.json
 .pi/agent/
 .pi/auth/
 .pi/settings.local.json

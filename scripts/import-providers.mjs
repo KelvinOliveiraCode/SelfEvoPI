@@ -33,7 +33,8 @@ import path from "node:path";
 import os from "node:os";
 import process from "node:process";
 
-const TARGETS = ["kilo1", "kilo2", "kilo3", "kilo4", "or1", "or2", "or3", "or4"];
+const BASE_TARGETS = ["kilo1", "kilo2", "kilo3", "kilo4", "or1", "or2", "or3", "or4"];
+let TARGETS = [...BASE_TARGETS];
 const HOME = os.homedir();
 const OPENCODE_SOURCE = path.join(HOME, ".config", "opencode", "opencode.jsonc");
 const PI_SOURCE = path.join(HOME, ".pi", "agent", "models.json");
@@ -122,11 +123,32 @@ const PUBLIC_CATALOGS = [
   "https://openrouter.ai/api/v1/models",
   "https://ai-gateway.kilo.ai/api/v1/models",
 ];
+const PRIVATE_OVERRIDES_FILE =
+  process.env.SELFEOPI_PROVIDER_OVERRIDES ||
+  path.join(ROOT_DIR(), "config", "providers.private.json");
+
+function ROOT_DIR() {
+  return path.resolve(import.meta.dirname, "..");
+}
+
+/** Overrides privados são opcionais: target/catálogos/efforts específicos de uma máquina. */
+async function loadPrivateOverrides() {
+  try {
+    const doc = JSON.parse(await readFile(PRIVATE_OVERRIDES_FILE, "utf8"));
+    return {
+      targets: Array.isArray(doc.targets) ? doc.targets.filter((x) => typeof x === "string") : [],
+      catalogs: Array.isArray(doc.catalogs) ? doc.catalogs.filter((x) => typeof x === "string") : [],
+      efforts: doc.efforts && typeof doc.efforts === "object" ? doc.efforts : {},
+    };
+  } catch {
+    return { targets: [], catalogs: [], efforts: {} };
+  }
+}
 
 /** Busca os catálogos públicos; falha de rede nunca impede a importação. */
-async function fetchCatalogs() {
+async function fetchCatalogs(catalogs = PUBLIC_CATALOGS) {
   const rows = [];
-  for (const url of PUBLIC_CATALOGS) {
+  for (const url of catalogs) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!res.ok) continue;
@@ -153,8 +175,9 @@ function effortsOf(entry) {
 }
 
 /** Aplica reasoning/image aos modelos já convertidos, sem tocar em chaves. */
-async function enrichModelMetadata(models, { network = true } = {}) {
-  const catalog = network ? await fetchCatalogs() : [];
+async function enrichModelMetadata(models, { network = true, overrides = null } = {}) {
+  const extra = overrides || await loadPrivateOverrides();
+  const catalog = network ? await fetchCatalogs([...PUBLIC_CATALOGS, ...extra.catalogs]) : [];
   const byId = new Map();
   for (const entry of catalog) {
     if (typeof entry?.id !== "string") continue;
@@ -162,14 +185,20 @@ async function enrichModelMetadata(models, { network = true } = {}) {
     byId.get(entry.id).push(entry);
   }
   let changed = 0;
-  for (const provider of Object.values(models)) {
+  for (const [providerId, provider] of Object.entries(models)) {
     for (const model of provider?.models || []) {
       if (!model || typeof model.id !== "string") continue;
+      const explicit = extra.efforts[model.id] || extra.efforts[`${providerId}/${model.id}`] || null;
       const entries = byId.get(model.id) || [];
       const efforts = entries.map(effortsOf).find(Boolean) || null;
       const modalities = entries.find((e) => Array.isArray(e?.architecture?.input_modalities))
         ?.architecture.input_modalities;
-      if (efforts) {
+      if (explicit) {
+        model.reasoning = true;
+        model.thinkingLevelMap = { ...explicit };
+        model.compat = { ...(model.compat || {}), supportsReasoningEffort: true };
+        changed++;
+      } else if (efforts) {
         const map = {};
         for (const level of THINKING_LEVELS) {
           map[level] = efforts.includes(level) ? level : null;
@@ -265,6 +294,8 @@ function fromPiNative(providers) {
 }
 
 async function main() {
+  const overrides = await loadPrivateOverrides();
+  TARGETS = [...new Set([...BASE_TARGETS, ...overrides.targets])];
   let raw;
   try {
     raw = await readFile(source, "utf8");
@@ -344,7 +375,7 @@ async function main() {
     console.log(`Formato: opencode (convertido para o schema do PI)`);
   }
 
-  const enriquecidos = await enrichModelMetadata(models);
+  const enriquecidos = await enrichModelMetadata(models, { overrides });
   if (enriquecidos > 0) {
     console.log(`Metadados: ${enriquecidos} modelo(s) com reasoning/effort atualizados dos catálogos públicos`);
   }

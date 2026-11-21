@@ -862,8 +862,8 @@ async function runProviders({ arg, out, pi }) {
     if (!bruto || bruto === "list" || bruto === "ls") {
       const lista = await pv.listProviders();
       if (lista.length === 0) {
-        out(paint("  nenhum provedor registrado", "muted"));
-        out(paint("  adicione com: /providers add <id> <baseUrl> <apiKey>", "muted"));
+        out(paint("  " + tr("prov.none"), "muted"));
+        out(paint("  /providers discover <url> [ENV_DA_CHAVE] · " + tr("prov.setupHint"), "muted"));
         return 0;
       }
       out(paint("  provedores:", "fg"));
@@ -874,6 +874,31 @@ async function runProviders({ arg, out, pi }) {
       return 0;
     }
     const [sub, ...resto] = bruto.split(/\s+/);
+    if (sub === "discover") {
+      const [baseUrl, envVar] = resto;
+      if (!baseUrl) {
+        out(paint("  " + tr("prov.discoverUsage"), "muted"));
+        return 2;
+      }
+      const key = envVar ? process.env[envVar] : null;
+      if (envVar && !key) {
+        out(paint(`  variável de ambiente ${envVar} não definida`, "warn"));
+        return 2;
+      }
+      try {
+        const { discoverModels } = await import("../core/agent/provider-discovery.mjs");
+        const found = await discoverModels({ baseUrl, apiKey: key });
+        out(paint(`  ${tr("prov.discovered", { n: found.models.length, endpoint: found.endpoint })}`, "fg"));
+        for (const m of found.models.slice(0, 30)) {
+          out(`    ${String(m.id).slice(0, 42).padEnd(42)} efforts=${m.efforts.join(",") || "-"} img=${m.image ? "sim" : "não"} var=${m.variants.join(",") || "-"}`);
+        }
+        out(paint("  " + tr("prov.setupHint"), "muted"));
+        return 0;
+      } catch (err) {
+        out(paint(`  ${String(err?.message || err).slice(0, 160)}`, "fail"));
+        return 2;
+      }
+    }
     if (sub === "add") {
       // /providers add <id> <baseUrl> <apiKey>  (apiKey pode ficar de fora p/ colar depois)
       const [id, baseUrl, apiKey] = resto;
@@ -1188,7 +1213,7 @@ export const COMMANDS = [
   { name: "/worktree", args: "[list|new|rm]", description: tr("cmd.worktree"), run: runWorktree },
   { name: "/workspace", args: "[caminho]", description: tr("cmd.workspace"), run: runWorkspace },
   { name: "/explorer", args: "", description: tr("cmd.explorer"), run: (ctx) => runWorkspace(ctx) },
-  { name: "/providers", args: "[list|add|rm|models]", description: tr("cmd.providers"), run: runProviders },
+  { name: "/providers", args: "[list|discover|add|rm|models]", description: tr("cmd.providers"), run: runProviders },
   { name: "/help", args: "", description: tr("cmd.help"), run: runHelp },
 ];
 
@@ -1210,6 +1235,7 @@ const ARG_TR = {
     "[caminho]": "[path]",
     "[nível]": "[level]",
     "[list|add|rm|models]": "[list|add|rm|models]",
+    "[list|discover|add|rm|models]": "[list|discover|add|rm|models]",
   },
   pt: {},
 };
