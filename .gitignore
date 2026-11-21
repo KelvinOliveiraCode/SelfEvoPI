@@ -77,5 +77,10 @@ test-results/
 *.mp4
 *.mov
 *.psd
+*.lnk
+
+# Pacote de distribuicao local (o .zip ja e ignorado acima)
+distribuicao/*.lnk
+
 # Serena (metadados de projeto local)
 .serena/
