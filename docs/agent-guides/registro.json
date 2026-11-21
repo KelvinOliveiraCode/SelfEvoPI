@@ -1,6 +1,6 @@
 {
   "projeto": "SelfEvoPI",
-  "versao": "1.2.2",
+  "versao": "1.2.3",
   "atualizado": "2026-11-21",
   "entrada": "AGENTS.md",
   "indice": "docs/agent-guides/README.md",
@@ -15,10 +15,10 @@
   "mudancas": {
     "provider": {
       "guias": ["adicionar-provider.md", "mapa-e-dono.md"],
-      "arquivos": ["config/providers.example.json", "scripts/import-providers.mjs", "core/agent/model-metadata.mjs", "core/agent/providers.mjs", "core/router/"],
-      "externo": "~/.pi/agent/models.json",
-      "testes": ["npm run models:check", "npm run providers:check", "node --test core/agent/*.test.mjs"],
-      "invariantes": [1, 3, 9, 19]
+      "arquivos": ["config/providers.example.json", "scripts/import-providers.mjs", "scripts/providers-setup.mjs", "core/agent/model-metadata.mjs", "core/agent/providers.mjs", "core/agent/models-config.mjs", "core/agent/provider-discovery.mjs", "core/router/"],
+      "externo": "~/.pi/agent/models.json; overrides privados em config/providers.private.json (so no repo privado)",
+      "testes": ["npm run models:check", "npm run providers:check", "node --test core/agent/*.test.mjs", "node scripts/providers-setup.mjs --list --json"],
+      "invariantes": [1, 2, 3, 9, 19]
     },
     "ferramenta": {
       "guias": ["adicionar-ferramenta.md", "invariantes.md"],
