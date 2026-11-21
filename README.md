@@ -292,7 +292,7 @@ The launcher sources live in `launcher/`, and the shortcuts point at them. Earli
 A conversation, not a menu. The engine underneath is invisible, the interface is SelfEvoPI's.
 
 ```
-  ◍  SelfEvoPI                                              v0.5.0
+  ◍  SelfEvoPI                                              v1.2.0
   ────────────────────────────────────────────────────────────────
   ● main · pronto · 86/87 baseline · build
 

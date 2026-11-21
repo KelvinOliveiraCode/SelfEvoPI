@@ -21,7 +21,7 @@ created: 2026-11-19
 | `core/agent/theme.mjs` | Tema da interface: 3 built-in (escuro/violeta/alto-contraste), 11 papéis de cor | `getTheme`, `setTheme`, `listThemes`, `themeToAnsi256` |
 | `core/agent/theme-custom.mjs` | 3 slots custom editáveis (`~/.pi/agent/custom-themes.json`) | `listCustomThemes`, `getCustomTheme`, `saveCustomTheme` |
 | `core/agent/mcp.mjs` | Inventaria MCPs do projeto (`.mcp.json` / `.pi/settings.json`) | `readMcpConfig`, `listMcpServers` |
-| `core/agent/mcp-probe.mjs` | Lê MCPs da config global `~/.pi/settings.json` + probe JSON-RPC (ex-`mcp-opencode.mjs`) | `listConfiguredMcp` (+ alias `listOpencodeMcp`) |
+| `core/agent/mcp-probe.mjs` | Lê MCPs do settings global (`~/.pi/settings.json`) e sonda handshake/tools (`/mcp`, `/plugins`) (ex-`mcp-opencode.mjs`) | `listConfiguredMcp` (+ alias `listOpencodeMcp`), `probeMcpServer` |
 | `core/agent/mcp-logs.mjs` | Logs dos servidores MCP |, |
 | `core/agent/skills-user.mjs` | Lista skills do PC (`~/.pi/skills/<nome>/SKILL.md`) (ex-`skills-pc.mjs`) | `findPcSkills`, `listPcSkills` |
 | `core/agent/import.mjs` | Migra MCPs e skills do OpenCode para `~/.pi/` uma vez, reversível | `scanSource`, `scanTarget`, `planImport`, `applyImport`, `undoImport` |
@@ -32,7 +32,6 @@ created: 2026-11-19
 | `core/agent/worktree.mjs` | Worktrees git isoladas (`/worktree`) |, |
 | `core/agent/file-explorer.mjs` | Seletor de pasta do Windows (`/explorer`) |, |
 | `core/agent/list-window.mjs` | Lista janelas/pastas para escolher workspace |, |
-| `core/agent/mcp-probe.mjs` | Lê MCPs do settings global e sonda handshake/tools (`/mcp`, `/plugins`) |, |
 | `core/agent/pi-rpc.mjs` | Ponte RPC com o engine do PI | `createPiClient`, `findEngine`, `listConfiguredModels` |
 | `core/agent/init.mjs` | Gera rascunho de AGENTS.md | `renderAgentDoc` |
 
