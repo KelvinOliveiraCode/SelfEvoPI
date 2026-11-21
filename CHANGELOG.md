@@ -18,6 +18,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
   conteúdo que está sendo escrito.
 - **Contador de tokens no spinner** passou a usar também o total de tokens da
   sessão quando `contextUsage` ainda está zerado.
+- **`AGENTS.md` e `docs/agent-guides/`**: guias operacionais para qualquer
+  agente que precise mudar a harness — mapa de donos, como adicionar provider,
+  ferramenta, comando, idioma/verbosidade e integrações, invariantes e
+  protocolo de verificação/rollback. Inclui `registro.json` com os mesmos
+  ponteiros em formato legível por máquina.
 - **Validação em uso real**: duas tarefas pequenas (um app Node e um site HTML)
   criaram os arquivos corretos com tool calling, 7,4 s e 9,2 s; dois subagentes
   em paralelo responderam em 3,1 s. Ver `VERIFICACAO.md` no pacote organizado.

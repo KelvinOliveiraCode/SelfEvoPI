@@ -1,0 +1,56 @@
+{
+  "projeto": "SelfEvoPI",
+  "versao": "1.2.2",
+  "atualizado": "2026-11-21",
+  "entrada": "AGENTS.md",
+  "indice": "docs/agent-guides/README.md",
+  "areas_protegidas": ["evals/", "core/governance/", "scripts/verify-urls.mjs"],
+  "comandos": {
+    "teste_unitario": "npm test",
+    "verificacao_completa": "npm run verify",
+    "modelos": "npm run models:check",
+    "gate": "node evals/gate.mjs",
+    "frame_cli": "node apps/cli.mjs --render status"
+  },
+  "mudancas": {
+    "provider": {
+      "guias": ["adicionar-provider.md", "mapa-e-dono.md"],
+      "arquivos": ["config/providers.example.json", "scripts/import-providers.mjs", "core/agent/model-metadata.mjs", "core/agent/providers.mjs", "core/router/"],
+      "externo": "~/.pi/agent/models.json",
+      "testes": ["npm run models:check", "npm run providers:check", "node --test core/agent/*.test.mjs"],
+      "invariantes": [1, 3, 9, 19]
+    },
+    "ferramenta": {
+      "guias": ["adicionar-ferramenta.md", "invariantes.md"],
+      "arquivos": ["core/forge/contract.mjs", "core/forge/detect.mjs", "core/forge/specify.mjs", "core/forge/generate-*.mjs", "core/forge/probe.mjs", "core/forge/gatekeeper.mjs", "core/forge/promote.mjs"],
+      "testes": ["node --test core/forge/*.test.mjs", "node evals/gate.mjs", "npm run verify"],
+      "invariantes": [1, 2, 4, 7, 19, 21]
+    },
+    "comando": {
+      "guias": ["adicionar-comando.md", "idioma-e-verbosity.md"],
+      "arquivos": ["apps/cli.mjs", "core/agent/i18n.mjs", "apps/cli.test.mjs", "apps/cli-features.test.mjs", "apps/cli-audit.test.mjs"],
+      "testes": ["node --test apps/*.test.mjs", "node apps/cli.mjs --render help", "node apps/cli.mjs --render palette", "npm run verify"],
+      "invariantes": [3, 12, 13, 14, 15, 17, 18]
+    },
+    "idioma_verbosidade": {
+      "guias": ["idioma-e-verbosity.md"],
+      "arquivos": ["core/agent/i18n.mjs", "core/agent/verbosity.mjs", "core/agent/settings-view.mjs", "apps/cli.mjs"],
+      "externo": "~/.pi/agent/cli-locale.json, ~/.pi/agent/cli-verbosity.json",
+      "testes": ["node --test apps/cli-features.test.mjs", "node --test core/agent/i18n.test.mjs", "node --test core/agent/verbosity.test.mjs"],
+      "invariantes": [12, 14, 15, 21]
+    },
+    "integracao": {
+      "guias": ["conexoes-e-eventos.md", "invariantes.md"],
+      "arquivos": ["core/agent/mcp.mjs", "core/agent/mcp-probe.mjs", "core/graph/runtime.mjs"],
+      "novos_sugeridos": ["core/integration/adapters/", "core/integration/events.mjs", "core/integration/activation.mjs", "core/integration/registry.mjs"],
+      "testes": ["node --test core/integration/*.test.mjs", "npm test", "npm run verify"],
+      "invariantes": [1, 2, 3, 4, 5, 6, 10]
+    },
+    "rollback": {
+      "guias": ["verificacao-e-rollback.md"],
+      "arquivos": [".pi/harness/last-known-good.json", "core/governance/rollback.mjs"],
+      "testes": ["npm test", "npm run verify"],
+      "invariantes": [19, 20, 22]
+    }
+  }
+}

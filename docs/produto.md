@@ -249,3 +249,15 @@ docs/vault/         índice navegável em Obsidian
 - Alguns modelos do catálogo terminam uma chamada sem texto; a CLI recupera o
   texto final da mensagem e, mesmo assim vazio, reporta o comportamento do
   provedor sem fingir sucesso.
+
+## 9. Como estender sem quebrar
+
+O ponto de entrada para qualquer agente de código é `AGENTS.md` na raiz. Dele
+saem os guias operacionais em `docs/agent-guides/`: mapa de donos, como adicionar
+provider, ferramenta, comando, idioma/verbosidade e integrações, quais são as
+invariantes e como verificar/desfazer. O mesmo índice existe em
+`registro.json`, legível por máquina.
+
+A regra que sustenta tudo: **uma fonte de verdade por conceito, áreas protegidas
+intocáveis e gate verde antes de qualquer afirmação**. Mudou o comportamento?
+O commit atualiza o teste, a baseline quando legítimo, e a documentação.

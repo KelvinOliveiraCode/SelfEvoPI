@@ -34,6 +34,12 @@ created: 2026-11-19
 - [[06-Pesquisa/Fontes]], fontes com URL e o que cada uma sustentou
 - [[07-Inspiracoes/Inspiracoes]], Claude Code, OpenCode, Cursor, Zed, Warp
 
+### Para agentes de código
+- `AGENTS.md` (raiz), regras de ouro e índice operacional — leia primeiro
+- `docs/agent-guides/`, guias por tipo de mudança: providers, ferramentas,
+  comandos, idioma/verbosidade, integrações, invariantes e rollback
+- `docs/agent-guides/registro.json`, o mesmo mapa em formato legível por máquina
+
 ### Reprodução e referência
 - [[09-Replicacao/Replicacao]], como montar do zero, 1:1
 - [[10-Glossario]], termos do projeto

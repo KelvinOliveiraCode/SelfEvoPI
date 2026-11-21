@@ -185,6 +185,8 @@ node core/forge/cli.mjs status          # harness state
 
 | Document | What's in it |
 |:--|:--|
+| [`AGENTS.md`](AGENTS.md) | first read for any coding agent: rules, map, verification |
+| [`docs/agent-guides/`](docs/agent-guides/README.md) | practical guides to change providers, tools, commands, language and integrations |
 | [`docs/produto.md`](docs/produto.md) | full product dossier: thesis, architecture, CLI, models, security |
 | [`docs/estado.md`](docs/estado.md) | measured state, honest gaps |
 | [`docs/fase1/decisoes.md`](docs/fase1/decisoes.md) | decisions with evidence and re-evaluation triggers |
