@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * core/agent/activity.mjs — registro de ATIVIDADE do painel "o que está rodando"
+ * core/agent/activity.mjs — registro de ATIVIDADE ("o que está rodando")
  * (shells + subagentes) da TUI.
  *
  * Estado em memória no processo (um Map por id). Determinístico: `listActivity`

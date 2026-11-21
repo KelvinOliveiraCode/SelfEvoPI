@@ -39,6 +39,14 @@ import {
   themeToAnsiFromColors,
   themeToAnsi256FromColors,
 } from "../core/agent/theme.mjs";
+import { t as tr, getLocale, setLocale, listLocales, isLocale } from "../core/agent/i18n.mjs";
+import { effortLevelsFor, listModelMetadata } from "../core/agent/model-metadata.mjs";
+import {
+  captureClipboardImage,
+  imageContent,
+  isImageFile,
+  prepareAttachmentDir,
+} from "../core/agent/attachments.mjs";
 
 // Acoplamento conhecido: usamos pi._rpc (acesso interno do RpcClient) para
 // getSessionStats/getMessages/switchSession, que o wrapper PiClient
@@ -53,8 +61,19 @@ const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
 const BASELINE = path.join(ROOT, "evals", "baseline.json");
 const MEMORY = path.join(ROOT, ".pi", "harness", "memory");
 
-const WIDTH = 72; // colunas do frame (em 80 não quebra)
+const WIDTH = 72; // largura usada em --render (headless), estável para testes
 const RULE = 64; // régua de ─ (marca §1.1)
+
+/**
+ * Largura real do frame. Num TTY usa as colunas do terminal (até 160) para
+ * que textos longos caibam sem reticências; fora de TTY mantém 72 para que
+ * `--render` seja determinístico. Nunca encosta na última coluna: evita o
+ * "deferred wrap" que faz a linha seguinte subir e sobrepor.
+ */
+export function frameWidth() {
+  const cols = process.stdout?.isTTY ? Number(process.stdout.columns) || 80 : WIDTH;
+  return Math.max(WIDTH, Math.min(cols - 2, 160));
+}
 
 /* ------------------------------------------------------------------ */
 /* Paleta (marca §1.1 / §2) — truecolor ou degradação honesta          */
@@ -200,8 +219,8 @@ function readJson(file, fallback = {}) {
 /** Estado do harness (voz do produto): ponto verde/âmbar + rótulo neutro. */
 export function harnessState(data = {}) {
   const lkg = data.lkg || readJson(path.join(ROOT, ".pi", "harness", "last-known-good.json"), {});
-  if (lkg && lkg.sha) return { label: "pronto", color: "green" };
-  return { label: "cold start", color: "amber" };
+  if (lkg && lkg.sha) return { label: tr("state.ready"), color: "green" };
+  return { label: tr("state.cold"), color: "amber" };
 }
 
 /** Linha de estado: branch · estado. Sem citar o motor nem baseline. */
@@ -507,47 +526,58 @@ export function renderMarkdown(md) {
 /* Comandos 1.1: settings, theme, swarm                                */
 /* ------------------------------------------------------------------ */
 
-/**
- * Trunca cada linha em 72 colunas.
- *
- * A TUI desenha em 72 e um texto mais longo desalinha o resto da tela. A
- * saida de comando e dado do usuario ou do provedor — nao da para confiar
- * que caiba. `stripAnsi` existe para medir sem contar as sequencias de cor.
- */
-function capLinhas(linhas, largura = 72) {
-  return linhas.map((l) => {
-    const texto = String(l);
-    if (visibleWidth(texto) <= largura) return texto;
-    // Fatia sem quebrar sequencias ANSI: percorre a string contando largura
-    // visivel e so entao corta, preservando o \x1b[0m no fim.
-    let larguraV = 0;
-    let corte = 0;
-    let dentroAnsi = false;
-    let estiloAberto = false;
-    let inicioSeq = -1;
-    for (let i = 0; i < texto.length && larguraV < largura - 1; i++) {
-      const ch = texto[i];
-      if (ch === "\x1b") { dentroAnsi = true; inicioSeq = i; continue; }
-      if (dentroAnsi) {
-        if (ch === "m") {
-          dentroAnsi = false;
-          // SGR: sequencia completa \x1b[...m. 0 = reset (fecha tudo),
-          // != 0 = liga um estilo (negrito, cor, etc). Uma sequencia composta
-          // como \x1b[0;33m começa com 0 e depois liga 33 — o estilo fica
-          // aberto, então só \x1b[0m puro (ou \x1b[m) fecha.
-          const seq = texto.slice(inicioSeq, i + 1);
-          const corpo = seq.slice(2, -1); // remove \x1b[ e m
-          estiloAberto = corpo !== "0" && corpo !== "";
-        }
-        continue;
-      }
-      corte = i + 1;
-      larguraV++;
+/** Estado do último SGR de uma linha: usado para fechar estilo ao quebrar. */
+function sgrState(text) {
+  let open = false;
+  let style = "";
+  const re = /\x1b\[[0-9;]*m/g;
+  let m;
+  while ((m = re.exec(String(text)))) {
+    const body = m[0].slice(2, -1);
+    if (body === "0" || body === "") {
+      open = false;
+      style = "";
+    } else {
+      open = true;
+      style = m[0];
     }
-    // Se o corte deixou algum SGR aberto (estilo ligado, \x1b[0m ainda não
-    // veio), fecha com \x1b[0m antes da reticência para não vazar cor.
-    return `${texto.slice(0, corte)}${estiloAberto ? "\x1b[0m" : ""}…`;
-  });
+  }
+  return { open, style };
+}
+
+/** Quebra sem perder texto e sem deixar SGR aberto no fim de cada linha visual. */
+function wrapBalanced(text, width) {
+  const pieces = String(text ?? "").split("\n");
+  const out = [];
+  for (const piece of pieces) {
+    if (visibleWidth(piece) <= width) {
+      out.push(piece);
+      continue;
+    }
+    let carry = "";
+    for (const part of wrapAnsi(piece, width).split("\n")) {
+      const state = sgrState(part);
+      let line = carry + part;
+      if (sgrState(line).open) line += "\x1b[0m";
+      out.push(line);
+      carry = state.open ? state.style : "";
+    }
+  }
+  return out;
+}
+
+/**
+ * Quebra cada linha em `largura` colunas sem perder texto.
+ *
+ * A saída de comando é dado do usuário ou do provedor: nunca deve aparecer
+ * como "con…" na borda. `wrapAnsi` preserva as sequências de cor.
+ */
+function capLinhas(linhas, largura = WIDTH) {
+  // Nada de reticência: o texto continua inteiro, apenas quebra na largura
+  // disponível. O chamador imprime cada elemento como uma linha da TUI.
+  const out = [];
+  for (const l of linhas) out.push(...wrapBalanced(l, largura));
+  return out;
 }
 
 async function runSettingsView({ out }) {
@@ -565,20 +595,25 @@ async function runSettingsView({ out }) {
     }
   };
 
-  const [mcp, skills] = await Promise.all([
+  const [mcp, skills, sessions] = await Promise.all([
     seguro(() => listConfiguredMcp({}), []),
     seguro(() => listPcSkills({}), []),
+    seguro(async () => {
+      const dir = await sessionDir();
+      const { listSessions } = await import("../core/agent/sessions.mjs");
+      return (await listSessions(dir)).length;
+    }, null),
   ]);
 
   const linhas = renderSettings({
     mode: currentMode,
     permission: permissionMode,
-    model: null,
-    effort: null,
+    model: shortModelSafe(statusInfo.model),
+    effort: statusInfo.reasoning,
     theme: getTheme(),
     mcp: mcp.length,
     skills: skills.length,
-    sessions: null,
+    sessions,
   });
   out(linhas.join("\n"));
   return 0;
@@ -878,53 +913,282 @@ async function runProviders({ arg, out, pi }) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Comandos de sessão e interface                                      */
+/* ------------------------------------------------------------------ */
+
+/** /language — troca o idioma da interface. Inglês é o padrão. */
+async function runLanguage({ arg, out }) {
+  const value = String(arg ?? "").trim().toLowerCase();
+  if (value) {
+    if (!isLocale(value)) {
+      out(paint(`  ${tr("lang.invalid", { value })}`, "fail"));
+      return 2;
+    }
+    setLocale(value);
+    const label = listLocales().find((l) => l.code === getLocale())?.label || value;
+    out(paint(`  ${tr("lang.set", { label })}`, "ok"));
+    return 0;
+  }
+  const current = getLocale();
+  const label = listLocales().find((l) => l.code === current)?.label || current;
+  out(
+    capLinhas([
+      paint(`  ${tr("lang.title")}`, "fg"),
+      `    ${padLabel(tr("lang.current"))}${current} · ${label}`,
+      `    ${padLabel(tr("lang.available"))}${listLocales().map((l) => `${l.code} (${l.label})`).join(", ")}`,
+      "",
+      paint(`  /language en | pt · ${tr("lang.apply")}`, "muted"),
+    ]).join("\n"),
+  );
+  return 0;
+}
+
+/** /fork — bifurca a sessão atual preservando a original. */
+async function runFork({ arg, out }) {
+  try {
+    const dir = await sessionDir();
+    const { listSessions } = await import("../core/agent/sessions.mjs");
+    const list = await listSessions(dir);
+    const id = String(arg ?? "").trim() || list[0]?.id;
+    if (!id) {
+      out(paint(`  ${tr("fork.none")}`, "warn"));
+      return 0;
+    }
+    const { forkSession } = await import("../core/agent/sessions.mjs");
+    const newId = await forkSession(dir, id, null, "cli");
+    out(paint(`  ${tr("fork.done", { id: newId })}`, "ok"));
+    return 0;
+  } catch (err) {
+    out(paint(`  ${String(err?.message || err).slice(0, 160)}`, "fail"));
+    return 2;
+  }
+}
+
+/** /diff — mudanças git no workspace, em texto curto. */
+async function runDiff({ out }) {
+  const stat = await runProcess("git", ["-C", workspaceRoot, "diff", "--stat"]);
+  if (!String(stat.out || "").trim()) {
+    out(paint(`  ${tr("diff.clean")}`, "muted"));
+    return 0;
+  }
+  const det = await runProcess("git", ["-C", workspaceRoot, "diff", "--unified=2"]);
+  const lines = [paint(`  ${tr("diff.title")}`, "fg"), ""];
+  for (const l of String(det.out || "").split("\n").slice(0, 80)) {
+    lines.push(paint("  " + (l.length > 68 ? l.slice(0, 67) + "…" : l), "muted"));
+  }
+  out(lines.join("\n"));
+  return 0;
+}
+
+/** /export — conversa em markdown ou JSON, fora do caminho de execução. */
+async function runExport({ arg, out, pi }) {
+  let messages = [];
+  if (pi) messages = await Promise.resolve(pi._rpc?.getMessages?.()).catch(() => []);
+  if (!Array.isArray(messages) || messages.length === 0) {
+    out(paint(`  ${tr("export.none")}`, "warn"));
+    return 0;
+  }
+  const fmt = String(arg ?? "md").trim().toLowerCase() === "json" ? "json" : "md";
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const dir = path.join(ROOT, ".pi", "harness", "exports");
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `conversation-${new Date().toISOString().replace(/[:.]/g, "-")}.${fmt}`);
+  const content = fmt === "json"
+    ? JSON.stringify(messages, null, 2) + "\n"
+    : messages.map((m) => `## ${m.role}\n\n${String(m.content ?? "")}`).join("\n\n") + "\n";
+  writeFileSync(file, content, "utf8");
+  out(capLinhas([paint(`  ${tr("export.done", { file })}`, "ok")]).join("\n"));
+  return 0;
+}
+
+/** /undo e /redo — desfaz/refaz a última troca na interface. */
+function runUndo({ out }) {
+  const item = undoStack.pop();
+  if (!item) {
+    out(paint(`  ${tr("undo.none")}`, "muted"));
+    return 0;
+  }
+  redoStack.push(item);
+  out(paint(`  ${tr("undo.done")}`, "ok"));
+  out(paint(`    › ${String(item.text).slice(0, 64)}`, "muted"));
+  return 0;
+}
+
+function runRedo({ out }) {
+  const item = redoStack.pop();
+  if (!item) {
+    out(paint(`  ${tr("redo.none")}`, "muted"));
+    return 0;
+  }
+  undoStack.push(item);
+  out(paint(`  ${tr("redo.done")}`, "ok"));
+  out(paint(`    › ${String(item.text).slice(0, 64)}`, "muted"));
+  return 0;
+}
+
+/** /copy — última resposta para a área de transferência do Windows. */
+async function runCopy({ out }) {
+  if (!lastAnswer) {
+    out(paint(`  ${tr("copy.none")}`, "muted"));
+    return 0;
+  }
+  const ok = await new Promise((resolve) => {
+    const child = spawn("powershell", ["-NoProfile", "-Command", "$input | Set-Clipboard"], { windowsHide: true });
+    child.on("error", () => resolve(false));
+    child.on("close", (code) => resolve(code === 0));
+    child.stdin.end(lastAnswer);
+  });
+  out(paint(`  ${ok ? tr("copy.done") : tr("common.unavailable")}`, ok ? "ok" : "warn"));
+  return ok ? 0 : 2;
+}
+
+/** /reload — reaplica tema e estado sem reiniciar o processo. */
+async function runReload({ out, pi }) {
+  await refreshThemeCache();
+  await refreshStatus(pi);
+  out(paint(`  ${tr("reload.done")}`, "ok"));
+  return 0;
+}
+
+/** /paste — lê a área de transferência e anexa a imagem ao próximo prompt. */
+async function runPaste({ out }) {
+  prepareAttachmentDir(ROOT);
+  const file = await captureClipboardImage({ root: ROOT });
+  if (!file) {
+    out(paint(`  ${tr("img.none")}`, "muted"));
+    return 0;
+  }
+  pendingImages.push(file);
+  out(capLinhas([paint(`  ${tr("img.attached", { file })}`, "ok")]).join("\n"));
+  return 0;
+}
+
+/** /attach <arquivo> — anexa um arquivo de imagem existente. */
+async function runAttach({ arg, out }) {
+  const file = path.resolve(workspaceRoot, String(arg ?? "").trim().replace(/^"|"$/g, ""));
+  if (!isImageFile(file)) {
+    out(paint(`  ${tr("img.notImage", { file })}`, "warn"));
+    return 2;
+  }
+  pendingImages.push(file);
+  out(capLinhas([paint(`  ${tr("img.attached", { file })}`, "ok")]).join("\n"));
+  return 0;
+}
+
+/** /images [clear] — mostra ou limpa os anexos pendentes. */
+function runImages({ arg, out }) {
+  const acao = String(arg ?? "").trim().toLowerCase();
+  if (acao === "clear" || acao === "limpar") {
+    pendingImages = [];
+    out(paint(`  ${tr("img.cleared")}`, "ok"));
+    return 0;
+  }
+  if (pendingImages.length === 0) {
+    out(paint(`  ${tr("img.none")}`, "muted"));
+    return 0;
+  }
+  const lines = [paint(`  ${tr("img.list", { n: pendingImages.length })}`, "fg")];
+  for (const f of pendingImages) lines.push(paint("    " + path.basename(f), "muted"));
+  out(capLinhas(lines).join("\n"));
+  return 0;
+}
+
 // FONTE ÚNICA dos comandos de barra. A paleta e o /help leem daqui; o `run`
 // é o executor. Nada de lista duplicada.
 export const COMMANDS = [
-  { name: "/detect", args: "", description: "lacunas de ferramenta em aberto", run: runDetect },
-  { name: "/evo", args: "<meta>", description: "MODO PRINCIPAL: o harness evolui/modela a si mesmo rumo à meta", run: runForge },
-  { name: "/memory", args: "<termo>", description: "busca na memória (lexical + PPMI)", run: runMemory },
-  { name: "/skills", args: "", description: "o que o loop já gerou e registrou", run: runSkills },
-  { name: "/model", args: "[nome]", description: "seletor de modelo, ou troca direto", run: runModel },
-  { name: "/effort", args: "[off|low|medium|high]", description: "esforço de raciocínio do modelo atual", run: runEffort },
+  { name: "/detect", args: "", description: tr("cmd.detect"), run: runDetect },
+  { name: "/evo", args: "<meta>", description: tr("cmd.evo"), run: runForge },
+  { name: "/memory", args: "<termo>", description: tr("cmd.memory"), run: runMemory },
+  { name: "/skills", args: "", description: tr("cmd.skills"), run: runSkills },
+  { name: "/model", args: "[nome]", description: tr("cmd.model"), run: runModel },
+  { name: "/effort", args: "[off|low|medium|high]", description: tr("cmd.effort"), run: runEffort },
   {
     name: "/mode",
     args: "[modo]",
-    description: "alterna o modo (plan → build → manual → ask → goal)",
+    description: tr("cmd.mode"),
     run: (ctx) =>
       String(ctx?.arg ?? "").trim() === ""
         ? runModeCycle(ctx)
         : runMode(String(ctx.arg).trim(), ctx),
   },
-  { name: "/clear", args: "", description: "limpa a conversa e começa de novo", run: runClear },
-  { name: "/compact", args: "", description: "compacta o histórico da conversa", run: runCompact },
-  { name: "/sessions", args: "[id]", description: "lista sessões ou carrega uma", run: runSessions },
-  { name: "/cost", args: "", description: "tokens e custo da sessão", run: runCost },
-  { name: "/status", args: "", description: "estado da sessão, modelo e modo", run: runStatus },
-  { name: "/context", args: "", description: "quanto da janela de contexto está em uso", run: runContext },
-  { name: "/mcp", args: "", description: "servidores MCP declarados", run: runMcp },
-  { name: "/plugins", args: "[nome|test]", description: "lista os plugins (MCP) ativos; sonda um ou todos", run: runPlugins },
-  { name: "/init", args: "", description: "gera um rascunho de AGENTS.md (pede confirmação)", run: runInit },
+  { name: "/clear", args: "", description: tr("cmd.clear"), run: runClear },
+  { name: "/compact", args: "", description: tr("cmd.compact"), run: runCompact },
+  { name: "/sessions", args: "[id]", description: tr("cmd.sessions"), run: runSessions },
+  { name: "/cost", args: "", description: tr("cmd.cost"), run: runCost },
+  { name: "/status", args: "", description: tr("cmd.status"), run: runStatus },
+  { name: "/context", args: "", description: tr("cmd.context"), run: runContext },
+  { name: "/mcp", args: "", description: tr("cmd.mcp"), run: runMcp },
+  { name: "/plugins", args: "[nome|test]", description: tr("cmd.plugins"), run: runPlugins },
+  { name: "/init", args: "", description: tr("cmd.init"), run: runInit },
   {
     name: "/import",
     args: "[importar|--undo|--status]",
-    description: "traz MCPs e skills para a config própria (pede confirmação)",
+    description: tr("cmd.import"),
     run: runImport,
   },
-  { name: "/plan", args: "", description: "modo plan: lê e propõe, não escreve", run: (ctx) => runMode("plan", ctx) },
-  { name: "/build", args: "", description: "modo build: escreve e executa no workspace", run: (ctx) => runMode("build", ctx) },
-  { name: "/ask", args: "", description: "modo ask: só responde, nunca toca em disco", run: (ctx) => runMode("ask", ctx) },
-  { name: "/goal", args: "[condição|clear]", description: "define/limpa a condição de conclusão", run: runGoal },
-  { name: "/settings", args: "", description: "visão de tudo que está configurado", run: runSettingsView },
-  { name: "/theme", args: "[escuro|violeta|alto-contraste]", description: "tema da interface", run: runTheme },
-  { name: "/swarm", args: "[n] <tarefa>", description: "molda e executa n subagentes rumo à tarefa", run: runSwarm },
-  { name: "/subagent", args: "<nome> <tarefa> [--provider --model --effort --mode --persistent]", description: "subagente moldado (nomeado, persistente ou temporário)", run: runSubagentCmd },
-  { name: "/worktree", args: "[list|new|rm]", description: "worktrees git isoladas", run: runWorktree },
-  { name: "/workspace", args: "[caminho]", description: "onde os agentes agem (troca o diretório de trabalho)", run: runWorkspace },
-  { name: "/explorer", args: "", description: "abre o explorador do Windows e escolhe a pasta/workspace", run: (ctx) => runWorkspace(ctx) },
-  { name: "/providers", args: "[list|add|rm|models]", description: "registra/remove provedores e seus modelos", run: runProviders },
-  { name: "/help", args: "", description: "mostra esta lista", run: runHelp },
+  { name: "/plan", args: "", description: tr("cmd.plan"), run: (ctx) => runMode("plan", ctx) },
+  { name: "/build", args: "", description: tr("cmd.build"), run: (ctx) => runMode("build", ctx) },
+  { name: "/ask", args: "", description: tr("cmd.ask"), run: (ctx) => runMode("ask", ctx) },
+  { name: "/goal", args: "[condição|clear]", description: tr("cmd.goal"), run: runGoal },
+  { name: "/settings", args: "", description: tr("cmd.settings"), run: runSettingsView },
+  { name: "/theme", args: "[escuro|violeta|alto-contraste]", description: tr("cmd.theme"), run: runTheme },
+  { name: "/language", args: "[en|pt]", description: tr("cmd.language"), run: runLanguage },
+  { name: "/fork", args: "[nome]", description: tr("cmd.fork"), run: runFork },
+  { name: "/diff", args: "", description: tr("cmd.diff"), run: runDiff },
+  { name: "/export", args: "[md|json]", description: tr("cmd.export"), run: runExport },
+  { name: "/undo", args: "", description: tr("cmd.undo"), run: runUndo },
+  { name: "/redo", args: "", description: tr("cmd.redo"), run: runRedo },
+  { name: "/copy", args: "", description: tr("cmd.copy"), run: runCopy },
+  { name: "/reload", args: "", description: tr("cmd.reload"), run: runReload },
+  { name: "/paste", args: "", description: tr("cmd.paste"), run: runPaste },
+  { name: "/attach", args: "<arquivo>", description: tr("cmd.attach"), run: runAttach },
+  { name: "/images", args: "[clear]", description: tr("cmd.images"), run: runImages },
+  { name: "/swarm", args: "[n] <tarefa>", description: tr("cmd.swarm"), run: runSwarm },
+  { name: "/subagent", args: "<nome> <tarefa> [--provider --model --effort --mode --persistent]", description: tr("cmd.subagent"), run: runSubagentCmd },
+  { name: "/worktree", args: "[list|new|rm]", description: tr("cmd.worktree"), run: runWorktree },
+  { name: "/workspace", args: "[caminho]", description: tr("cmd.workspace"), run: runWorkspace },
+  { name: "/explorer", args: "", description: tr("cmd.explorer"), run: (ctx) => runWorkspace(ctx) },
+  { name: "/providers", args: "[list|add|rm|models]", description: tr("cmd.providers"), run: runProviders },
+  { name: "/help", args: "", description: tr("cmd.help"), run: runHelp },
 ];
+
+/** Argumentos também são interface: mudam com /language. */
+const ARG_TR = {
+  en: {
+    "<meta>": "<goal>",
+    "<termo>": "<term>",
+    "[nome]": "[name]",
+    "[modo]": "[mode]",
+    "[nome|test]": "[name|test]",
+    "[importar|--undo|--status]": "[import|--undo|--status]",
+    "[condição|clear]": "[condition|clear]",
+    "[escuro|violeta|alto-contraste]": "[dark|violet|high-contrast]",
+    "[n] <tarefa>": "[n] <task>",
+    "<nome> <tarefa> [--provider --model --effort --mode --persistent]":
+      "<name> <task> [--provider --model --effort --mode --persistent]",
+    "[list|new|rm]": "[list|new|rm]",
+    "[caminho]": "[path]",
+    "[list|add|rm|models]": "[list|add|rm|models]",
+  },
+  pt: {},
+};
+
+/**
+ * A paleta e o /help são derivados de COMMANDS no momento em que são chamados:
+ * trocar /language troca nomes, argumentos e descrições sem reiniciar a CLI.
+ */
+export function localizedCommands() {
+  const args = ARG_TR[getLocale()] || ARG_TR.en;
+  return COMMANDS.map((c) => {
+    const key = `cmd.${String(c.name).slice(1)}`;
+    return {
+      name: c.name,
+      args: args[c.args] ?? c.args,
+      description: tr(key) === key ? c.description : tr(key),
+    };
+  });
+}
 
 const SLASH_NAMES = new Set(COMMANDS.map((c) => c.name));
 
@@ -986,10 +1250,10 @@ function clipPlain(text, w) {
 
 export function renderHelp() {
   const out = [];
-  out.push(paint("COMANDOS", "bold"));
+  out.push(paint(tr("help.commands"), "bold"));
   out.push("");
   const LABEL = 32;
-  for (const c of COMMANDS) {
+  for (const c of localizedCommands()) {
     const raw = c.name + (c.args ? " " + c.args : "");
     const label = clipPlain(raw, LABEL).padEnd(LABEL);
     const descW = Math.max(8, WIDTH - LABEL - 4);
@@ -1000,14 +1264,14 @@ export function renderHelp() {
     }
   }
   out.push("");
-  out.push(paint("CONVERSA", "bold"));
+  out.push(paint(tr("help.conversation"), "bold"));
   out.push("");
-  out.push(`  ${paint("escreva", "fg")} e Enter para falar; a resposta aparece em streaming.`);
-  out.push(`  ${paint("Ctrl+C", "fg")} cancela a resposta em curso e devolve a linha.`);
-  out.push(`  ${paint("Ctrl+O", "fg")} abre/fecha o painel de estado.`);
-  out.push(`  ${paint("Ctrl+K", "fg")} abre/fecha a lista de sessões.`);
-  out.push(`  ${paint("Ctrl+,", "fg")} abre/fecha as configurações.`);
-  out.push(`  ${paint("q", "fg")} / ${paint("/quit", "fg")} / ${paint("Ctrl+D", "fg")} saem.`);
+  out.push(`  ${paint("Ctrl+C", "fg")} ${tr("help.cancel")}`);
+  out.push(`  ${paint("Ctrl+O", "fg")} ${tr("help.openPanel")}`);
+  out.push(`  ${paint("Ctrl+K", "fg")} ${tr("help.openSessions")}`);
+  out.push(`  ${paint("Ctrl+,", "fg")} ${tr("help.openConfig")}`);
+  out.push(`  ${paint("Ctrl+P", "fg")} ${tr("help.activity")}`);
+  out.push(`  ${paint("q", "fg")} / ${paint("/quit", "fg")} / ${paint("Ctrl+D", "fg")} ${tr("help.quit")}`);
   return out
     .map((line) => (visibleWidth(line) > WIDTH ? truncateVisible(line, WIDTH) : line))
     .join("\n");
@@ -1105,7 +1369,7 @@ function isSubsequence(needle, hay) {
  */
 export function filterCommands(query) {
   const q = normName(query).trim();
-  const all = COMMANDS.map((c) => ({ name: c.name, args: c.args, description: c.description }));
+  const all = localizedCommands();
   if (q === "") return all.sort((a, b) => a.name.localeCompare(b.name));
   const scored = [];
   for (const c of all) {
@@ -1134,7 +1398,7 @@ export function renderPalette(commands, selectedIndex, width) {
   const bottom = "  ╰" + "─".repeat(W - 4) + "╯";
 
   if (!commands || commands.length === 0) {
-    const mid = "  │" + padVisible("  nenhum comando", W - 4) + "│";
+    const mid = "  │" + padVisible("  " + tr("palette.empty"), W - 4) + "│";
     return [top, mid, bottom];
   }
 
@@ -1179,7 +1443,7 @@ export function renderPalette(commands, selectedIndex, width) {
 }
 
 /** Frame headless da paleta (para --render palette / palette-filtered). */
-export function renderPaletteFrame(filterQuery = "", width = WIDTH) {
+export function renderPaletteFrame(filterQuery = "", width = frameWidth()) {
   const filtered = filterCommands(filterQuery);
   const palette = renderPalette(filtered, 0, width);
   const out = [];
@@ -1188,7 +1452,7 @@ export function renderPaletteFrame(filterQuery = "", width = WIDTH) {
   out.push("");
   out.push(`  ${paint("›", "accent")} /${filterQuery}`);
   for (const l of palette) out.push(l);
-  out.push(paint("  ↑↓ navegar  enter escolher  esc fechar", "dim"));
+  out.push(paint("  " + tr("palette.nav"), "dim"));
   return out.map((line) => wrapAnsi(line, width)).join("\n");
 }
 
@@ -1199,9 +1463,9 @@ export function renderPaletteFrame(filterQuery = "", width = WIDTH) {
 /** Aviso de motor ausente. Nunca cita o motor; diz o que fazer. */
 export function engineUnavailableNote() {
   return [
-    paint("  não encontrei o motor do SelfEvoPI nesta máquina.", "warn"),
-    paint("  a conversa fica desativada; os comandos / continuam funcionando.", "muted"),
-    paint("  para reativar a conversa, reinstale o SelfEvoPI.", "muted"),
+    paint("  " + tr("engine.missing1"), "warn"),
+    paint("  " + tr("engine.missing2"), "muted"),
+    paint("  " + tr("engine.missing3"), "muted"),
   ].join("\n");
 }
 
@@ -1229,24 +1493,24 @@ export function isAuthError(raw) {
 export function engineErrorMessage(raw) {
   const lines = [];
   if (isAuthError(raw)) {
-    lines.push(paint("  não consegui falar com o modelo desta conversa.", "warn"));
-    lines.push(paint("  o modelo padrão não tem credencial ativa nesta máquina.", "muted"));
+    lines.push(paint("  " + tr("engine.auth1"), "warn"));
+    lines.push(paint("  " + tr("engine.auth2"), "muted"));
   } else {
-    lines.push(paint("  não consegui falar com o modelo agora.", "warn"));
-    lines.push(paint("  pode ser conexão ou o modelo estar indisponível; tente de novo.", "muted"));
+    lines.push(paint("  " + tr("engine.generic1"), "warn"));
+    lines.push(paint("  " + tr("engine.generic2"), "muted"));
   }
   lines.push("");
-  lines.push(paint("  /model          ver os modelos disponíveis", "fg"));
-  lines.push(paint("  /model <nome>   trocar o modelo desta conversa", "fg"));
+  lines.push(paint("  /model          " + tr("engine.models"), "fg"));
+  lines.push(paint("  /model <nome>   " + tr("engine.switch"), "fg"));
   return lines.join("\n");
 }
 
 /** Aviso de fallback: diz qual modelo passou a responder, em voz do produto. */
 export function fallbackNotice(model) {
   return [
-    paint(`  o modelo padrão não respondeu; usei ${model} nesta conversa.`, "warn"),
-    paint("  /model          ver os disponíveis", "muted"),
-    paint("  /model <nome>   trocar", "muted"),
+    paint("  " + tr("engine.fallback", { model }), "warn"),
+    paint(`  /model          ${tr("engine.models")}`, "muted"),
+    paint(`  /model <nome>   ${tr("engine.switch")}`, "muted"),
   ].join("\n");
 }
 
@@ -1254,10 +1518,41 @@ export function fallbackNotice(model) {
 /* Processos auxiliares (comandos de barra que rodam algo)            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Expande menções @arquivo no texto do usuário. O arquivo é lido do workspace
+ * e injetado como contexto explícito — sem isso, `@README.md` chega ao modelo
+ * como literal e o agente não sabe o que o usuário quis dizer.
+ */
+async function expandAtMentions(text) {
+  const { readFile } = await import("node:fs/promises");
+  const found = [...String(text).matchAll(/@("[^"]+"|[^\s]+)/g)].slice(0, 6);
+  if (found.length === 0) return { text, files: [], images: [] };
+  let out = text;
+  const files = [];
+  const images = [];
+  for (const m of found) {
+    const target = m[1].replace(/^"|"$/g, "");
+    const full = path.resolve(workspaceRoot, target);
+    if (isImageFile(full)) {
+      images.push(full);
+      out = out.replace(m[0], "").trim();
+      continue;
+    }
+    try {
+      const content = (await readFile(full, "utf8")).slice(0, 32000);
+      files.push(full);
+      out = out.replace(m[0], `<<file ${full}>>\n${content}\n<</file>>`);
+    } catch {
+      /* se não der para ler, mantém o literal — nunca inventa conteúdo */
+    }
+  }
+  return { text: out, files, images };
+}
+
 /** Roda um processo e devolve { code, out, err }. Nunca rejeita. */
-function runProcess(executable, args, { onLine } = {}) {
+function runProcess(executable, args, { onLine, cwd = ROOT } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(executable, args, { cwd: ROOT, windowsHide: true });
+    const child = spawn(executable, args, { cwd, windowsHide: true });
     let out = "";
     let err = "";
     let buf = "";
@@ -1267,15 +1562,18 @@ function runProcess(executable, args, { onLine } = {}) {
       while ((nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
+        out += line + "\n";
         if (onLine) onLine(line);
       }
     };
     child.stdout?.on("data", pump);
     child.stderr?.on("data", (d) => (err += d.toString()));
-    child.on("error", (e) => resolve({ code: 1, out: "", err: String(e.message) }));
+    child.on("error", (e) => resolve({ code: 1, out, err: String(e.message) }));
     child.on("close", (code) => {
-      if (buf && onLine) onLine(buf);
-      out += err;
+      if (buf) {
+        out += buf;
+        if (onLine) onLine(buf);
+      }
       resolve({ code: code ?? 1, out, err });
     });
   });
@@ -1442,6 +1740,26 @@ async function runForge({ arg, out }) {
  * em vez de fingir que consultou.
  */
 export const EFFORT_FALLBACK = Object.freeze(["off", "low", "medium", "high"]);
+
+/**
+ * Níveis declarados no models.json para um modelo "provedor/id" (ou só id).
+ * O catálogo do motor é a fonte preferida, mas quando ele devolve só `off`
+ * para um modelo que o catálogo público marca como reasoning, a config local
+ * é a correção honesta — é exatamente o caso do ERNIE 5.5 Flash Preview,
+ * cujo único effort aceito é `high`.
+ */
+export function metadataEfforts(providerAndId) {
+  const ref = String(providerAndId || "").trim();
+  if (!ref) return null;
+  if (ref.includes("/")) {
+    const i = ref.indexOf("/");
+    return effortLevelsFor(ref.slice(0, i), ref.slice(i + 1));
+  }
+  for (const m of listModelMetadata()) {
+    if (m.id === ref || m.id.endsWith("/" + ref)) return m.efforts;
+  }
+  return null;
+}
 
 /** Valida a lista vinda do motor; lista vazia ou lixo cai no fallback. */
 export function normalizeEffortList(levels) {
@@ -1690,6 +2008,15 @@ async function runEffort({ arg, out, pi }) {
   if (reais.length > 0) niveis = reais;
   else niveis = [...EFFORT_FALLBACK];
 
+  // O motor devolve `off` para modelos sem `reasoning` no models.json. Quando
+  // o catálogo público diz que o modelo raciocina, a config local corrige isso.
+  const meta = metadataEfforts(statusInfo.model);
+  let origem = doMotor ? "motor" : "padrão";
+  if (meta && meta.some((n) => n !== "off") && niveis.length === 1 && (niveis[0] === "off" || niveis[0] === "none")) {
+    niveis = meta;
+    origem = "configuração do modelo";
+  }
+
   const atual = (statusInfo.reasoning || "").toLowerCase() || null;
 
   if (alvo === "") {
@@ -1698,9 +2025,14 @@ async function runEffort({ arg, out, pi }) {
     lines.push(`    aceitos:   ${niveis.join(", ")}`);
     lines.push("");
     lines.push(
-      doMotor
-        ? paint("  (lista lida do modelo em uso)", "muted")
-        : paint("  (não consegui ler do modelo; mostrando o conjunto padrão)", "warn"),
+      paint(
+        origem === "motor"
+          ? "  (lista lida do modelo em uso)"
+          : origem === "configuração do modelo"
+            ? "  (lista da configuração do modelo; o motor não a declarou)"
+            : "  (não consegui ler do modelo; mostrando o conjunto padrão)",
+        origem === "padrão" ? "warn" : "muted",
+      ),
     );
     out(lines.join("\n"));
     return 0;
@@ -1750,8 +2082,17 @@ function samePath(a, b) {
   return n(a) === n(b);
 }
 
-/** Descobre a pasta de sessões do projeto atual (por header.cwd), ou a base. */
+let sessionDirMemo = null;
+
+/** Cache da pasta de sessões: a varredura custa ~100 ms e não muda na sessão. */
 async function sessionDir() {
+  if (sessionDirMemo) return sessionDirMemo;
+  sessionDirMemo = await discoverSessionDir();
+  return sessionDirMemo;
+}
+
+/** Descobre a pasta de sessões do projeto atual (por header.cwd), ou a base. */
+async function discoverSessionDir() {
   const base = SESSIONS_DIR;
   let entries = [];
   try {
@@ -2131,10 +2472,9 @@ async function runCompact({ out, pi }) {
 /* ------------------------------------------------------------------ */
 
 /**
- * De onde veio a sessão, segundo o campo `client` do header (contrato
- * desktop 1.0, seção 1). Sessão antiga, sem o campo, é `cli` — é o que o
- * contrato manda, e é o que faz sentido: o desktop é que passou a escrever
- * esse campo depois.
+ * De onde veio a sessão, segundo o campo `client` do header. Sessão antiga,
+ * sem o campo, é `cli`: antes dele, toda sessão já era da CLI. Valores antigos
+ * continuam normalizados para não quebrar a leitura de histórico.
  *
  * Valor desconhecido não vira "cli" no silêncio: devolve como está, para o
  * diagnóstico não mentir sobre um header que veio de outro lugar.
@@ -2166,7 +2506,7 @@ export function deriveTitle(headerTitle, firstUserText, maxLen = 50) {
 
 /**
  * Lê o que a lista de sessões precisa e o `listSessions` não devolve:
- * `client` (contrato desktop 1.0) e o primeiro texto do usuário (para o
+ * `client` e o primeiro texto do usuário (para o
  * título derivado).
  *
  * Lê o começo de cada arquivo, não o inteiro: o header é a linha 1 e a
@@ -2175,9 +2515,10 @@ export function deriveTitle(headerTitle, firstUserText, maxLen = 50) {
  *
  * @returns {Promise<Map<string, { client: string, firstUser: string|null }>>}
  */
-export async function readSessionExtras(dir, { maxBytes = 256 * 1024 } = {}) {
+export async function readSessionExtras(dir, { maxBytes = 64 * 1024 } = {}) {
   const { readdir, open } = await import("node:fs/promises");
   const { parseSession } = await import("../core/agent/sessions.mjs");
+  const CHUNK = 8 * 1024;
 
   const out = new Map();
   let files = [];
@@ -2187,6 +2528,19 @@ export async function readSessionExtras(dir, { maxBytes = 256 * 1024 } = {}) {
     return out;
   }
 
+  const firstUserOf = (messages) => {
+    for (const m of messages || []) {
+      if (m && m.role === "user") {
+        return typeof m.content === "string"
+          ? m.content
+          : Array.isArray(m.content)
+            ? m.content.map((c) => (c && typeof c.text === "string" ? c.text : "")).join(" ")
+            : "";
+      }
+    }
+    return null;
+  };
+
   for (const f of files) {
     const full = path.join(dir, f);
     let header = null;
@@ -2195,19 +2549,18 @@ export async function readSessionExtras(dir, { maxBytes = 256 * 1024 } = {}) {
     try {
       const fh = await open(full, "r");
       try {
-        const buf = Buffer.alloc(maxBytes);
-        const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
-        const { header: h, messages } = parseSession(buf.subarray(0, bytesRead).toString("utf8"));
-        header = h;
-        for (const m of messages) {
-          if (m && m.role === "user") {
-            firstUser = typeof m.content === "string"
-              ? m.content
-              : Array.isArray(m.content)
-                ? m.content.map((c) => (c && typeof c.text === "string" ? c.text : "")).join(" ")
-                : "";
-            break;
-          }
+        let text = "";
+        // Lê em fatias e PARA no primeiro user: antes eram 256 KB por sessão,
+        // mesmo quando a primeira mensagem cabia nos primeiros 200 bytes.
+        for (let offset = 0; offset < maxBytes && !firstUser; offset += CHUNK) {
+          const size = Math.min(CHUNK, maxBytes - offset);
+          const buf = Buffer.alloc(size);
+          const { bytesRead } = await fh.read(buf, 0, size, offset);
+          if (!bytesRead) break;
+          text += buf.subarray(0, bytesRead).toString("utf8");
+          const parsed = parseSession(text);
+          if (parsed.header) header = parsed.header;
+          firstUser = firstUserOf(parsed.messages);
         }
       } finally {
         await fh.close().catch(() => {});
@@ -2228,27 +2581,21 @@ export async function readSessionExtras(dir, { maxBytes = 256 * 1024 } = {}) {
  * (Ctrl+K) mostre exatamente o mesmo que /sessions mostra.
  */
 export function renderSessionsList(list, extras, limit = 12) {
-  const lines = [paint(`  ${list.length} sessão(es)`, "fg")];
-
-  // cabeçalho só quando há o que listar — coluna a mais sem tabela é ruído
-  const temDesktop = list.slice(0, limit).some((se) => (extras.get(se.id)?.client ?? "cli") === "desktop");
+  const label = getLocale() === "pt" ? "sessão(es)" : "session(s)";
+  const lines = [paint(`  ${list.length} ${label}`, "fg")];
   const idW = 8;
-  const originW = temDesktop ? 8 : 0;
-  const titleW = Math.max(24, WIDTH - idW - originW - 26 - 8);
+  const titleW = Math.max(24, WIDTH - idW - 26 - 8);
 
   for (const se of list.slice(0, limit)) {
     const extra = extras.get(se.id);
-    const origin = extra?.client ?? "cli";
     const title = deriveTitle(se.title, extra?.firstUser) ?? String(se.id).slice(0, 8);
     const id = se.id ? String(se.id).slice(0, idW) : "?";
-
-    const colOrigin = temDesktop ? String(origin).padEnd(originW) + "  " : "";
     const colTitle = fit(String(title), titleW).padEnd(titleW);
-    lines.push(`  ${id}  ${colOrigin}${colTitle}  ${se.turns} turnos  ${String(se.updatedAt || "").slice(0, 10)}`);
+    lines.push(`  ${id}  ${colTitle}  ${se.turns} ${getLocale() === "pt" ? "turnos" : "turns"}  ${String(se.updatedAt || "").slice(0, 10)}`);
   }
 
   if (list.length > limit) {
-    lines.push(paint(`  … e mais ${list.length - limit} sessão(es)`, "muted"));
+    lines.push(paint(`  … ${getLocale() === "pt" ? "e mais" : "and"} ${list.length - limit} ${label}`, "muted"));
   }
 
   return lines;
@@ -2474,10 +2821,12 @@ export function spinnerFrame(t) {
  * sutil + texto em cinza, quebrado em WIDTH. Aceita o texto cru acumulado
  * dos deltas "thinking_delta"; devolve [] quando não há nada.
  */
-export function renderThinking(raw) {
+export function renderThinking(raw, { collapsed = false, seconds = 0 } = {}) {
   const text = String(raw || "").trim();
   if (!text) return [];
-  const out = [paint("  ⤷ raciocínio", "muted")];
+  const label = collapsed ? tr("think.summary", { s: seconds }) : tr("think.label");
+  const out = [paint(`  ⤷ ${label}`, "muted")];
+  if (collapsed) return out;
   const inner = Math.max(20, WIDTH - 6);
   for (const para of text.split(/\n{2,}/)) {
     const flat = para.replace(/\s+/g, " ").trim();
@@ -2491,15 +2840,24 @@ export function renderThinking(raw) {
  * Spinner controlado: aparece com um rótulo, redesenha no lugar (sem piscar) e
  * some no stop (limpa a linha). O timer é limpo ao parar/sair.
  */
-function createSpinner(write) {
+function createSpinner(write, stats = () => ({})) {
   let timer = null;
   let start = 0;
   let label = "";
   let active = false;
   const render = () => {
-    // Movimento reduzido: indicador estático (sem piscar).
-    const frame = prefersReducedMotion() ? "●" : spinnerFrame(Date.now() - start);
-    write("\r\x1b[2K  " + paint(frame, "fg") + " " + paint(label, "muted"));
+    // Movimento reduzido: indicador estático (sem piscar). Os números continuam:
+    // são eles que dizem "está trabalhando" vs "está travado".
+    const now = Date.now();
+    const frame = prefersReducedMotion() ? "●" : spinnerFrame(now - start);
+    const s = stats() || {};
+    const parts = [paint(frame, "fg"), paint(label, "muted")];
+    const seconds = Math.floor(((s.elapsedMs ?? (now - start)) / 1000));
+    parts.push(paint(tr("spin.elapsed", { s: seconds }), "muted"));
+    if (s.tokens != null && Number.isFinite(Number(s.tokens))) {
+      parts.push(paint(tr("spin.tokens", { n: s.tokens }), "muted"));
+    }
+    write("\r\x1b[2K  " + parts.join(" "));
   };
   return {
     start(l) {
@@ -2535,6 +2893,16 @@ function createSpinner(write) {
 // Permissão do SelfEvoPI (postura da CLI). O modo (plan/build/ask) é ortogonal.
 let permissionMode = "full access";
 
+// Estado leve da sessão de interface: fila de mensagens, última resposta e
+// pilha de desfazer. Fora do REPL para que os comandos de barra leiam o mesmo
+// estado sem plumbagem — a CLI é um processo por sessão.
+let thinkingVisible = true; // Alt+T: mostrar/ocultar blocos de raciocínio
+let pendingImages = []; // caminhos de imagens anexadas ao próximo prompt
+let queued = [];
+let lastAnswer = "";
+const undoStack = [];
+const redoStack = [];
+
 // Painel de estado (cacheado; atualizado por refreshStatus).
 let statusInfo = {
   mode: currentMode,
@@ -2542,6 +2910,8 @@ let statusInfo = {
   model: null,
   reasoning: null,
   context: null,
+  contextPct: null,
+  branch: null,
   sessionId: null,
   turns: 0,
 };
@@ -2562,8 +2932,16 @@ export async function refreshStatus(pi) {
   ).catch(() => ({}));
   if (stats && stats.contextUsage) {
     statusInfo.context = `${stats.contextUsage.tokens} / ${stats.contextUsage.contextWindow}`;
+    const used = Number(stats.contextUsage.tokens);
+    const total = Number(stats.contextUsage.contextWindow);
+    statusInfo.contextPct = total > 0 && Number.isFinite(used) ? Math.min(100, Math.round((used / total) * 100)) : null;
   }
   statusInfo.turns = Number(stats?.totalMessages) || 0;
+  try {
+    statusInfo.branch = detectBranch() || null;
+  } catch {
+    statusInfo.branch = null;
+  }
   return statusInfo;
 }
 
@@ -2572,7 +2950,23 @@ export function buildStatusLine(info = statusInfo) {
   const parts = [paint(info.mode, "fg"), paint(info.permission, "fg")];
   if (info.model) parts.push(paint(info.model, "fg"));
   if (info.reasoning) parts.push(paint("think:" + info.reasoning, "muted"));
-  return parts.join(" · ");
+  if (info.contextPct != null) parts.push(paint(tr("panel.context") + " " + info.contextPct + "%", "muted"));
+  if (info.branch) parts.push(paint(info.branch, "muted"));
+  const line = parts.join(" · ");
+  return visibleWidth(line) > WIDTH ? truncateVisible(line, WIDTH - 1) : line;
+}
+
+/** Nome curto do modelo para linhas de 72 colunas (mesmo corte da barra de estado). */
+function shortModelSafe(m) {
+  if (!m) return null;
+  const tail = String(m).split("/").pop() || String(m);
+  return tail.length > 24 ? tail.slice(0, 23) + "…" : tail;
+}
+
+/** Rótulo alinhado a 13 colunas (o painel e as configurações usam o mesmo passo). */
+function padLabel(label) {
+  const s = String(label || "");
+  return s.length >= 13 ? s + " " : s + " ".repeat(13 - s.length);
 }
 
 /** Painel completo (Ctrl+O): estado da conversa em detalhe. */
@@ -2580,26 +2974,24 @@ export function renderPanel(info = statusInfo, data = {}) {
   const base = data.baseline || readJson(BASELINE, {});
   const t = base.totals || {};
   const lines = [];
-  lines.push(paint("  painel", "fg"));
-  lines.push(`    modo:        ${paint(info.mode, "bold")}`);
-  lines.push(`    permissão:   ${paint(info.permission, "fg")}`);
-  lines.push(`    modelo:      ${paint(info.model || "—", "fg")}`);
-  lines.push(`    raciocínio:  ${info.reasoning || "—"}`);
-  if (info.context) lines.push(`    contexto:    ${info.context}`);
-    if (info.sessionId) lines.push(`    sessão:      ${String(info.sessionId).slice(0, 8)} · ${info.turns} turnos`);
-  if (t.taskRuns != null) lines.push(`    baseline:    ${t.passes}/${t.taskRuns}`);
+  lines.push(paint("  " + tr("panel.title"), "fg"));
+  lines.push(`    ${padLabel(tr("panel.mode"))}${paint(info.mode, "bold")}`);
+  lines.push(`    ${padLabel(tr("panel.permission"))}${paint(info.permission, "fg")}`);
+  lines.push(`    ${padLabel(tr("panel.model"))}${paint(info.model || "—", "fg")}`);
+  lines.push(`    ${padLabel(tr("panel.reasoning"))}${info.reasoning || "—"}`);
+  if (info.context) lines.push(`    ${padLabel(tr("panel.context"))}${info.context}`);
+  if (info.sessionId) lines.push(`    ${padLabel(tr("panel.session"))}${String(info.sessionId).slice(0, 8)} · ${info.turns} ${tr("panel.turns")}`);
+  if (t.taskRuns != null) lines.push(`    ${padLabel(tr("panel.baseline"))}${t.passes}/${t.taskRuns}`);
   lines.push("");
-  lines.push(paint("  ctrl+o fecha", "dim"));
+  lines.push(paint("  " + tr("panel.close"), "dim"));
   return lines;
 }
 
 /**
  * Painel de configurações (Ctrl+,): o que está valendo nesta sessão.
  *
- * Não é um editor — é a mesma leitura que o desktop mostra em Ctrl+, vista
- * daqui. Quem muda configuração continua mudando por comando (/model, /plan,
- * /build, /ask); este painel só mostra o estado, para os dois lados
- * concordarem sem o usuário adivinhar.
+ * Quem muda configuração continua mudando por comando (/model, /plan, /build,
+ * /ask, /language) ou pelo editor em Ctrl+,; esta leitura só mostra o estado.
  */
 export function renderSettings(info = statusInfo, { sessionsDir = null, commands = COMMANDS.length } = {}) {
   // rótulo ocupa 17 colunas ("    modelo:      "); o resto é do valor, e o
@@ -2613,22 +3005,23 @@ export function renderSettings(info = statusInfo, { sessionsDir = null, commands
   };
 
   const lines = [];
-  lines.push(paint("  configurações", "fg"));
-  lines.push(`    modelo:      ${paint(cut(info.model || "-"), "fg")}`);
-  lines.push(`    modo:        ${paint(cut(info.mode), "bold")}`);
-  lines.push(`    permissão:   ${paint(cut(info.permission), "fg")}`);
-  if (info.reasoning) lines.push(`    raciocínio:  ${cut(info.reasoning)}`);
-  if (info.context) lines.push(`    contexto:    ${cut(info.context)}`);
-  lines.push(`    sessões:     ${cut(sessionsDir ?? "(não resolvido)")}`);
-  lines.push(`    comandos:    ${commands}`);
+  lines.push(paint("  " + tr("settings.title"), "fg"));
+  lines.push(`    ${padLabel(tr("settings.model"))}${paint(cut(info.model || "-"), "fg")}`);
+  lines.push(`    ${padLabel(tr("settings.mode"))}${paint(cut(info.mode), "bold")}`);
+  lines.push(`    ${padLabel(tr("settings.permission"))}${paint(cut(info.permission), "fg")}`);
+  if (info.reasoning) lines.push(`    ${padLabel(tr("settings.reasoning"))}${cut(info.reasoning)}`);
+  if (info.context) lines.push(`    ${padLabel(tr("settings.context"))}${cut(info.context)}`);
+  lines.push(`    ${padLabel(tr("settings.sessions"))}${cut(sessionsDir ?? tr("settings.notResolved"))}`);
+  lines.push(`    ${padLabel(tr("settings.commands"))}${commands}`);
   lines.push("");
-  lines.push(paint("  ctrl+, fecha", "dim"));
+  lines.push(paint("  " + tr("settings.close"), "dim"));
   return lines;
 }
 
 
 export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   const settleTimeoutMs = opts.settleTimeoutMs ?? 120_000;
+  const images = Array.isArray(opts.images) ? opts.images : [];
   let buf = "";
   let drawn = 0;
   let hadError = false;
@@ -2656,15 +3049,32 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   };
 
   // Spinner: aparece a cada turno, some quando o texto/ferramenta comanda.
-  const spin = createSpinner(write);
+  // O contador de tokens vem do motor em segundo plano; nunca bloqueia o turno.
+  let liveTokens = null;
+  const spin = createSpinner(write, () => ({ tokens: liveTokens }));
+  const pollTokens = async () => {
+    for (let i = 0; i < 600 && spin.active; i += 1) {
+      const st = await Promise.resolve(pi._rpc?.getSessionStats?.()).catch(() => null);
+      const used = st?.contextUsage?.tokens;
+      if (used != null) liveTokens = used;
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 400);
+        timer.unref?.(); // nunca segura o processo só por causa do contador
+      });
+    }
+  };
   // Raciocínio (thinking_delta) vem no stream rpc interno; o wrapper PiClient
   // não o repassa (normalizeEvent só deixa text_delta). Capturamos via _rpc.
   let thinkBuf = "";
   let thinkCommitted = false;
-  const commitThink = () => {
+  let thinkStart = 0;
+  const commitThink = (force = false) => {
     if (thinkCommitted || thinkBuf.trim() === "") return;
-    if (buf && buf.length > 0) return; // já há resposta; não injeta no meio
-    const lines = renderThinking(thinkBuf);
+    // Não injeta no meio do streaming; no fim do turno o force=true garante
+    // que o raciocínio tardio apareça em vez de ser descartado.
+    if (buf && buf.length > 0 && !force) return;
+    const seconds = Math.floor((Date.now() - (thinkStart || Date.now())) / 1000);
+    const lines = renderThinking(thinkBuf, { collapsed: !thinkingVisible, seconds });
     if (lines.length === 0) return;
     thinkCommitted = true;
     spin.stop();
@@ -2677,17 +3087,36 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     buf += delta;
     redraw();
   });
+  const toolStart = new Map();
   const offTool = pi.on("tool", (call) => {
-    if (call.phase !== "start") return;
-    commitThink(); // raciocínio vem antes da chamada de ferramenta
+    if (call.phase === "start") {
+      commitThink(); // raciocínio vem antes da chamada de ferramenta
+      spin.stop();
+      flush();
+      const argHint =
+        call.args && typeof call.args === "object"
+          ? Object.values(call.args).map((v) => String(v)).join(" ").replace(/\s+/g, " ").slice(0, 44)
+          : "";
+      toolStart.set(call.id, Date.now());
+      write(`  ${paint("⏺", "accent")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
+      spin.start(tr("spin.running", { name: String(call.name || "tool") }));
+      return;
+    }
+    if (call.phase !== "end") return;
     spin.stop();
-    flush();
-    const argHint =
-      call.args && typeof call.args === "object"
-        ? Object.values(call.args).map((v) => String(v)).join(" ").replace(/\s+/g, " ").slice(0, 44)
-        : "";
-    write(`  ${paint("⏺", "accent")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
-    spin.start("executando " + String(call.name || "ferramenta"));
+    const begun = toolStart.get(call.id);
+    toolStart.delete(call.id);
+    const secs = begun != null ? Math.floor((Date.now() - begun) / 1000) : null;
+    const raw = call.result == null ? "" : typeof call.result === "string" ? call.result : JSON.stringify(call.result);
+    const lines = raw ? raw.split("\n").length : 0;
+    const kb = raw ? Math.round(Buffer.byteLength(raw, "utf8") / 1024) : 0;
+    const detail = lines
+      ? tr("tool.result", { n: lines }) + (kb ? ` (${tr("tool.resultBytes", { n: kb })})` : "")
+      : secs != null
+        ? tr("spin.elapsed", { s: secs })
+        : tr("tool.done");
+    const marker = call.isError ? paint(tr("tool.failed"), "fail") : paint(detail, "muted");
+    write(`    ${paint("⎿", "muted")} ${marker}${call.isError ? "" : ""}\n`);
   });
   const offError = pi.on("error", (message) => {
     hadError = true;
@@ -2709,6 +3138,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
         if (ev && ev.type === "message_update") {
           const inner = ev.assistantMessageEvent;
           if (inner && inner.type === "thinking_delta" && typeof inner.delta === "string") {
+            if (!thinkStart) thinkStart = Date.now();
             thinkBuf += inner.delta;
           }
         }
@@ -2719,10 +3149,11 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   }
 
   setBusy(true);
-  spin.start("pensando…");
+  void pollTokens();
+  spin.start(tr("spin.thinking"));
   const settled = waitForSettle(pi, settleTimeoutMs); // arma o listener de settled ANTES do prompt
   try {
-    await pi.prompt(text);
+    await pi.prompt(text, images.length ? images : undefined);
   } catch (err) {
     spin.stop();
     flush();
@@ -2736,12 +3167,21 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   }
   // espera o settled (o redesenho roda nos eventos)
   await settled;
-  const answerText = buf; // markdown completo, antes de o flush limpar
+  let answerText = buf; // markdown completo, antes de o flush limpar
+  // Alguns modelos não emitem text_delta: o texto só existe na mensagem final.
+  // Sem isso a conversa parecia vazia embora o modelo tivesse respondido.
+  if (!answerText.trim() && !hadError && !aborted && typeof pi.getLastAssistantText === "function") {
+    const finalText = await pi.getLastAssistantText().catch(() => "");
+    if (String(finalText || "").trim()) {
+      answerText = String(finalText);
+      write(renderMarkdown(answerText) + "\n");
+    }
+  }
   const wasError = hadError;
   const errText = rawError;
   const wasAborted = aborted;
   spin.stop();
-  commitThink(); // mostra raciocínio de um turno sem texto (ex.: só ferramenta)
+  commitThink(true); // mostra até o raciocínio que chegou depois do texto
   flush();
   offText();
   offTool();
@@ -2778,10 +3218,11 @@ export async function converseOrFallback(pi, text, write, opts = {}) {
     maxCandidates = 5,
     budgetMs = 30_000, // teto TOTAL da varredura (evita "travamento" perceptível)
     perCandidateMs = 25_000, // teto por candidato (cobre um modelo real, ~13-20 s)
+    images = [],
   } = opts;
   const usable = (x) => Boolean(x && x.ok && x.text && String(x.text).trim() !== "");
 
-  const res = await converse(pi, text, write, setBusy);
+  const res = await converse(pi, text, write, setBusy, { images });
   if (res.aborted) return res; // usuário cancelou: silencioso, sem fallback
   if (usable(res)) return res;
   if (!allowFallback || !Array.isArray(candidates) || candidates.length === 0) {
@@ -2813,6 +3254,7 @@ export async function converseOrFallback(pi, text, write, opts = {}) {
     await pi.setModel(m.provider, m.id).catch(() => {});
     const r = await converse(pi, text, () => {}, setBusy, {
       settleTimeoutMs: Math.min(perCandidateMs, remaining),
+      images,
     });
     if (r.aborted) return r; // cancelou durante o fallback
     if (usable(r)) {
@@ -3047,6 +3489,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   let running = false;
   let quitting = false;
   let panelOpen = false; // painel de estado (ctrl+o)
+  let taskOpen = false; // lista de tarefas da interface (ctrl+t)
   let sessionsOpen = false; // lista de sessões (ctrl+k)
   let settingsOpen = false; // configurações (ctrl+,)
   let sessionsCache = null; // linhas já montadas, para o overlay não esperar
@@ -3059,8 +3502,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     // Nunca passa de WIDTH: uma linha de paleta maior que a tela wrapa em 2
     // linhas visuais mas conta como 1, e o \x1b[<n>A do redraw desalinha
     // (causa do texto sobrepondo/acumulando ao navegar).
-    const cols = (process.stdout && process.stdout.columns) || 80;
-    return Math.max(40, Math.min(cols - 4, WIDTH));
+    return Math.max(40, frameWidth() - 2);
   };
 
   const shortModel = (m) => {
@@ -3084,30 +3526,38 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     const model = shortModel(statusInfo.model);
     if (model) statusParts.push(paint(model, "fg"));
     if (statusInfo.reasoning) statusParts.push(paint("think:" + statusInfo.reasoning, "muted"));
+    if (statusInfo.contextPct != null) statusParts.push(paint(tr("panel.context") + " " + statusInfo.contextPct + "%", "muted"));
+    if (statusInfo.branch) statusParts.push(paint(statusInfo.branch, "muted"));
     if (goalTag) statusParts.push(paint(goalTag, "warn"));
-    // Trunca cada linha a WIDTH para não quebrar o redraw incremental: uma
-    // linha que o terminal wrapa vira 2 linhas visuais mas conta como 1, e o
-    // reposicionamento do cursor (\x1b[<n>A) fica deslocado — é a sobreposição
-    // "status · permissão · modelo" por cima de "enter enviar · / comandos".
-    // WIDTH-1: nunca encosta na última coluna (evita o "deferred wrap" do
-    // terminal que faz a linha seguinte subir/sobrepor — causa do texto misturado).
-    let statusLine = "  " + statusParts.join(" · ");
-    if (visibleWidth(statusLine) >= WIDTH) statusLine = truncateVisible(statusLine, WIDTH - 1);
+    if (queued.length) statusParts.push(paint(tr("queue.hint", { n: queued.length }), "warn"));
+    // Sem reticência: a linha é quebrada pelo mesmo mecanismo das outras
+    // linhas abaixo, e o redraw conta as linhas visuais de verdade.
+    const statusLine = "  " + statusParts.join(" · ");
 
-    let keysLine = "  " + paint(
+    const keysLine = "  " + paint(
       panelOpen
-        ? "ctrl+o fechar · enter enviar · q sair"
+        ? tr("hints.panel")
         : open
-          ? "↑↓ navegar  enter escolher  esc fechar  ctrl+o painel"
-          : "enter enviar · / comandos · ctrl+o painel · ctrl+k sessões · q sair",
+          ? tr("hints.palette")
+          : tr("hints.idle"),
       "dim",
     );
-    if (visibleWidth(keysLine) >= WIDTH) keysLine = truncateVisible(keysLine, WIDTH - 1);
 
     // Linhas abaixo da entrada (redesenho incremental: limpa daqui para baixo).
     const belowLines = [];
     for (const pl of paletteLines) belowLines.push(pl);
     if (panelOpen) for (const pl of renderPanel(statusInfo, data)) belowLines.push(pl);
+    if (taskOpen) {
+      const rows = [
+        paint("  tarefas", "fg"),
+        `    · ${goalTag || tr("goal.none")}`,
+        `    · ${running ? tr("spin.thinking") : tr("common.done")}`,
+        `    · ${tr("queue.hint", { n: queued.length })}`,
+        "",
+        paint("  ctrl+t fecha", "dim"),
+      ];
+      for (const pl of capLinhas(rows)) belowLines.push(pl);
+    }
     if (settingsOpen && settingsCache) for (const pl of settingsCache) belowLines.push(pl);
     if (sessionsOpen && sessionsCache) for (const pl of sessionsCache) belowLines.push(pl);
     for (const pl of modelPickerRows()) belowLines.push(pl);
@@ -3118,7 +3568,8 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     // Janela horizontal: mostra a fatia do buffer que cabe, mantendo o cursor
     // visível. Assim um prompt grande NÃO corta com "…" nem some da tela — o
     // texto completo continua no buffer (é ele que vai pro harness).
-    const avail = WIDTH - 4;
+    const fw = frameWidth();
+    const avail = fw - 4;
     const win = inputWindow(line.buf, line.cur, avail);
     const shown = win.shown;
     // Anti-flicker: o Windows Terminal repinta por chunk de write(); montar o
@@ -3127,13 +3578,13 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     const parts = ["\x1b[?25l"]; // esconde o cursor durante o redraw
     parts.push("\r\x1b[J"); // CR + limpa da linha de entrada para baixo
     parts.push("  " + paint("›", "accent") + " " + shown);
-    // Trunca CADA linha abaixo a WIDTH: qualquer linha maior wrapa e desalinha
-    // o \x1b[<n>A (era a causa do acúmulo "provedores 0/3, 1/3..." e do overlap).
-    for (const bl of belowLines) {
-      const linha = visibleWidth(bl) > WIDTH ? truncateVisible(bl, WIDTH) : bl;
-      parts.push("\n" + linha);
-    }
-    const below = belowLines.length;
+    // Quebra cada linha na largura real do terminal. O contador `below` usa as
+    // linhas VISUAIS resultantes — é isso que mantém o \x1b[<n>A alinhado sem
+    // precisar cortar nenhuma palavra no meio.
+    const visualLines = [];
+    for (const bl of belowLines) visualLines.push(...wrapBalanced(bl, fw));
+    for (const linha of visualLines) parts.push("\n" + linha);
+    const below = visualLines.length;
     if (below > 0) parts.push(`\x1b[${below}A`);
     const col = 4 + win.curCol;
     parts.push("\r");
@@ -3186,7 +3637,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   const valuePickerRows = () => {
     if (!valuePicker) return [];
     return renderValuePicker({
-      title: valuePicker.title,
+      title: valuePicker.query ? `${valuePicker.title} /${valuePicker.query}` : valuePicker.title,
       items: valuePicker.items,
       sel: valuePicker.sel,
       footer: valuePicker.footer,
@@ -3217,9 +3668,12 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   // esc cancela — nada chega ao editor de linha. onChoose(item) roda no enter.
   const startValuePicker = (opts) => {
     modelPicker = null;
+    const items = Array.isArray(opts?.items) ? opts.items : [];
     valuePicker = {
       title: String(opts?.title ?? "escolha"),
-      items: Array.isArray(opts?.items) ? opts.items : [],
+      items,
+      allItems: items,
+      query: "",
       sel: 0,
       footer: opts?.footer ?? "↑↓ navegar · enter escolher · esc cancela",
       onChoose: typeof opts?.onChoose === "function" ? opts.onChoose : null,
@@ -3474,19 +3928,35 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     });
   };
 
+  const startLanguagePicker = async () => {
+    startValuePicker({
+      title: tr("lang.title"),
+      items: listLocales().map((l) => ({
+        label: `${l.code} · ${l.label}`,
+        hint: l.code === getLocale() ? "•" : "",
+        value: l.code,
+      })),
+      footer: tr("lang.hint"),
+      onChoose: async (it) => {
+        await runLanguage({ arg: it.value, out: (s) => write(s + "\n") });
+      },
+    });
+  };
+
   const startSettingsPicker = async () => {
     const _th = await import("../core/agent/theme.mjs");
     const refresh = () => {
       const atual = _th.getTheme();
       const itens = [
-        { label: "tema", hint: atual, value: "__theme" },
-        { label: "modo", hint: currentMode || "—", value: "__mode" },
-        { label: "permissão", hint: permissionMode, value: "__perm" },
-        { label: "modelo", hint: shortModel(statusInfo.model) || "—", value: "__model" },
-        { label: "esforço", hint: statusInfo.reasoning || "—", value: "__effort" },
+        { label: tr("cmd.theme"), hint: atual, value: "__theme" },
+        { label: tr("cmd.mode"), hint: currentMode || "—", value: "__mode" },
+        { label: tr("panel.permission").replace(":", ""), hint: permissionMode, value: "__perm" },
+        { label: tr("cmd.model"), hint: shortModel(statusInfo.model) || "—", value: "__model" },
+        { label: tr("cmd.effort"), hint: statusInfo.reasoning || "—", value: "__effort" },
+        { label: tr("cmd.language"), hint: getLocale(), value: "__language" },
       ];
       startValuePicker({
-        title: "configurações",
+        title: tr("settings.title"),
         items: itens,
         onChoose: async (it) => {
           if (it.value === "__theme") { startThemePicker(); return "keep"; }
@@ -3494,6 +3964,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
           if (it.value === "__perm") { startPermissionPicker(); return "keep"; }
           if (it.value === "__model") { startModelPicker(); return "keep"; }
           if (it.value === "__effort") { await startEffortPicker(); return "keep"; }
+          if (it.value === "__language") { await startLanguagePicker(); return "keep"; }
         },
       });
     };
@@ -3517,24 +3988,19 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   };
 
   const startEffortPicker = async () => {
-    if (!pi || !pi._rpc || typeof pi._rpc.getAvailableThinkingLevels !== "function") {
-      write("  (sem sessão ativa — abra uma conversa e tente /effort)\n");
-      return;
-    }
     let niveis = [];
-    try { niveis = normalizeEffortList(await pi._rpc.getAvailableThinkingLevels()); } catch { niveis = []; }
-    // Alguns modelos devolvem só "none" (não têm raciocínio). Em vez de um
-    // picker inútil de 1 item, oferece os níveis padrão (o modelo pode ignorá-los).
-    const reais = niveis.filter((n) => n !== "none");
-    if (reais.length === 0) {
-      write(paint('  este modelo não expõe níveis de raciocínio (só "none")', "muted"));
-      write(paint("  exibindo os níveis padrão (o modelo pode ignorá-los)", "muted"));
-      niveis = [...EFFORT_FALLBACK];
-    } else {
-      niveis = reais;
+    if (pi?._rpc && typeof pi._rpc.getAvailableThinkingLevels === "function") {
+      try { niveis = normalizeEffortList(await pi._rpc.getAvailableThinkingLevels()); } catch { niveis = []; }
     }
+    const meta = metadataEfforts(statusInfo.model);
+    if (meta && meta.some((n) => n !== "off") && niveis.length === 1 && (niveis[0] === "off" || niveis[0] === "none")) {
+      niveis = meta;
+      write(paint("  níveis lidos da configuração do modelo", "muted") + "\n");
+    }
+    const reais = niveis.filter((n) => n !== "none");
+    if (reais.length > 0) niveis = reais;
     if (niveis.length === 0) {
-      write("  (o motor não expôs níveis de esforço)\n");
+      write("  (sem sessão ativa e sem metadados para este modelo)\n");
       return;
     }
     const atual = String(statusInfo.reasoning || "").toLowerCase();
@@ -3564,6 +4030,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     }
     const antes = workspaceRoot;
     workspaceRoot = alvo;
+    sessionDirMemo = null; // o workspace muda, a pasta de sessões também
     // Recria o motor (fecha o antigo) para o novo diretório valer nas conversas.
     const novo = await startEngine(workspaceRoot);
     if (!novo) {
@@ -3735,9 +4202,10 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       const extra = extras.get(se.id);
       const title = deriveTitle(se.title, extra?.firstUser) ?? String(se.id).slice(0, 8);
       const when = String(se.updatedAt || "").slice(0, 10);
+      const preview = String(extra?.firstUser || "").replace(/\s+/g, " ").slice(0, 28);
       return {
         label: String(title),
-        hint: `${String(se.id).slice(0, 8)} · ${se.turns} turnos · ${when}`,
+        hint: [String(se.id).slice(0, 8), `${se.turns} turnos`, when, preview].filter(Boolean).join(" · "),
         value: se.id,
       };
     });
@@ -3838,10 +4306,17 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       doMotor = false;
     }
 
-    if (!doMotor || niveis.length <= 1) {
-      // sem lista utilizável, não inventa pergunta: só confirma o modelo
+    // A config local tem prioridade quando o motor ainda não declarou o
+    // reasoning do modelo (caso do ERNIE 5.5: único effort aceito é `high`).
+    const meta = metadataEfforts(escolha.provider + "/" + escolha.id) || metadataEfforts(escolha.id);
+    if (meta && meta.some((n) => n !== "off") && niveis.length === 1 && (niveis[0] === "off" || niveis[0] === "none")) {
+      niveis = meta;
+      doMotor = true; // lista confirmada pela config do modelo, não inventada
+    }
+
+    if (niveis.length === 0 || (niveis.length === 1 && niveis[0] === "off")) {
+      // modelo sem raciocínio: só confirma a troca, sem picker inútil
       write("  modelo: " + escolha.provider + "/" + escolha.id + "\n");
-      if (!doMotor) write("  (não consegui ler os níveis de esforço deste modelo)\n");
       drawInput();
       return;
     }
@@ -3877,10 +4352,18 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
 
   const finishRun = async () => {
     running = false;
+    if (queued.length) {
+      const next = queued.shift();
+      write(paint("  " + tr("queue.sent"), "muted") + "\n");
+      drawInput();
+      await submit(next);
+      return;
+    }
     prompt();
   };
 
-  const submit = async (text) => {
+  const submit = async (rawText) => {
+    let text = rawText;
     write("\n");
     history.push(text);
     histIdx = history.length;
@@ -3923,6 +4406,25 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       prompt();
       return;
     }
+    // !comando: shell direto, sem passar pelo modelo.
+    if (text.startsWith("!")) {
+      const cmdline = text.slice(1).trim();
+      if (cmdline) {
+        const r = await runProcess(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmdline], { cwd: workspaceRoot });
+        const body = capLinhas(String(r.out || "").split("\n").slice(0, 120));
+        write(body.join("\n") + "\n");
+      }
+      prompt();
+      return;
+    }
+    // @arquivo: injeta o conteúdo como contexto antes de enviar ao modelo.
+    const expanded = await expandAtMentions(text);
+    if (expanded.files.length || expanded.images.length) {
+      const names = [...expanded.files, ...expanded.images].map((f) => path.basename(f));
+      write(paint("  @ " + names.join(", "), "muted") + "\n");
+      text = expanded.text;
+    }
+    pendingImages.push(...expanded.images);
     const parsed = parseInput(text);
     if (parsed.type === "quit") {
       quitting = true;
@@ -3942,6 +4444,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         if (parsed.name === "/mode") { await startModePicker(); return; }
         if (parsed.name === "/effort") { await startEffortPicker(); return; }
         if (parsed.name === "/settings") { await startSettingsPicker(); return; }
+        if (parsed.name === "/language") { await startLanguagePicker(); return; }
         if (parsed.name === "/workspace") { await startWorkspacePicker(); return; }
         if (parsed.name === "/providers") { await startProvidersPicker(); return; }
       }
@@ -3968,12 +4471,28 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       return;
     }
     running = true;
-    const res = await converseOrFallback(pi, text, (s) => write(s), {
+    const images = [...pendingImages];
+    const imageBlocks = images.map(imageContent).filter(Boolean);
+    if (images.length > 0 && imageBlocks.length === 0) {
+      write(paint(`  ${tr("img.unavailable")}`, "warn") + "\n");
+    }
+    if (imageBlocks.length > 0) {
+      const modelRef = statusInfo.model || "";
+      const prov = modelRef.includes("/") ? modelRef.slice(0, modelRef.indexOf("/")) : null;
+      const id = modelRef.includes("/") ? modelRef.slice(modelRef.indexOf("/") + 1) : modelRef;
+      const meta = listModelMetadata().find((m) => (prov ? m.provider === prov && m.id === id : m.id === id));
+      if (meta && !meta.image) write(paint(`  ${tr("img.noVision")}`, "warn") + "\n");
+    }
+    const res = await converseOrFallback(pi, text || "(veja a imagem anexa)", (s) => write(s), {
       allowFallback: !process.env.SELFEOPI_MODEL,
       candidates: listConfiguredModels(),
       setBusy: (b) => (running = b),
+      images: imageBlocks,
     });
+    if (imageBlocks.length > 0) pendingImages = [];
     if (quitting) return;
+    if (res?.text) lastAnswer = res.text;
+    undoStack.push({ text, answer: res?.text || "" });
     await checkGoal(res?.text, (s) => write(s + "\n"));
     await finishRun();
   };
@@ -3981,15 +4500,31 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   const onData = async (chunk) => {
     for (const key of keymap(chunk)) {
       if (quitting) return;
-      if (key === "ctrl-o" && !running) {
-        // Ctrl+O abre o editor interativo de configurações (escolhe e muda
-        // tema/modo/permissão/modelo/esforço). Fecha os outros overlays/pickers.
+      if (key === "alt-t") {
+        thinkingVisible = !thinkingVisible;
+        write(paint("  " + (thinkingVisible ? tr("think.show") : tr("think.hide")), "muted") + "\n");
+        drawInput();
+        continue;
+      }
+      if (key === "ctrl-t" && !running) {
+        taskOpen = !taskOpen;
         panelOpen = false;
         settingsOpen = false;
         sessionsOpen = false;
         modelPicker = null;
         valuePicker = null;
-        await startSettingsPicker();
+        drawInput();
+        continue;
+      }
+      if (key === "ctrl-o" && !running) {
+        // Ctrl+O = painel de estado (o que /help e a dica prometem). Um overlay
+        // por vez: fecha os demais. O editor de configuração é Ctrl+,.
+        panelOpen = !panelOpen;
+        settingsOpen = false;
+        sessionsOpen = false;
+        modelPicker = null;
+        valuePicker = null;
+        drawInput();
         continue;
       }
       if (key === "ctrl-k" && !running) {
@@ -3997,6 +4532,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         // Fecha as configurações estáticas e o painel (um overlay por vez).
         settingsOpen = false;
         panelOpen = false;
+        taskOpen = false;
         sessionsOpen = false;
         modelPicker = null;
         valuePicker = null;
@@ -4004,24 +4540,22 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         continue;
       }
       if (key === "ctrl-comma" && !running) {
+        // Ctrl+, abre o EDITOR de configurações (tema/modo/permissão/modelo/
+        // esforço/idioma). A leitura estática continua em /settings.
         modelPicker = null;
         valuePicker = null;
         panelOpen = false;
-        settingsOpen = !settingsOpen;
+        taskOpen = false;
         sessionsOpen = false;
-        if (settingsOpen) {
-          // idem: mostra já, resolve o caminho das sessões em segundo plano
-          settingsCache = renderSettings(statusInfo, { sessionsDir: sessionsDirCache });
-          drawInput();
-          void refreshSettingsOverlay();
-        } else drawInput();
+        await startSettingsPicker();
         continue;
       }
       if (key === "ctrl-p" && !running) {
-        // Ctrl+P: painel de atividade (shells + subagentes)
+        // Ctrl+P: lista de atividade (shells e subagentes)
         settingsOpen = false;
         sessionsOpen = false;
         panelOpen = false;
+        taskOpen = false;
         modelPicker = null;
         valuePicker = null;
         await startActivityPanel();
@@ -4044,6 +4578,21 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         if (key === "down") { moveValuePicker(1); continue; }
         if (key === "enter") { await chooseValuePicker(); continue; }
         if (key === "esc") { cancelValuePicker(); continue; }
+        // Filtro por prefixo/substring, como no /resume dos concorrentes.
+        if (key === "backspace") {
+          valuePicker.query = String(valuePicker.query || "").slice(0, -1);
+        } else if (typeof key === "string" && key.length === 1) {
+          valuePicker.query = String(valuePicker.query || "") + key;
+        } else {
+          continue;
+        }
+        const q = String(valuePicker.query || "").toLowerCase();
+        valuePicker.items = q
+          ? valuePicker.allItems.filter((it) =>
+              `${it.label} ${it.hint || ""}`.toLowerCase().includes(q))
+          : valuePicker.allItems;
+        valuePicker.sel = 0;
+        drawInput();
         continue;
       }
       if (running) {
@@ -4051,6 +4600,25 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
           if (pi) pi.abort().catch(() => {});
           write("^C\n");
           running = false;
+          drawInput();
+          continue;
+        }
+        // Enquanto o agente trabalha, o usuário pode continuar digitando.
+        // Enter enfileira a mensagem (ctrl+enter envia imediato, quando o
+        // terminal manda a sequência) em vez de descartar o que foi escrito.
+        if (key === "enter" || key === "ctrl-enter") {
+          const text = line.buf.trim();
+          if (text) {
+            queued.push(text);
+            line = { buf: "", cur: 0, sel: 0, dismissed: false };
+            write(paint(`  ${tr("queue.hint", { n: queued.length })}`, "muted") + "\n");
+          }
+          drawInput();
+          continue;
+        }
+        const edited = reduceLine(line, key);
+        if (edited && edited.state) {
+          line = edited.state;
           drawInput();
         }
         continue;
@@ -4112,6 +4680,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         resolve();
       }
     }, 20);
+    check.unref?.(); // o stdin é o handle real; o polling não segura o processo
   });
 }
 
@@ -4123,7 +4692,15 @@ function makeKeyMap() {
       const code = s.charCodeAt(i);
       // sequências de escape (setas)
       if (code === 0x1b) {
+        // Ctrl+Enter em terminais que usam o protocolo "kitty keyboard".
+        const ce1 = "\x1b[13;5u";
+        const ce2 = "\x1b[1;5u";
+        if (s.startsWith(ce1, i)) { yield "ctrl-enter"; i += ce1.length - 1; continue; }
+        if (s.startsWith(ce2, i)) { yield "ctrl-enter"; i += ce2.length - 1; continue; }
         const next = s[i + 1];
+        // Alt+T (alterna raciocínio) e Esc+, (fallback de Ctrl+,).
+        if (next === "t" || next === "T") { yield "alt-t"; i += 1; continue; }
+        if (next === ",") { yield "ctrl-comma"; i += 1; continue; }
         if (next === "[") {
           const code2 = s[i + 2];
           if (code2 === "A") {
@@ -4178,7 +4755,7 @@ function makeKeyMap() {
         yield "ctrl-o";
         continue;
       }
-      if (code === 0x0b) { // Ctrl+K — a mesma tecla do desktop
+      if (code === 0x0b) { // Ctrl+K — abre a lista de sessões
         yield "ctrl-k";
         continue;
       }
@@ -4186,8 +4763,16 @@ function makeKeyMap() {
         yield "ctrl-comma"; // a maioria dos terminais manda (Ctrl+ inclusive)
         continue;
       }
-      if (code === 0x10) { // Ctrl+P — painel de atividade (shells + subagentes)
+      if (code === 0x10) { // Ctrl+P — lista de atividade (shells + subagentes)
         yield "ctrl-p";
+        continue;
+      }
+      if (code === 0x14) { // Ctrl+T — alterna a lista de tarefas da interface
+        yield "ctrl-t";
+        continue;
+      }
+      if (code === 0x02) { // Ctrl+B — move o comando em curso para o fundo
+        yield "ctrl-b";
         continue;
       }
       if (code === 0x0d || code === 0x0a) {

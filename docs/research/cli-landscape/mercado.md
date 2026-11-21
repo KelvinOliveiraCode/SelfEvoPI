@@ -8,7 +8,7 @@
 
 ## 1. PI Coding Agent (`earendil-works/pi`)
 
-**Fonte primária:** `C:\Users\Kelvin\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\docs\` (instalação local, 29 arquivos `.md`).
+**Fonte primária:** `$(npm root -g)/@earendil-works/pi-coding-agent/docs/` (instalação local, 29 arquivos `.md`).
 
 ### 1.1 Comandos de barra (built-in)
 
@@ -597,7 +597,7 @@ A issue #11487 diz explicitamente: "The CLI supports several slash commands (lik
 
 | Fonte | URL / Caminho | Tipo |
 |:--|:--|:--|
-| PI Coding Agent docs | `C:\Users\Kelvin\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\docs\` | Primária (local) |
+| PI Coding Agent docs | `$(npm root -g)/@earendil-works/pi-coding-agent/docs/` | Primária (local) |
 | Hermes Agent docs | `https://hermes-agent.nousresearch.com/docs/reference/slash-commands` | Primária (web) |
 | Hermes Agent CLI | `https://hermes-agent.nousresearch.com/docs/user-guide/cli` | Primária (web) |
 | Aider commands | `https://aider.chat/docs/usage/commands.html` | Primária (web) |

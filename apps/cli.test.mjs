@@ -9,7 +9,12 @@
  * não vaza o nome do motor (SelfEvoPI é o produto).
  *
  * Não precisa do motor instalado: usa dublês e o modo headless.
+ *
+ * Os testes fixam o idioma em português: o PRODUTO nasce em inglês (default),
+ * mas as asserções históricas desta suíte foram escritas em português. Fixar
+ * aqui evita que uma troca de idioma por padrão vire 20 falsos negativos.
  */
+process.env.SELFEOPI_LOCALE = "pt";
 
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -766,20 +771,37 @@ test("REPL: ctrl+o abre e fecha o painel; ctrl+c não mata", async () => {
   const boot = stripAnsi(all);
   assert.match(boot, /build · full access/);
   assert.match(boot, /ctrl\+o painel/);
-  // ctrl+o abre o editor interativo de configurações (picker)
+  // ctrl+o abre a leitura de estado (o que a dica promete)
   all = "";
   input.emit("data", "\x0f");
+  await sleep(30);
+  const painel = stripAnsi(all);
+  assert.match(painel, /painel/);
+  assert.match(painel, /modo:/);
+  assert.match(painel, /permissão:/);
+  assert.match(painel, /modelo:/);
+  // ctrl+, abre o editor de configurações
+  all = "";
+  input.emit("data", "\x1c");
   await sleep(30);
   const cfg = stripAnsi(all);
   assert.match(cfg, /configurações/);
   assert.match(cfg, /permissão/);
-  assert.match(cfg, /full access/);
   assert.match(cfg, /modelo/);
   // esc fecha o picker
   all = "";
   input.emit("data", "\x1b");
   await sleep(30);
   assert.doesNotMatch(stripAnsi(all), /permissão/);
+  // ctrl+, fechou o painel; ctrl+o abre de novo, e um segundo ctrl+o fecha
+  all = "";
+  input.emit("data", "\x0f");
+  await sleep(20);
+  assert.match(stripAnsi(all), /painel/);
+  all = "";
+  input.emit("data", "\x0f");
+  await sleep(20);
+  assert.doesNotMatch(stripAnsi(all), /raciocínio:/);
   // ctrl+c não mata (dois toques: limpa linha, não sai)
   all = "";
   input.emit("data", "\x03");
@@ -795,17 +817,11 @@ test("REPL: ctrl+o abre e fecha o painel; ctrl+c não mata", async () => {
 /* Sessões — origem (client) e título derivado                         */
 /* ------------------------------------------------------------------ */
 
-test("sessionOrigin: campo ausente é cli (contrato desktop 1.0, seção 1)", () => {
+test("sessionOrigin: campo ausente é cli", () => {
   assert.equal(sessionOrigin(undefined), "cli");
   assert.equal(sessionOrigin(null), "cli");
   assert.equal(sessionOrigin(""), "cli");
   assert.equal(sessionOrigin("   "), "cli");
-});
-
-test("sessionOrigin: desktop e cli são reconhecidos sem caixa e com espaço", () => {
-  assert.equal(sessionOrigin("desktop"), "desktop");
-  assert.equal(sessionOrigin("DESKTOP"), "desktop");
-  assert.equal(sessionOrigin("  desktop  "), "desktop");
   assert.equal(sessionOrigin("cli"), "cli");
   assert.equal(sessionOrigin("CLI"), "cli");
 });
@@ -845,23 +861,14 @@ test("deriveTitle: nada para derivar devolve null (quem chama cai no id)", () =>
 /* renderSessionsList — o que a lista mostra                           */
 // ------------------------------------------------------------------ */
 
-test("renderSessionsList: coluna de origem aparece quando há desktop", () => {
-  const lista = [{ id: "aaaaaaaa-1111", title: "Do desktop", turns: 3, updatedAt: "2026-11-17T10:00:00.000Z" }];
-  const extras = new Map([["aaaaaaaa-1111", { client: "desktop", firstUser: null }]]);
+test("renderSessionsList: mostra id e título da sessão", () => {
+  const lista = [{ id: "aaaaaaaa-1111", title: "Sessão nomeada", turns: 3, updatedAt: "2026-11-17T10:00:00.000Z" }];
+  const extras = new Map([["aaaaaaaa-1111", { client: "cli", firstUser: null }]]);
   const saida = renderSessionsList(lista, extras).join("\n");
 
-  assert.match(saida, /desktop/);
   assert.match(saida, /aaaaaaaa/);
-  assert.match(saida, /Do desktop/);
-});
-
-test("renderSessionsList: sem desktop a coluna não aparece", () => {
-  const lista = [{ id: "bbbbbbbb-2222", title: "Do cli", turns: 1, updatedAt: "2026-11-17T10:00:00.000Z" }];
-  const extras = new Map([["bbbbbbbb-2222", { client: "cli", firstUser: null }]]);
-  const saida = renderSessionsList(lista, extras).join("\n");
-
-  assert.doesNotMatch(saida, /desktop/);
-  assert.match(saida, /bbbbbbbb/);
+  assert.match(saida, /Sessão nomeada/);
+  assert.doesNotMatch(saida, /origem/i, "a coluna de origem não existe mais: só há a CLI");
 });
 
 test("renderSessionsList: título derivado aparece quando o header não tem título", () => {
@@ -882,7 +889,7 @@ test("renderSessionsList: sem título e sem mensagem, mostra o id em vez de vazi
 
 test("renderSessionsList: nenhuma linha passa de 72 colunas", () => {
   const lista = [{ id: "eeeeeeee-5555", title: "t".repeat(200), turns: 9, updatedAt: "2026-11-17T10:00:00.000Z" }];
-  const extras = new Map([["eeeeeeee-5555", { client: "desktop", firstUser: null }]]);
+  const extras = new Map([["eeeeeeee-5555", { client: "cli", firstUser: null }]]);
   for (const linha of renderSessionsList(lista, extras)) {
     assert.ok(visibleWidth(linha) <= WIDTH, `passou de ${WIDTH}: ${visibleWidth(linha)} — ${linha}`);
   }
@@ -997,15 +1004,15 @@ test("REPL: ctrl+, abre as configurações e fecha de novo", async () => {
   await sleep(20);
 
   all = "";
-  input.emit("data", "\x1c"); // ctrl+, (0x1C é o que o terminal manda)
+  input.emit("data", "\x1c"); // ctrl+, abre o editor de configurações
   await sleep(80);
   const aberta = stripAnsi(all);
   assert.match(aberta, /configurações/);
-  assert.match(aberta, /permissão:/);
-  assert.match(aberta, /ctrl\+, fecha/);
+  assert.match(aberta, /permissão/);
+  assert.match(aberta, /modelo/);
 
   all = "";
-  input.emit("data", "\x1c"); // fecha
+  input.emit("data", "\x1b"); // esc fecha o editor
   await sleep(80);
   assert.doesNotMatch(stripAnsi(all), /configurações/);
 
@@ -1505,3 +1512,4 @@ test("/import (prévia) não escreve nada; importar aplica; --undo restaura", as
     await rm(home, { recursive: true, force: true });
   }
 });
+

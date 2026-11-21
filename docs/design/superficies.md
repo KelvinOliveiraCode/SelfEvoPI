@@ -1,171 +1,76 @@
-# SelfEvoPI — as duas superfícies são interfaces de conversa
+# SelfEvoPI — a superfície é uma conversa
 
-> Isto substitui a seção 6 e 7 de `marca.md` no que diz respeito a **comportamento**.
-> A paleta, a tipografia e o movimento continuam valendo (o portfólio é a referência
-> visual). O que muda é a **natureza** das duas peças.
+> Este documento define a gramática da **única** superfície do produto: a CLI.
+> A paleta, a tipografia e o movimento continuam valindo (`marca.md`); o que
+> mudou ao longo do projeto é a **natureza** da interface: deixou de ser um
+> catálogo de comandos e virou uma conversa com um agente.
 
 ## 1. O erro que isto corrige
 
-A primeira versão entregou:
+A primeira versão entregou uma **CLI de menu** — você escolhia "1. Estado do
+harness" e ela imprimia um relatório. Isso é um catálogo, não uma interface de
+agente. O usuário pediu o estilo do Claude Code, do OpenCode e do PI: uma
+conversa.
 
-- uma **CLI de menu** — você escolhia "1. Estado do harness" e ela imprimia um relatório;
-- um **painel de métricas** — cartões com 449 testes, 86/87, 443 ms.
-
-Nenhum dos dois é uma interface de agente. São um catálogo de comandos e um dashboard.
-O usuário pediu o **estilo** do Claude Code, do OpenCode e do Pi: uma conversa.
-
-> A CLI e o desktop são **front-ends do agente**. O harness continua por baixo — os
-> recursos dele aparecem como comandos de barra (`/evals`, `/forge`, `/memory`), não
-> como um menu de juros.
+> A CLI é o front-end do agente. O harness continua por baixo — seus recursos
+> aparecem como comandos de barra (`/evo`, `/detect`, `/memory`), não como menu.
 
 ## 2. A arquitetura
 
-Os dois falam com o **mesmo backend**: o `pi` em modo RPC.
+A conversa mora no motor em modo RPC; a CLI fala ANSI com o terminal.
 
 ```
-pi --mode rpc --no-session        (processo vivo, JSONL na entrada e na saída)
+processo do motor  ── JSONL (stdin/stdout) ──>  core/agent/pi-rpc.mjs
+                                                   │
+                                     eventos text / tool / settled
+                                                   ▼
+                                              apps/cli.mjs
 ```
 
-Contrato (documentado em `node_modules/@earendil-works/pi-coding-agent/docs/`):
-
-| Documento | Para que serve |
-|:--|:--|
-| `cli-integration.md` | os quatro modos (interativo, print, json, rpc) e quando usar cada |
-| `rpc.md` | ciclo de vida, framing, erros, encerramento |
-| `rpc-commands.md` | comandos e respostas |
-| `json.md` | forma dos eventos |
-| `message-types.md` | tipos de mensagem |
-
-O pacote exporta `RpcClient` de `@earendil-works/pi-coding-agent`, e há
-`examples/rpc-client.ts` no repositório instalado. **Use o cliente, não reinvente o
-protocolo.**
-
-### Camada compartilhada
-
-`core/agent/pi-rpc.mjs` — um cliente fino, nosso, sobre o `RpcClient` do pi:
-
-```js
-import { createPiClient } from "../core/agent/pi-rpc.mjs";
-
-const pi = await createPiClient({ cwd: ROOT, model: "..." });
-pi.on("text",     (delta) => ...);   // streaming de texto
-pi.on("tool",     (call)  => ...);   // atividade de ferramenta
-pi.on("settled",  ()      => ...);   // fim da execução automática
-
-await pi.prompt("explique este repositório");
-```
-
-Por que uma camada nossa e não o cliente cru:
-
-- os dois front-ends precisam **exatamente** do mesmo mapeamento evento → estado de tela;
-- o desktop fala HTTP/SSE com o navegador, a CLI fala ANSI com o terminal — mas ambos
-  consomem a mesma lista de eventos;
-- se o pi mudar o protocolo, corrigimos em **um** lugar.
+`core/agent/pi-rpc.mjs` é a camada fina compartilhada: converte os eventos do
+motor em três tipos (`text`, `tool`, `settled`) e expõe o cliente que a CLI usa.
+Se o protocolo mudar, a correção fica em um lugar.
 
 ## 3. A CLI — um REPL, não um menu
 
 ```
-  ◍  SelfEvoPI                                              v0.5.0
-  ────────────────────────────────────────────────────────────────
-  main · pronto · 86/87 baseline · 449 testes
-
-  › como está a cobertura de testes?
-
-  SelfEvoPI  86 de 87 tarefas passam. A única que fica abaixo é a B11
-             (extração de HTML), que é estocástica: acertou 2 de 3.
-
-  ⏺ read   evals/baseline.json
-  ⏺ bash   npm test
-
-  ────────────────────────────────────────────────────────────────
-  /evals  /forge  /memory  /skills  /model  /clear  /help
-  ────────────────────────────────────────────────────────────────
+  ╭────────────────────────────────────────────────────────────────────╮
+  │ > /evo        MODO PRINCIPAL: o harness evolui rumo à meta         │
+  │   /fork       bifurca a sessão atual, preservando a original       │
+  │   /language   troca o idioma da CLI (inglês por padrão)           │
+  ╰────────────────────────────────────────────────────────────────────╯
+  ↑↓ navegar  enter escolher  esc fechar  ctrl+o status
 ```
 
 Regras:
 
-1. **Prompt na última linha**, sempre. O texto do agente rola para cima.
-2. **Streaming de verdade**: o texto aparece aos poucos, não em bloco.
-3. **Atividade de ferramenta** como linha curta (`⏺ read  arquivo`), na ordem em que
-   acontece — não como um bloco de JSON.
-4. **Comandos de barra** para o que é do harness:
+1. **Prompt na última linha, sempre.** O texto do agente rola para cima.
+2. **Streaming de verdade.** O texto aparece aos poucos, nunca em bloco.
+3. **Atividade de ferramenta como linha curta**: `⏺ read  arquivo` seguido de
+   `⎿ 120 linhas (2 KB)`. Falha aparece como `1 failed` em cor de falha.
+4. **Raciocínio em bloco discreto**, ocultável com `Alt+T`; quando oculto, resta
+   uma linha de resumo com duração.
+5. **Barra de estado sempre visível**: modo, permissão, modelo, esforço, uso de
+   contexto e branch. Nunca passa de 72 colunas.
+6. **`Ctrl+O` mostra o estado**, `Ctrl+,` abre o editor de configuração,
+   `Ctrl+K` abre sessões com busca e prévia, `Ctrl+P` abre atividade,
+   `Ctrl+T` abre tarefas.
+7. **Mensagens enfileiradas**: digitar enquanto o agente trabalha não perde o
+   texto — `Enter` enfileira e envia quando o turno termina.
+8. **Imagens**: `/paste` lê a área de transferência do Windows, `/attach` anexa
+   um arquivo, `@imagem.png` funciona inline e `/images clear` limpa os anexos.
+   O texto nunca é truncado: linhas longas quebram na largura real do terminal.
+9. **`Ctrl+C` cancela** a execução em curso e devolve a linha; `q`, `/quit` e
+   `Ctrl+D` saem.
+10. **Markdown renderizado** na saída: negrito, listas, código e tabelas.
+11. **Sem motor, uma linha diz o que fazer**; os comandos `/` continuam valendo.
+12. **Idioma**: inglês por padrão; `/language pt` troca a interface. Nada do que
+    é enviado ao modelo depende dessa preferência.
 
-   | Comando | O que faz |
-   :--|:--|
-   | `/evals` | roda os grupos estruturais e mostra a tabela |
-   | `/gate` | o gate completo (avisa que chama modelo) |
-   | `/detect` | lacunas abertas |
-   | `/forge <meta>` | inicia um ciclo evolutivo |
-   | `/memory <termo>` | busca na memória (lexical + PPMI) |
-   | `/skills` | o que já foi gerado |
-   | `/model [nome]` | troca o modelo da sessão |
-   | `/clear` | limpa a conversa |
-   | `/help` | a lista acima |
+## 4. O que medir para dizer que ficou pronto
 
-5. **Ctrl+C** cancela a execução em curso e devolve o prompt — não mata o processo.
-6. `q` ou `/quit` saem; `Ctrl+D` também.
-7. **Markdown na saída**: negrito, listas, blocos de código e tabelas renderizados,
-   não como `**assim**`.
-8. Se `pi` não estiver instalado: uma linha dizendo isso e o que fazer. **A CLI é do
-   SelfEvoPI, mas a conversa é do pi** — sem pi, não há agente.
-9. A CLI anterior (menu) pode continuar acessível em `apps/cli-menu.mjs` enquanto esta
-   vive em `apps/cli.mjs`. Não quebre o atalho da Área de Trabalho.
-
-## 4. O desktop — um app de conversa
-
-```
-┌────────────────────────────────────────────────────────────────────┐
-│  ◍  SelfEvoPI                                  main · 127.0.0.1   │
-├────────────────────────────────────────────────────────────────────┤
-│                                                                    │
-│  VOCÊ                                                              │
-│  Como está a cobertura de testes?                                  │
-│                                                                    │
-│  ────────────────────────────────────────────────────────────────  │
-│                                                                    │
-│  SELFEOPI                                                          │
-│  86 de 87 tarefas passam. A única que fica abaixo é a B11, que      │
-│  é estocástica.                                                    │
-│                                                                    │
-│   ⏺ read  evals/baseline.json                                      │
-│   ⏺ bash  npm test                                                 │
-│                                                                    │
-│                                                                    │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │ > escreva uma mensagem...                                    │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                                                    │
-│  86/87 baseline · 449 testes · enter envia · shift+enter quebra    │
-└────────────────────────────────────────────────────────────────────┘
-```
-
-Regras:
-
-1. **Lista de mensagens** com o par você / agente, rolando.
-2. **Streaming** via SSE: o texto cresce enquanto o modelo escreve.
-3. **Atividade de ferramenta** como linha recuada, discreta.
-4. **Caixa de entrada** ancorada embaixo, com envio por Enter e quebra por Shift+Enter.
-5. **A barra de métricas encolhe para o rodapé**: 86/87 · 449 · 443 ms. Ela é contexto,
- não o conteúdo. O conteúdo é a conversa.
-6. **Ações do harness** continuam existindo, mas como botões ao lado da entrada
- (`/evals`, `/detect`, `/gate`), não como dashboard.
-7. Nada de gráfico de pizza, nada de tabela de execuções na tela principal — isso vive
- em `/evals` e no painel antigo, que continua acessível.
-
-## 5. O que permanece igual
-
-- **Paleta e tipografia**: `docs/design/marca.md`, seções 2 a 4. Preto absoluto,
-  uma sans, pesos 400/500, estado como ponto.
-- **Movimento**: 200 ms, `cubic-bezier(.22,1,.36,1)`. Nada mais.
-- **Segurança**: 127.0.0.1, allowlist de ações, nada de ler fora da raiz.
-- **Zero dependência nova.**
-- **Não forçar preto/branco sobre o tema do terminal.**
-
-## 6. O que medir para dizer que ficou pronto
-
-- A CLI: uma conversa real de ponta a ponta (pergunta → streaming → ferramentas →
-  resposta) sem quebrar o terminal nem deixar resíduo de escape.
-- O desktop: a mesma conversa pelo navegador, com o texto crescendo.
-- `/evals` mostra a tabela real; `/detect` mostra as lacunas reais.
-- `npm test` continua verde (449, 448 passam, 1 skip).
-- A CLI anterior segue acessível para não quebrar o atalho.
+- Uma conversa real de ponta a ponta (pergunta → streaming → ferramenta →
+  resposta) sem resíduo de escape e sem linha acima de 72 colunas.
+- Todas as telas de `--render` saem 0 e cabem em 72 colunas.
+- `npm test` verde; `npm run verify` verde.
+- Cold start < 150 ms (p95) e acréscimo de prompt < 1.500 tokens.

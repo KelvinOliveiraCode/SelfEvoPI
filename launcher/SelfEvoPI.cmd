@@ -10,10 +10,8 @@ rem    SelfEvoPI.cmd              abre a CLI
 rem    SelfEvoPI.cmd --dry-run    mostra o que abriria, sem executar
 rem
 rem  SESSAO - leia antes de mudar a raiz:
-rem  este lancador e o SelfEvoPI-Desktop.cmd rodam com o MESMO cwd (%ROOT%),
-rem  e o pi guarda a sessao em ~/.pi/agent/sessions/<cwd-codificado>/. E o cwd
-rem  igual que faz a CLI e o desktop enxergarem a mesma conversa. Mude a raiz
-rem  de um, mude a do outro, ou os dois abrem sessoes diferentes.
+rem  o pi guarda a sessao em ~/.pi/agent/sessions/<cwd-codificado>/. Por isso
+rem  o lancador sempre faz cd /d "%ROOT%": a conversa continua onde parou.
 rem
 rem  A raiz e descoberta nesta ordem (nenhum caminho pessoal fixo aqui):
 rem    1. variavel de ambiente SELFEOPI_ROOT
@@ -69,9 +67,8 @@ rem ------------------------------------------------------------- respostas --
 :dry
 echo.
 echo   [dry-run]  node "%ROOT%\apps\cli.mjs"
-echo   sessao:    %ROOT%
-echo   mesmo cwd do SelfEvoPI-Desktop.cmd - os dois veem a mesma conversa.
 echo   raiz:      %ROOT%
+echo   sessao:    o pi retoma a conversa deste diretorio.
 echo   node:      %NODE%
 if exist "%ROOT%\apps\cli.mjs" (echo   alvo:      apps\cli.mjs OK) else (echo   alvo:      apps\cli.mjs AINDA NAO EXISTE)
 echo.
@@ -126,7 +123,6 @@ echo   A CLI esta em construcao. Enquanto isso:
 echo.
 echo     npm run verify                     suite de verificacao
 echo     node core\forge\cli.mjs status     estado do harness
-echo     SelfEvoPI-Desktop.cmd              painel grafico
 echo.
 pause
 exit /b 1

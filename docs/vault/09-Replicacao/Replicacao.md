@@ -54,15 +54,7 @@ node scripts/schedule.mjs --install
 
 Registra `SelfEvoPI-Daily` no Task Scheduler (07:00 diário).
 
-### 6. (Opcional) Desktop
-
-```powershell
-node scripts/desktop.mjs
-```
-
-Abre a janela webview.
-
-### 7. (Opcional) Launcher no PATH
+### 6. (Opcional) Launcher no PATH
 
 ```powershell
 pwsh launcher/instalar-atalhos.ps1
@@ -75,7 +67,7 @@ na Área de Trabalho. Depois, `selfevopi` abre a CLI de qualquer terminal.
 
 ```
 SelfEvoPI/
-├── apps/              CLI e desktop
+├── apps/              CLI
 ├── core/              Roteador, forge, sandbox, memória, grafo, governança
 ├── scripts/           Automação (daily, schedule, measure, etc.)
 ├── evals/             Suíte de evals determinística

@@ -33,7 +33,7 @@ Ver [[05-Decisoes/Modos]] para a tabela de permissão TUI e o princípio anti-`/
 
 `guard({ mode, action, path, workspace, command, code, scan, base })` é o ponto de
 decisão. Devolve `{ decision, mode, action, reason, questions }` — `allow` ou
-`ask`/`deny` com o motivo. É o que a CLI e o desktop chamam antes de tocar em disco.
+`ask`/`deny` com o motivo. É o que a CLI chama antes de tocar em disco.
 
 ## Aprovação (`approval.mjs`)
 
@@ -55,4 +55,4 @@ O modo (eixo do que o agente pode fazer) é distinto da permissão (eixo de como
 ## Ver também
 
 - [[02-Componentes/Sandbox]] — o gate estático que complementa a governança em runtime.
-- [[05-Decisoes/Decisoes]] — D4 (`verify.mjs` fora do sandbox) e D8 (desktop = CLI).
+- [[05-Decisoes/Decisoes]] — D4 (`verify.mjs` fora do sandbox) e D8 (uma só superfície).

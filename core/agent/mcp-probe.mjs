@@ -18,7 +18,7 @@
  *  2. **O probe não finge.** Ele abre o processo, escreve um `initialize`
  *     JSON-RPC em stdin e espera. Se o servidor não responder, `ok` é `false`
  *     e `error` diz o que aconteceu. Um `ok: true` sem handshake seria pior
- *     que não ter probe: o painel diria "conectado" e o usuário perderia tempo.
+ *     que não ter probe: a CLI diria "conectado" e o usuário perderia tempo.
  *
  * `environment` é devolvido como está no arquivo, e **pode conter segredo**.
  * Quem chamar não loga esse campo — a regra do projeto é "nunca logar chave".
@@ -359,7 +359,7 @@ function expandHome(p, home) {
  * O caminho existe? `lstatSync` e não `existsSync`, por um motivo medido:
  * alias do Microsoft Store (`WindowsApps\python.exe`) e reparse point, e
  * `existsSync` devolve `false` para ele. Um alias instalado e legitimo viraria
- * "broken" — falso positivo que faria o painel mentir sobre o usuario.
+ * "broken" — falso positivo que faria a CLI mentir sobre o usuario.
  */
 function presente(p) {
   try {

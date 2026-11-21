@@ -60,12 +60,6 @@ node scripts/schedule.mjs --status
 
 Agendamento: `SelfEvoPI-Daily` (07:00, Windows Task Scheduler).
 
-## Desktop
-
-Janela webview com chat, sessões, configurações.
-
-Ver [[02-Componentes/Desktop]].
-
 ## Settings view (TUI)
 
 Visão do estado em linhas ≤ 72 colunas.
@@ -109,7 +103,7 @@ node apps/cli.mjs    # /subagent <nome> <tarefa> [--provider p --model m --effor
   mensagem para outro persistente, ou para `@orquestrador`/`main` (o chamador injeta a
   mensagem no turno principal). Temporários não são endereçáveis.
 
-## Painel de atividade (Ctrl+P)
+## Atividade (Ctrl+P)
 
 Lista o que está rodando, shells e subagentes, com status (`●`/`✓`/`✗`/`○`) e
 meta (persistente/temporário, provider/modelo, effort).

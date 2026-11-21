@@ -1,6 +1,6 @@
 /**
  * core/agent/pi-rpc.mjs — a camada compartilhada entre os front-ends do
- * SelfEvoPI (CLI e desktop) e o motor de conversa.
+ * SelfEvoPI e o motor de conversa.
  *
  * É um cliente fino sobre o `RpcClient` do motor. Existe por três motivos:
  *
@@ -10,7 +10,7 @@
  *   3. o front-end nunca fala do motor: quem mapeia evento é aqui, e o
  *      front-end só consome `text` / `tool` / `settled`.
  *
- * Interface pública (é ela que o desktop vai consumir — mude com cuidado):
+ * Interface pública (mude com cuidado):
  *
  *   import { createPiClient } from "../core/agent/pi-rpc.mjs";
  *
@@ -142,6 +142,7 @@ export function normalizeEvent(ev) {
         name: ev.toolName,
         isError: ev.isError === true,
         durationMs: typeof ev.durationMs === "number" ? ev.durationMs : null,
+        result: ev.result,
       };
     case "message_end": {
       // erro do provedor/modelo: a mensagem assistente vem com stopReason "error"
@@ -213,9 +214,12 @@ class PiClient {
     return this._rpc.start();
   }
 
-  /** Envia um prompt. A resposta descreve o aceite; o texto vem por "text". */
-  prompt(message) {
-    return this._rpc.prompt(message);
+  /**
+   * Envia um prompt. `images` é um array de ImageContent
+   * ({type:"image", data:base64, mimeType}) — o motor aceita no RPC.
+   */
+  prompt(message, images) {
+    return this._rpc.prompt(message, images);
   }
 
   /**
@@ -294,6 +298,12 @@ class PiClient {
 
   getAvailableModels() {
     return this._rpc.getAvailableModels();
+  }
+
+  /** Texto final da última mensagem do assistente (quando o stream não trouxe texto). */
+  getLastAssistantText() {
+    if (typeof this._rpc?.getLastAssistantText !== "function") return Promise.resolve("");
+    return this._rpc.getLastAssistantText().catch(() => "");
   }
 
   /** Troca o modelo (provider, modelId). */

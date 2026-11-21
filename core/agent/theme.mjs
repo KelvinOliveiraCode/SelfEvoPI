@@ -1,13 +1,12 @@
 /**
- * selfevopi-theme — paleta da TUI e do desktop.
+ * selfevopi-theme — paleta da TUI.
  *
  * Três temas: `escuro` (padrão), `claro`, `alto-contraste`.
  * O tema muda a **paleta** (fg, muted, accent, ok, warn, fail), não a estrutura.
  *
  * Persistência dupla:
- *  - arquivo: ~/.pi/agent/theme.json  (a CLI lê daqui; TUI e desktop concordam)
- *  - localStorage: selfevopi.theme     (o desktop lê daqui quando há DOM)
- *
+ *  - arquivo: ~/.pi/agent/theme.json  (a CLI lê daqui)
+ * *
  * Exporta:
  *  - THEMES, getTheme(), setTheme(nome), listThemes()
  *  - themeToCss(nome) → string de CSS (variáveis --fg, --muted, --accent, …)
@@ -135,7 +134,7 @@ function writeLocalStorage(name) {
 let current = null;
 
 function resolveInitial() {
-  // prioridade: arquivo (fonte da verdade entre TUI e desktop) > localStorage > padrão
+  // prioridade: arquivo (fonte da verdade) > padrão
   const saved = readThemeFile() || readLocalStorage();
   if (!saved) return DEFAULT_THEME;
   // tema salvo que não existe mais (removido/renomeado) cai no padrão (escuro)

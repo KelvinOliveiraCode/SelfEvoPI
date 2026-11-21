@@ -9,7 +9,7 @@
  *   - NÃO sobe processo, não abre socket, não lê a rede.
  *   - NÃO devolve `env` de nenhum servidor. Credencial não sai daqui.
  *
- * Interface pública (é ela que o CLI e o desktop vão consumir):
+ * Interface pública:
  *
  *   import { listMcpServers } from "./core/agent/mcp.mjs";
  *

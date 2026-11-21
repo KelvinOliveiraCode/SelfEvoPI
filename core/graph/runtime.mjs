@@ -202,7 +202,7 @@ export function createRuntime({
         onNode: async (rec) => {
           // checkpoint por nó: status, result/error e timestamp.
           // O rótulo vem do grafo: sem ele o estado persistido mostra o id cru,
-          // e um desktop leria "n1" em vez de "detectar lacuna".
+          // e um leitor externo leria "n1" em vez de "detectar lacuna".
           const node = byId.get(rec.id);
           const stamped = {
             ...rec,

@@ -113,6 +113,83 @@ function blockFor(raw, id) {
   return nextIdx === -1 ? rest : rest.slice(0, nextIdx);
 }
 
+/* ------------------------------------------------------------------ */
+/* Enriquecimento de metadados de modelo (reasoning effort e imagem)    */
+/* ------------------------------------------------------------------ */
+
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const PUBLIC_CATALOGS = [
+  "https://openrouter.ai/api/v1/models",
+  "https://ai-gateway.kilo.ai/api/v1/models",
+];
+
+/** Busca os catálogos públicos; falha de rede nunca impede a importação. */
+async function fetchCatalogs() {
+  const rows = [];
+  for (const url of PUBLIC_CATALOGS) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (Array.isArray(data?.data)) rows.push(...data.data);
+    } catch {
+      /* sem rede: mantém o que a fonte local trouxe */
+    }
+  }
+  return rows;
+}
+
+/** Extrai os efforts aceitos de uma entrada dos catálogos públicos. */
+function effortsOf(entry) {
+  if (!entry) return null;
+  const values = [];
+  for (const v of entry.reasoning?.supported_efforts || []) values.push(String(v).toLowerCase());
+  for (const opt of entry.opencode?.reasoning_options || []) {
+    for (const v of opt?.values || []) values.push(String(v).toLowerCase());
+  }
+  for (const name of Object.keys(entry.opencode?.variants || {})) values.push(String(name).toLowerCase());
+  const known = values.filter((v) => THINKING_LEVELS.includes(v));
+  return known.length > 0 ? [...new Set(known)] : null;
+}
+
+/** Aplica reasoning/image aos modelos já convertidos, sem tocar em chaves. */
+async function enrichModelMetadata(models, { network = true } = {}) {
+  const catalog = network ? await fetchCatalogs() : [];
+  const byId = new Map();
+  for (const entry of catalog) {
+    if (typeof entry?.id !== "string") continue;
+    if (!byId.has(entry.id)) byId.set(entry.id, []);
+    byId.get(entry.id).push(entry);
+  }
+  let changed = 0;
+  for (const provider of Object.values(models)) {
+    for (const model of provider?.models || []) {
+      if (!model || typeof model.id !== "string") continue;
+      const entries = byId.get(model.id) || [];
+      const efforts = entries.map(effortsOf).find(Boolean) || null;
+      const modalities = entries.find((e) => Array.isArray(e?.architecture?.input_modalities))
+        ?.architecture.input_modalities;
+      if (efforts) {
+        const map = {};
+        for (const level of THINKING_LEVELS) {
+          map[level] = efforts.includes(level) ? level : null;
+        }
+        // `off` nunca é "effort" em modelos de raciocínio obrigatório.
+        if (efforts.length > 0 && !efforts.includes("off")) map.off = null;
+        model.reasoning = true;
+        model.thinkingLevelMap = map;
+        model.compat = { ...(model.compat || {}), supportsReasoningEffort: true };
+        changed++;
+      }
+      if (Array.isArray(modalities)) {
+        const input = modalities.filter((m) => m === "text" || m === "image");
+        if (input.length > 0) model.input = input;
+      }
+    }
+  }
+  return changed;
+}
+
 function buildModel(raw, id, meta) {
   const model = { id };
   if (meta?.name) model.name = meta.name;
@@ -265,6 +342,11 @@ async function main() {
       });
     }
     console.log(`Formato: opencode (convertido para o schema do PI)`);
+  }
+
+  const enriquecidos = await enrichModelMetadata(models);
+  if (enriquecidos > 0) {
+    console.log(`Metadados: ${enriquecidos} modelo(s) com reasoning/effort atualizados dos catálogos públicos`);
   }
 
   const found = TARGETS.filter((id) => models[id]);

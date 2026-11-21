@@ -1,3 +1,6 @@
+// As asserções desta suíte são em português; o produto nasce em inglês.
+process.env.SELFEOPI_LOCALE = "pt";
+
 import test from "node:test";
 import assert from "node:assert/strict";
 

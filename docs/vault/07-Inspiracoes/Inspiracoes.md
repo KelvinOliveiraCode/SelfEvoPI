@@ -20,7 +20,7 @@ created: 2026-11-19
   - Skills customizadas via `SKILL.md`
   - `Ctrl+R` busca reversa
   - Background tasks com `Ctrl+B`
-  - Duas superfícies: linha de controle + painel de configurações
+  - Linha de controle + configurador
 
 ## OpenCode
 

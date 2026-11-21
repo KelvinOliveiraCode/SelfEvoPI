@@ -2,8 +2,10 @@
  * core/agent/settings-view.mjs — visão TUI do estado de configuração.
  *
  * Uma linha por item, alinhado, ≤ 72 colunas.
- * Função pura: recebe objeto, devolve string[]. Sem efeito colateral.
+ * Sem efeito colateral: o idioma vem do módulo i18n.
  */
+
+import { t } from "./i18n.mjs";
 
 const DASH = "—";
 const COL_LABEL = 13; // largura da primeira coluna
@@ -61,26 +63,24 @@ function row(label, value, command) {
 export function renderSettings(state = {}) {
   const lines = [];
 
-  lines.push(row("modo", state.mode, "/mode"));
-  lines.push(row("permissao", state.permission, "/settings"));
-  lines.push(row("modelo", state.model, "/model"));
-  lines.push(row("esforco", state.effort, "/effort"));
-  lines.push(row("tema", state.theme, "/theme"));
+  lines.push(row(t("view.mode"), state.mode, "/mode"));
+  lines.push(row(t("view.permission"), state.permission, "/settings"));
+  lines.push(row(t("view.model"), state.model, "/model"));
+  lines.push(row(t("view.effort"), state.effort, "/effort"));
+  lines.push(row(t("view.theme"), state.theme, "/theme"));
 
   const mcp = state.mcp != null
-    ? (typeof state.mcp === "number" ? `${state.mcp} servidores` : String(state.mcp))
+    ? (typeof state.mcp === "number" ? `${state.mcp} ${t("view.servers")}` : String(state.mcp))
     : null;
-  lines.push(row("mcp", mcp, "/mcp"));
+  lines.push(row(t("view.mcp"), mcp, "/mcp"));
 
   const skills = state.skills != null
-    ? (typeof state.skills === "number" ? `${state.skills} do pc` : String(state.skills))
+    ? (typeof state.skills === "number" ? `${state.skills} ${t("view.fromPc")}` : String(state.skills))
     : null;
-  lines.push(row("skills", skills, "/skills"));
+  lines.push(row(t("view.skills"), skills, "/skills"));
 
-  const sessions = state.sessions != null
-    ? (typeof state.sessions === "number" ? String(state.sessions) : String(state.sessions))
-    : null;
-  lines.push(row("sessoes", sessions, "/sessions"));
+  const sessions = state.sessions != null ? String(state.sessions) : null;
+  lines.push(row(t("view.sessions"), sessions, "/sessions"));
 
   return lines;
 }

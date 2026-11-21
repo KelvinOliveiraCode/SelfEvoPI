@@ -39,20 +39,6 @@ created: 2026-11-19
 - **O que sustentou:** referência de terminal AI com blocks.
 - **Data:** 2026-11-17
 
-## Desktop
-
-### Pi-Harness (wangmiaozero)
-
-- **URL:** https://github.com/wangmiaozero/pi-harness
-- **O que sustentou:** desktop base (Windows x64, checkpoints, worktrees, Task DAG). v2.4.8 (2026-11-14).
-- **Data:** 2026-11-16
-
-### Pi Agent Desktop
-
-- **URL:** https://pi-desktop.app
-- **O que sustentou:** fallback (Job Objects, Herdr v0.8.2). Beta não assinado.
-- **Data:** 2026-11-16
-
 ### @shying/pi-graph
 
 - **URL:** https://registry.npmjs.org/@shying/pi-graph
@@ -71,8 +57,8 @@ created: 2026-11-19
 
 ### Supply-chain
 
-- **URL:** docs/fase4-desktop.md (interno)
-- **O que sustentou:** `pi-harness` npm ≠ desktop (é headless). Fixar `github.com/wangmiaozero/pi-harness`.
+- **URL:** `SECURITY.md` (interno)
+- **O que sustentou:** nenhum pacote externo é aceito sem verificação de fonte primária.
 - **Data:** 2026-11-16
 
 Ver [[00-Mapa]] para navegar por toda a vault.

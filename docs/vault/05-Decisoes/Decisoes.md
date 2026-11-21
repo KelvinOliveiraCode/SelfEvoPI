@@ -35,9 +35,10 @@ Sem catálogo ou marcador explícito, `tool-missing` não dispara. Antes, 14 das
 
 Quando `chooseKind` não casa nada, o artefato honesto é a `skill` (sempre produzível). Recair para `cli` gerava o artefato errado com cara de sucesso.
 
-## D8. Desktop é versão visual da CLI (2026-11-18)
+## D8. Uma única superfície (2026-11-21)
 
-Não outro produto. As duas pontas leem e escrevem a mesma pasta de sessões. Contrato em `docs/design/CONTRATO-desktop-1.0.md`.
+O produto é a CLI. O que não era conversa saiu do repositório; a gramática da
+interface está em `docs/design/superficies.md`.
 
 ## D9. Vault como base de conhecimento (2026-11-19)
 

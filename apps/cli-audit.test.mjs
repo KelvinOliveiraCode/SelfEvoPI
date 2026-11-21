@@ -21,6 +21,9 @@
  *   - GARGALO readSessionExtras lê até 256KB de CADA sessão (custo escala com N)
  */
 
+// As asserções desta suíte são em português; o produto nasce em inglês.
+process.env.SELFEOPI_LOCALE = "pt";
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -186,12 +189,14 @@ test("A10 capLinhas: /plan não vaza estilo após truncar linha 100% colorida", 
     assert.equal(bal, 0, `A10: linha termina com estilo aberto (ansiBalance=${bal}): ${JSON.stringify(ln)}`);
   }
 
-  // A linha problemática especificamente: truncada a 72 col, terminando em
-  // "…", e com \x1b[0m antes da reticência (estilo fechado).
-  const truncada = linhas.find((ln) => stripAnsi(ln).endsWith("…"));
-  assert.ok(truncada, "A10: /plan deveria ter uma linha truncada em …");
-  assert.ok(
-    /\x1b\[0m…$/.test(truncada),
-    `A10: linha truncada deve terminar em \\x1b[0m… (estilo fechado antes da reticência): ${JSON.stringify(truncada)}`,
+  // A linha problemática agora é QUEBRADA, não truncada: o texto continua
+  // inteiro, nenhuma linha passa de 72 colunas e nenhuma termina com estilo
+  // aberto. Não existe mais reticência no fim de linha.
+  const largas = linhas.filter((ln) => visibleWidth(ln) > 72);
+  assert.deepEqual(largas, [], "A10: nenhuma linha pode passar de 72 colunas");
+  assert.equal(
+    linhas.some((ln) => stripAnsi(ln).endsWith("…")),
+    false,
+    "A10: não pode haver reticência no fim de linha",
   );
 });

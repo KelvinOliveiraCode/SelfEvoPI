@@ -23,7 +23,7 @@ created: 2026-11-19
                        │
 ┌──────────────────────▼──────────────────────────┐
 │  Camada 3: Harness (core/agent/, apps/)         │
-│  CLI, desktop, sessões, settings, banner.       │
+│  CLI, sessões, settings, banner.       │
 └──────────────────────┬──────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────┐
@@ -44,7 +44,7 @@ created: 2026-11-19
 
 ## Fluxo de uma tarefa
 
-1. Usuário digita prompt na CLI ou desktop
+1. Usuário digita prompt na CLI
 2. Roteador escolhe provider + modelo (`pick`)
 3. PI Coding Agent recebe o prompt e executa
 4. Se o agente tenta escrever/executar, o modo (`plan`/`build`/`manual`/`ask`/`goal`) decide se permite

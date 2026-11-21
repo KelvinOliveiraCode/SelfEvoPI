@@ -1,371 +1,139 @@
 # Changelog
 
 Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
+O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
+[Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
-e este projeto adota [Versionamento Semântico](https://semver.org/lang/pt-BR/).
+## [1.2.1] - 2026-11-21
 
-## [1.1.1] - 2026-11-19
-
-**Agnosticismo e robustez.** O 1.1.0 amarrou o harness ao OpenCode; o 1.1.1 tira
-essa amarra: as integrações passam a ler a config do **PI** (`~/.pi/`), não a de
-outro harness. E conserta o que a auditoria de 1.1 achou: linha colorida
-truncada vazando estilo, probe de MCP estourando memória, e a leitura do texto
-final do modelo cedo demais.
-
-### Adicionado
-
-**Agnosticismo (passo 1).** As integrações da máquina deixam de apontar para a
-config do OpenCode e passam a ler a do PI:
-
-- **Skills** (`core/agent/skills-pc.mjs`) leem `~/.pi/skills` (antes
-  `~/.config/opencode/skills`). O parser de frontmatter não depende mais de
-  `compatibility: opencode`.
-- **MCP global** (`core/agent/mcp-opencode.mjs`) lê `~/.pi/settings.json`, chave
-  `mcpServers` — com **compatibilidade legada** `mcp.servers` para não quebrar
-  quem já tinha a config antiga. O `probe-mcps.mjs` aponta para `~/.pi/`.
-
-**`/import` — migração reversível para `~/.pi/` (passo 2 do agnosticismo).**
-`core/agent/import.mjs` migra os MCPs e skills do OpenCode para `~/.pi/` uma vez,
-com backup, manifesto e rollback. Cinco funções: `scanSource`, `scanTarget`,
-`planImport`, `applyImport`, `undoImport`.
-
-- **Merge, não overwrite** — "o que já existe vence": nome que já está no
-  `~/.pi/settings.json` ou em `~/.pi/skills` não é sobrescrito.
-- **Escrita atômica** no `settings.json`, com **backup** `.bak-<timestamp>`.
-- **Manifesto** do que foi criado em `~/.pi/harness/ledger/import-<timestamp>.json`.
-- **Rollback seletivo** (`undoImport`): remove só as chaves que o import adicionou,
-  preservando o resto da config.
-- 21 testes (`core/agent/import.test.mjs`).
-
-**`PiClient.promptAndWait`** (`core/agent/pi-rpc.mjs`) — novo método que devolve o
-texto final sem ler cedo demais. Útil quando o chamador quer o resultado
-completo, não um delta parcial.
+**Modelos, esforços e anexos de imagem.**
 
 ### Corrigido
 
-- **`capLinhas` fecha SGR aberto antes da reticência.** Uma linha 100% colorida
-  (ex.: `/plan 'escrita: block - …'` em amarelo) terminava em `…` sem
-  `\x1b[0m`: o corte preservava o que atravessava mas não fechava o estilo, e o
-  terminal seguia colorido nas linhas seguintes. Agora rastreia `estiloAberto`
-  (liga em SGR ≠ 0, desliga em SGR 0) e anexa `\x1b[0m` antes da reticência
-  quando o corte deixa estilo aberto. Teste de regressão em
-  `apps/cli-audit.test.mjs`: `ansiBalance(linha) === 0` e linha truncada termina
-  em `\x1b[0m…`.
-- **`tools/list` em chunks.** O `probeOpencodeMcp` acumula o buffer e faz parse
-  por **profundidade de chaves**, com **teto de 4 MB** (`MAX_BUFFER`). Se um
-  servidor mandar `{` e nunca fechar, o buffer é descartado em vez de crescer
-  até estourar a memória. O teto de tempo do probe continua protegendo contra
-  processo que não responde. Teste `SERVIDOR_CHUNKS` manda o `tools/list` em 3
-  pedaços `stdout` sem newline entre eles (só no final) e verifica o catálogo
-  completo.
-
-### Contexto da versão
-
-Métricas **medidas em 2026-11-19** no HEAD `5a84a18` (branch `main`). Fotografia
-da data, não garantia de desempenho. Cada número tem o comando que o produziu.
-
-| Métrica | Valor medido | Comando |
-|:---|:---|:---|
-| Testes unitários | 958 (957 passam, 1 skip) | `npm test` |
-| Mudanças desde 1.1.0 | 6 itens (skills ~/.pi, MCP ~/.pi, capLinhas, tools/list, promptAndWait, /import) | `git log --oneline v1.1.0..HEAD` |
-
-### Verificação
-
-```powershell
-npm test                       # 958 testes (957 passam, 1 skip)
-```
-
-## [1.1.0] - 2026-11-18
-
-**A CLI polida e as integrações com a máquina.** O 1.0 entregou o produto; o 1.1
-entrega o acabamento: comandos de estado e tema, o seletor de modelo, as skills e
-os MCPs que já existem na máquina do usuário, e o fim da "bancada de teste" no
-desktop. Tudo **sem dependência npm** — o bloco `dependencies` morto
-(`jsdom`, `node-html-parser`) saiu; o `package.json` segue sem `dependencies` e o
-`package-lock.json` com 1 entrada (medido em 2026-11-18, `npm ls --depth=0`).
+- **ERNIE 5.5 Flash Preview mostrava efforts errados.** O `models.json` não
+  declarava `reasoning` nem `thinkingLevelMap`, então o motor devolvia só
+  `off`. O importador agora enriquece os modelos com os catálogos públicos da
+  OpenRouter e do Kilo Gateway: o ERNIE tem `reasoning: true`,
+  `thinkingLevelMap` com `high` como único nível e
+  `compat.supportsReasoningEffort: true`. A CLI também deixou de esconder o
+  seletor quando o modelo expõe um único nível válido.
+- **Texto cortado na borda ("con…").** Saídas de comando, barra de estado e
+  overlays agora quebram linhas em vez de truncar, usando a largura real do
+  terminal (72 colunas em `--render`). Nenhum SGR fica aberto no fim de uma
+  linha quebrada.
+- **`capLinhas` descartava stdout quando não havia `onLine`** em `runProcess`,
+  o que fazia `/diff` e `/gate` dizerem "sem alterações".
 
 ### Adicionado
 
-**Comandos novos.**
+- **Anexos de imagem**: `/paste` lê a área de transferência do Windows,
+  `/attach <arquivo>` anexa um arquivo, `@imagem.png` funciona na mensagem e
+  `/images [clear]` mostra/limpa os anexos. As imagens vão como blocos
+  `ImageContent` no `prompt` do motor. Aviso quando o modelo atual não declara
+  entrada de imagem.
+- **`npm run models:check` / `models:prompt`**: varredura de todos os modelos
+  configurados comparando efforts e capacidades declarados pelo motor contra o
+  `models.json`, opcionalmente com um prompt real por modelo.
+- Novos módulos: `core/agent/model-metadata.mjs` e `core/agent/attachments.mjs`.
 
-- **`/settings`** (`core/agent/settings-view.mjs`) — visão única do estado: modo,
-  permissão, modelo, esforço, tema, MCPs conectados e skills encontradas. Cada
-  linha diz o comando que a muda.
-- **`/theme [escuro|claro|alto-contraste]`** (`core/agent/theme.mjs`) — troca a
-  paleta da TUI. Persiste. Tema muda o que a TUI usa, não o que ela é — nada de
-  cor decorativa.
-- **`/swarm [n] <tarefa>`** (`core/agent/swarm.mjs`) — orquestra `n` subagentes
-  rumo à tarefa, distribui, coleta e sintetiza. Subagente nasce de qualquer
-  provedor configurado; o principal escolhe.
-- **`/mode`** — alterna entre os 5 modos (`plan → build → manual → ask → goal`),
-  mostra o modo novo e explica em uma linha o que ele permite. `/plan`, `/build`,
-  `/ask` continuam indo direto ao modo.
-- **`/effort [off|low|medium|high]`** — esforço de raciocínio do modelo em uso;
-  aceita os níveis que o modelo realmente expõe (lê do provedor, não impõe).
+## [1.2.0] - 2026-11-21
 
-**`/model` interativo.** O seletor de dois estágios (provedor → modelo → esforço)
-com setas e `enter`/`esc`. Antes só listava; agora escolhe. `/model <nome>`
-direto continua funcionando (pula o seletor).
+**Uma superfície, inglês por padrão, e a CLI alinhada ao que promete.**
 
-**`/skills` de duas fontes.** Passa a ler o store do loop (`.pi/harness/memory`,
-skills que o SelfEvoPI gerou) **e** as skills do OpenCode
-(`~/.config/opencode/skills/*/SKILL.md` — **334** nesta máquina, 2026-11-18,
-`node --input-type=module` com `listPcSkills`). Antes só a primeira, e por isso as
-suas não apareciam. Cada resultado diz a fonte: `loop` ou `pc`.
+O produto passa a ser somente a CLI. Tudo o que não era a conversa — a outra
+superfície, os atalhos que a abriam e os documentos que a descreviam — sai do
+repositório. O que sobra ganha acabamento: os atalhos de teclado finalmente
+fazem o que a ajuda diz, a resposta das ferramentas aparece, o raciocínio pode
+ser ocultado, e a interface fala inglês por padrão com `/language` para trocar.
 
-**Integrações da máquina.**
+### Adicionado
 
-- **`/mcp`** lê os servidores do OpenCode (`~/.config/opencode/opencode.jsonc`,
-  `mcp.servers`) — **29** nesta máquina (2026-11-18, `listOpencodeMcp` com o home
-  do usuário). O arquivo é **JSONC** (comentários); o módulo remove comentários
-  antes de parsear e falha com a **linha** do erro, não com "JSON inválido" seco.
-- **Sonda de handshake** (`probeOpencodeMcp`): abre o processo, escreve um
-  `initialize` JSON-RPC em stdin e espera. Se não responder, `ok:false` com o
-  motivo — um `ok:true` sem handshake seria pior que não ter sonda.
+- **`/language [en|pt]`** (`core/agent/i18n.mjs`). Inglês é o padrão. A opção
+  persiste em `~/.pi/agent/cli-locale.json`, fora do repositório, e pode ser
+  sobrescrita por `SELFEOPI_LOCALE`. Dicionário com 150+ chaves cobrindo
+  comandos, ajuda, paleta, painel de estado, configurações, spinner, raciocínio,
+  ferramentas, erros e mensagens de uso. `/language` sem argumento abre um
+  seletor; `Ctrl+,` também oferece o idioma.
+- **Comandos de sessão e inspeção.** `/fork [nome]` bifurca a sessão preservando
+  a original; `/diff` mostra `git diff --stat` e o patch do workspace;
+  `/export [md|json]` grava a conversa em `.pi/harness/exports/`; `/undo` e
+  `/redo` desfazem e refazem a última troca; `/copy` manda a última resposta
+  para a área de transferência; `/reload` reaplica tema e estado sem reiniciar.
+- **Mensagens enfileiradas.** Digitar enquanto o agente trabalha não perde o
+  texto: `Enter` enfileira e a mensagem é enviada quando o turno termina.
+- **`!comando`** roda um comando de shell direto no workspace, sem passar pelo
+  modelo. **`@arquivo`** injeta o conteúdo do arquivo como contexto explícito.
+- **`Alt+T`** alterna exibir/ocultar o raciocínio; quando oculto, resta uma linha
+  de resumo com a duração. **`Ctrl+T`** abre a lista de tarefas da interface.
+- **Barra de estado completa**: modo, permissão, modelo, esforço, uso de
+  contexto em porcentagem e branch — truncada para nunca passar de 72 colunas.
+- **Spinner com dados**: verbo, tempo decorrido e tokens consumidos em tempo
+  real; com movimento reduzido vira um indicador estático, sem piscar.
+- **Saída de ferramenta completa**: `⏺ nome arg` seguido de `⎿ N linhas (X KB)`;
+  falha aparece como `1 failed` em cor de falha, não como sucesso disfarçado.
+- **Seletor de sessões com busca e prévia**: digitar filtra por título/id e a
+  dica mostra a primeira mensagem da sessão.
+
+### Corrigido
+
+- **`Ctrl+O` abria as configurações, não a leitura de estado.** `/help` e a dica
+  da própria TUI prometiam o painel, mas `panelOpen` nunca recebia `true` e o
+  atalho chamava o editor. Agora `Ctrl+O` abre a leitura de estado e `Ctrl+,`
+  abre o editor — o que os dois diziam o tempo todo.
+- **`/settings` mostrava `—` para modelo, esforço e sessões** mesmo com o estado
+  já carregado. Passa a mostrar os valores reais.
+- **Raciocínio tardio era descartado.** `commitThink` ignorava deltas que
+  chegavam depois do texto; agora aparece no fim do turno em vez de sumir.
+- **`Ctrl+,` dependia de um único código de terminal.** Aceita `0x1C`, sequência
+  CSI e `Esc ,`.
+- **`sessionDir()` e `readSessionExtras()` faziam trabalho repetido**: a pasta
+  era redescoberta a cada comando e cada sessão era lida por até 256 KB. Agora
+  há cache e a leitura para no primeiro user encontrado (8 KB por fatia).
+- **Números e datas divergentes** entre README, CHANGELOG, `docs/estado.md` e
+  `package.json` foram unificados; a versão do `package.json` é a única fonte.
 
 ### Removido
 
-- **Painel de métricas do desktop.** `/panel` agora responde **404** (medido em
-  2026-11-18: `scripts/desktop.mjs` não serve mais a rota; `app.js` cai no 404
-  do servidor). Quem baixar só tem CLI e desktop, sem bancada de teste. A
-  informação de estado continua na CLI (`/settings`) e no desktop (barra de
-  estado).
+- A superfície descontinuada, seus lançadores, testes e documentos. O restante
+  do repositório foi varrido para que nenhuma referência a ela sobreviva.
 
-### Corrigido
+## [1.1.1] - 2026-11-19
 
-- **`/goal` trunca em 72 col** — o argumento era ecoado sem teto. Agora respeita
-  a largura (ver `apps/cli-audit.test.mjs`, BUG1).
-- **`--render menu` existe** — a varredura listava `menu` e o render não o
-  reconhecia. Agora `node apps/cli.mjs --render menu` imprime o frame (2026-11-18).
-- **`/init` não cita o motor** — o rascunho de `AGENTS.md` não menciona
-  "PI Coding Agent" (ver `apps/cli-audit.test.mjs`, BUG2).
-- **`/mode plan` não estoura 72 col** — o texto do modo respeita a largura.
+**Agnosticismo e robustez.** As integrações passaram a ler a configuração do
+próprio motor (`~/.pi/`), e a auditoria encontrou três defeitos reais: linha
+colorida truncada vazando estilo, sonda de MCP estourando memória e leitura do
+texto final do modelo antes da hora.
 
-### Contexto da versão
+- `/import`: migração reversível de MCPs e skills para `~/.pi/`, com backup,
+  manifesto, merge sem sobrescrever e rollback seletivo.
+- `PiClient.promptAndWait`: texto final sem leitura precoce.
+- `capLinhas` fecha SGR aberto antes da reticência; `tools/list` em chunks com
+  teto de 4 MB.
 
-Métricas **medidas em 2026-11-18** no HEAD `6935fcc` (branch `main`). Fotografia da
-data, não garantia de desempenho. Cada número tem o comando que o produziu.
+## [1.1.0] - 2026-11-18
 
-| Métrica | Valor medido | Comando |
-|:---|:---|:---|
-| Skills do OpenCode nesta máquina | 334 | `node --input-type=module` com `listPcSkills({})` |
-| MCPs do OpenCode nesta máquina | 29 | `listOpencodeMcp({ home })` |
-| Dependências npm | 0 (lock com 1 entrada) | `npm ls --depth=0` |
-| Largura da TUI | ≤ 72 col | `node apps/cli.mjs --render menu` |
-
-> A suíte completa (`npm test`) e o gate de URLs (`node scripts/verify-urls.mjs`)
-> são o critério de aceite desta versão; ver a seção Verificação.
-
-### Verificação
-
-```powershell
-npm test                       # suíte completa (unitários + interfaces)
-node scripts/verify-urls.mjs   # 33 URLs citadas, todas 200
-node apps/cli.mjs --render menu   # frame da paleta, ≤72 col
-```
+**A CLI polida e as integrações da máquina.** `/settings`, `/theme`, `/swarm`,
+`/mode`, `/effort`, seletor de modelo em dois estágios, skills e MCPs locais.
+Fim da bancada de testes na interface: a informação de estado ficou na CLI.
+Zero dependências npm — o projeto segue 100% Node puro.
 
 ## [1.0.1] - 2026-11-18
 
-**Fechamento do desktop.** O 1.0.0 saiu com o painel de configurações no código
-e vazio na tela; este conserta e inclui as duas interfaces na suíte.
-
-- **Painel de configurações abre e funciona.** `settings.js` passou a importar
-  `./modes-data.js` — o módulo do browser não pode alcançar
-  `core/governance/modes.mjs`, que carrega uma árvore de imports do lado do
-  Node. O arquivo é gerado a partir do core e `modes-data.test.mjs` falha se
-  divergirem.
-- **Clique, não só teclado.** Os listeners de `#settings` e `#openDrawer` não
-  existiam: o painel só abria por `Ctrl+,`. Agora o mouse também abre.
-- **`npm test` passou a rodar as duas interfaces.** O glob só cobria `core/` e
-  `scripts/`; os 71 testes da CLI e os 41 do desktop nunca rodaram no CI.
-  Suíte: **789 testes, 788 passam, 1 skip**.
-- **CLI com origem e título** (A4): `/sessions` mostra de onde veio a sessão
-  (`cli`|`desktop`), deriva título da primeira mensagem quando o header não tem,
-  e `Ctrl+K`/`Ctrl+,` abrem na hora em vez de esperar a varredura.
+Fechamento da configuração: o configurador abria por atalho mas não
+por clique, e os testes das duas interfaces nunca rodavam no CI. Os dois
+passaram a valer.
 
 ## [1.0.0] - 2026-11-18
 
-> **Seção em preparação.** Esta entrada cobre o que já está integrado na data. Os itens
-> marcados como *reservado* são preenchidos quando o respectivo subagente confirmar a
-> integração (ver nota no fim da seção).
+Primeiro lançamento como produto: conversa por CLI, configurações, sessões e
+interface responsiva. Sem dependências npm.
 
-A versão 1.0.0 é o primeiro lançamento do SelfEvoPI como produto completo: CLI e desktop
-conversando com o mesmo backend, menu de configurações, sessões compartilhadas e
-interface responsiva. O `package.json` deixou de ter dependências npm — o bloco
-`dependencies` morto (jsdom, node-html-parser) foi removido e o lock ficou com 1 entrada.
+## [0.5.0] - 2026-11-17
 
-### Adicionado
+Primeira versão a fechar o ciclo: detectar uma lacuna, descrever o que falta,
+gerar o código, verificar, promover — ou desfazer tudo se a verificação
+reprovar. Reúne as fases P, 0, 1, 2, 3, 4 e 5.
 
-**Menu de configurações no desktop.** `apps/desktop/settings.js` traz dois pontos de
-controle, como no Claude Code Desktop: uma **linha de controle** abaixo do composer
-(modo + modelo + permissão) e um **painel de preferências** (`Ctrl+,`) para o que não muda
-a cada turno (modo `plan`/`build`/`manual`/`ask`/`goal`, modelo, esforço de raciocínio,
-permissão, confirmar escritas, dicas). Persiste em `localStorage` sob
-`selfevopi.settings`; não cria arquivo no disco. Zero dependência externa.
-
-**Módulo de sessões do desktop.** `apps/desktop/sessions.js` lista, abre e cria sessões
-(`newSession`), com o par título/turnos-tokens por linha e o estado ativo destacado.
-
-**Campo `client` no header da sessão.** `core/agent/sessions.mjs` passa a expor `client`
-(`cli` | `desktop`) em `listSessions` e `loadSession`. O header antigo, que não tinha o
-campo, conta como `cli` — retrocompatível.
-
-**Interface responsiva.** `apps/desktop/desktop.css` reorganiza a conversa em duas colunas
-no desktop e vira uma **gaveta sobreposta** abaixo de 900px (a lista de sessões não some,
-vira overlay); há ajuste para telas abaixo de 480px e respeito a
-`prefers-reduced-motion`.
-
-**Sem dependências npm.** O bloco `dependencies` morto (jsdom, node-html-parser) foi
-removido; o `package-lock.json` ficou com 1 entrada. O projeto segue 100% Node puro.
-
-### Reservado (a confirmar)
-
-- **Sessões compartilhadas entre CLI e desktop** — a sessão criada no desktop deve
-  aparecer no `/sessions` da CLI e vice-versa. *(Reservado: depende das rotas
-  `GET /api/sessions` / `POST /api/sessions/fork` que o A8 está integrando em
-  `scripts/desktop.mjs`.)*
-- **Dois executáveis** — `SelfEvoPI.cmd` (CLI) e `SelfEvoPI-Desktop.cmd` (desktop).
-  *(Reservado: A6 está produzindo os dois executáveis; só documentar quando integrado.)*
-
-### Contexto da versão
-
-Métricas **medidas em 2026-11-18** no HEAD `ee74ed9` (branch `main`). Fotografia da
-data, não garantia de desempenho. Cada número tem o comando que o produziu.
-
-| Métrica | Valor medido | Comando |
-|:---|:---|:---|
-| Testes unitários | 665 (664 passam, 1 skip) | `npm test` |
-| Integridade das URLs | ok=33, fail=0 | `node scripts/verify-urls.mjs` |
-| Módulos de produção | 65 | `Get-ChildItem -Recurse -Filter *.mjs` (apps+core+scripts, excl. testes) |
-| Linhas de produção | 18.869 | idem |
-| Arquivos de teste | 56 | `*.test.mjs` |
-| Linhas de teste | 10.458 | idem |
-| Cold start, CLI | 91 ms média (mín 82, máx 98) · 7 execuções | `node apps/cli.mjs --version` |
-| Incremento do SelfEvoPI | +506 tok (memória no teto) | `node scripts/measure-selfevopi-overhead.mjs --runs 3` |
-| Orçamento de prompt | 1.500 tok | — |
-
-O orçamento de prompt é requisito, não aspiração: o limite é 1.500 tokens de acréscimo, e
-a medição acima mantém o projeto dentro dele (506 de 1500).
-
-### Verificação
-
-```powershell
-npm test                       # 665 testes (664 passam, 1 skip)
-node scripts/verify-urls.mjs   # 33 URLs citadas, todas 200
-```
-
-<!-- Os itens "Reservado" acima serão preenchidos quando A6 (executáveis) e A8 (rotas de
-     sessão) confirmarem a integração. Não documentar SelfEvoPI-Desktop.cmd antes disso. -->
-
-[0.5.0]: #050---2026-11-17
-
-Primeira versão em que o SelfEvoPI fecha o ciclo completo: detectar uma lacuna,
-descrever o que falta, gerar o código, verificar, e só então promover — ou
-desfazer tudo se a verificação reprovar.
-
-Reúne o que as fases P, 0, 1, 2, 3, 4 e 5 entregaram.
-
-### Adicionado
-
-**Pesquisa e auditoria (Fase P).** Levantamento do que já existe, do que mudou e
-do que ficou por construir, com fontes verificadas. Inclui o gate de integridade
-das fontes citadas (`scripts/verify-urls.mjs`), que roda no CI.
-
-**Roteador multi-provider (Fase 0).** Um único comando escolhe entre os
-provedores configurados e cai para o próximo quando um deles falha. Backoff,
-circuit breaker e retry com reviewer: o roteador segura a fila quando o provedor
-responde e volta sozinho quando ele melhora.
-
-**Suíte de evals com gate (Fase 0).** 29 tarefas com verificador automático,
-agrupadas pelo que medem: código, lacunas resolvidas, regressão e modelo real. O
-gate compara a execução atual com a baseline e reprova qualquer regressão —
-incluindo regressão de qualidade, não só de quebra.
-
-**Memória em 3 níveis (Fase 1).** `session`, `project` e `skills`, com teto de
-tokens por turno e poda de linhas corrompidas por condição. O artefato promovido
-é registrado na memória — sem isso ele existe e ninguém o encontra depois.
-
-**Núcleo de auto-evolução (Fase 2).** O ciclo
-`detect → specify → generate → verify → gate → promote/revert`, com cada passo
-injétavel e parada honesta quando não há evidência. O detector não inventa
-lacuna: sem evidência, não afirma nada. O gerador escreve código real para CLI,
-servidor MCP e extensão — e valida com `node --check` antes de gravar.
-
-**Sandbox em 3 camadas (Fase 2).** Gate estático que bloqueia acesso a
-credencial, rede, subprocesso e destruição de arquivo antes da execução; Node
-Permission Model confinando leitura e escrita ao worktree; e contenção de
-processo que derruba a árvore inteira quando a execução termina.
-
-**Grafo de execução com runtime (Fase 3).** Grafo validado com ordem
-topológica, executor com timeout e gate humano, checkpoint por nó, pausa e
-retomada sem re-rodar o que já passou. Um painel local — ASCII e HTML
-autocontido — mostra o andamento lendo o estado das execuções.
-
-**Ponte de estado para o desktop (Fase 4).** Formato git-nativo de
-`harness-state`: o que um desktop precisa ler para mostrar o que o grafo está
-fazendo, sem que o desktop precise executar nada. A ponte está entregue e
-testada; validar contra o aplicativo real fica para quando ele estiver na
-máquina.
-
-**Rotina de evolução contínua (Fase 5).** Diagnóstico → aplicação com autogate →
-relatório. A rotina desfaz o próprio delta se a aplicação regredir, e não roda o
-gate quando não há nada a aplicar.
-
-### Contexto da versão
-
-Métricas **medidas em 2026-11-17** e publicadas em `docs/estado.md`. São
-fotografia daquela data, não garantia de desempenho:
-
-| Métrica | Valor medido |
-|:---|:---|
-| Cold start | 443 ms (mín. 383, máx. 611) com cache quente · 1,0–1,8 s na primeira execução |
-| Prompt do PI puro | 8.680 tokens |
-| Incremento do SelfEvoPI | +506 tokens (memória no teto) |
-| `pi-subagents`, sob demanda | +1.654 tokens |
-| Evals | 29 tarefas, 86/87 (98,85%) na baseline — B11 é estocástico |
-| Testes unitários | 449 (448 passam, 1 skip) |
-
-O orçamento de prompt é requisito, não aspiração: o limite é 1.500 tokens de
-acréscimo, e as medições acima são o que mantém o projeto dentro dele. A extensão
-de subagentes saiu do prompt padrão e passou a carregar sob demanda — sozinhos,
-seus 1.654 tokens estouravam o orçamento.
-
-### Mudanças de comportamento
-
-- **Família de provedores `or` desativada.** O free tier responde `exit 0` com
-  corpo vazio ao esgotar a cota — falha silenciosa que o roteador não deveria
-  confiar. Gatilho de reavaliação registrado em `docs/fase1/decisoes.md`.
-- **A sonda de interface substituiu o smoke test.** Um smoke test que sempre
-  passa promoveu um artefato com a interface errada. Agora cada artefato é
-  exercitado do jeito que é chamado: um servidor stdio não recebe flags, uma
-  extensão não se executa pela linha de comando.
-- **Kind sem gerador é erro, não recaída.** Quando nenhuma capacidade casa, o
-  artefato honesto é a `skill` (sempre produzível). Recair para `cli` gerava o
-  artefato errado com cara de sucesso.
-- **`verify.mjs` roda fora do sandbox; o artefato que ele invoca roda dentro.**
-  Uma exceção no gate criaria um buraco explorável por renomeação.
-- **`pi-subagents` venceu o bake-off, mas ficou sob demanda.** A medição mostrou
-  +1.654 tokens por turno sem ganho de acurácia. `billion-context` foi descartado
-  pelo mesmo motivo (18.268 → 32.196 tokens, latência +15% a +83%, acurácia
-  igual).
-
-### Segurança
-
-- Papel de cada fronteira documentado em `SECURITY.md`: gate estático,
-  Permission Model, contenção de processo, política de aprovação, áreas
-  protegidas e tratamento de credenciais.
-- Política de aprovação pausa para um humano quando algo precisa de rede,
-  credencial ou escrita fora do workspace — com uma pergunta específica, não um
-  "tem certeza?".
-- O Núcleo Evolutivo não edita `evals/` nem `core/governance/`: ele os consome.
-
-### Verificação
-
-```powershell
-npm test              # 449 testes unitários (448 passam, 1 skip)
-npm run verify        # testes + evals A/C + integridade das URLs
-node evals/gate.mjs   # gate completo (grupo D inclui chamada de modelo)
-```
-
-[0.5.0]: #050---2026-11-17
+Destaques: roteador multi-provider, suíte de evals com gate, memória em três
+níveis, núcleo de auto-evolução, sandbox em três camadas, grafo com runtime e
+checkpoints, e rotina de evolução contínua.

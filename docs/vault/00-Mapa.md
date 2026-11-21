@@ -23,7 +23,7 @@ created: 2026-11-19
 - [[02-Componentes/Memoria]], store em 3 níveis, teto de 400 tok/turno
 - [[02-Componentes/Grafo]], executor de DAG com nós human e checkpoints
 - [[02-Componentes/CLI]], interface de linha de comando (TUI)
-- [[02-Componentes/Desktop]], janela webview
+
 
 ### Comandos e uso
 - [[03-Comandos/CLI]], comandos que o usuário digita (`/...`)
@@ -39,7 +39,7 @@ created: 2026-11-19
 - [[10-Glossario]], termos do projeto
 
 ### Estado e continuação
-- [[11-Handoff/Estado-Atual]], retrato no HEAD `ed939e6` (v1.2.0: temas, subagentes, Ctrl+P, /plugins): o que está pronto, o que falta, como rodar, onde estão as coisas
+- [[11-Handoff/Estado-Atual]], retrato da v1.2.1: modelos e efforts, anexos de imagem, idioma, comandos de sessão, o que está pronto e o que falta
 
 ## Sobre
 

@@ -239,7 +239,7 @@ export async function forkSession(dir, id, name = null, client = null) {
     forkedFrom: id,
   };
   if (name) newHeader.title = name;
-  // `client` identifica a superfície que criou a sessão (cli|desktop)
+  // `client` identifica a superfície que criou a sessão
   if (client) newHeader.client = client;
   else if (header && header.client) newHeader.client = header.client;
 

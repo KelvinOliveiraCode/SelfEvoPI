@@ -27,7 +27,7 @@ created: 2026-11-19
 | `core/agent/import.mjs` | Migra MCPs e skills do OpenCode para `~/.pi/` uma vez, reversível | `scanSource`, `scanTarget`, `planImport`, `applyImport`, `undoImport` |
 | `core/agent/subagent.mjs` | Subagente moldado (dsh): provider/modelo/esforço/modo; persistente ou temporário; A2A | `runSubagent`, `sendA2A`, `listPersistent`, `closePersistent` |
 | `core/agent/swarm.mjs` | Orquestra n subagentes rumo à tarefa (`/swarm`) | `synthesizeSubagents`, `runSwarmExecution` |
-| `core/agent/activity.mjs` | Registro do painel Ctrl+P (shells + subagentes) | `registerActivity`, `listActivity`, `getActive` |
+| `core/agent/activity.mjs` | Registro da lista de atividade (Ctrl+P) | `registerActivity`, `listActivity`, `getActive` |
 | `core/agent/providers.mjs` | Registro de provedores e modelos (`/providers`) |, |
 | `core/agent/worktree.mjs` | Worktrees git isoladas (`/worktree`) |, |
 | `core/agent/file-explorer.mjs` | Seletor de pasta do Windows (`/explorer`) |, |
@@ -35,10 +35,10 @@ created: 2026-11-19
 | `core/agent/pi-rpc.mjs` | Ponte RPC com o engine do PI | `createPiClient`, `findEngine`, `listConfiguredModels` |
 | `core/agent/init.mjs` | Gera rascunho de AGENTS.md | `renderAgentDoc` |
 
-## O que a CLI e o desktop chamam
+## O que a CLI chama
 
-- **Sessões** (`/sessions`, `#sessions` no desktop): `sessions.mjs`, a mesma pasta de
-  sessões alimenta as duas superfícies (ver [[05-Decisoes/Decisoes]] D8).
+- **Sessões** (`/sessions`, `/fork`, `/export`): `sessions.mjs`, a pasta de
+  sessões do projeto; a CLI é a única superfície (ver [[05-Decisoes/Decisoes]] D8).
 - **Status/custo/contexto** (`/status`, `/cost`, `/context`): `inspect.mjs`.
 - **Compactação** (`/compact`): `compact.mjs`, mantém as mensagens recentes e resume
   o resto dentro de um teto de tokens.

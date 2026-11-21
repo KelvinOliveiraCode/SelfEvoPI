@@ -1,6 +1,6 @@
 {
   "name": "selfevopi",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "type": "module",
   "description": "Harness auto-evolutivo, leve e Windows-nativo sobre o PI Coding Agent",
@@ -8,7 +8,7 @@
     "node": ">=22.19.1"
   },
   "scripts": {
-    "test": "node --test --test-concurrency=4 core/router/*.test.mjs core/forge/*.test.mjs core/memory/*.test.mjs core/graph/*.test.mjs core/governance/*.test.mjs core/sandbox/*.test.mjs core/agent/*.test.mjs apps/*.test.mjs apps/desktop/*.test.mjs scripts/refine-loop.test.mjs",
+    "test": "node --test --test-concurrency=4 core/router/*.test.mjs core/forge/*.test.mjs core/memory/*.test.mjs core/graph/*.test.mjs core/governance/*.test.mjs core/sandbox/*.test.mjs core/agent/*.test.mjs apps/*.test.mjs scripts/refine-loop.test.mjs",
     "test:unit": "node --test core/*/*.test.mjs",
     "eval": "node evals/run.mjs",
     "eval:report": "node evals/report.mjs",
@@ -20,11 +20,12 @@
     "providers:import": "node scripts/import-providers.mjs --apply",
     "providers:dry": "node scripts/import-providers.mjs",
     "providers:check": "node scripts/check-providers.mjs",
+    "models:check": "node scripts/check-models.mjs",
+    "models:prompt": "node scripts/check-models.mjs --prompt",
     "router": "node core/router/cli.mjs",
     "forge": "node core/forge/cli.mjs",
     "overhead": "node scripts/measure-selfevopi-overhead.mjs",
     "daily": "node scripts/daily.mjs",
-    "desktop": "node scripts/desktop.mjs",
     "cli": "node apps/cli.mjs"
   }
 }

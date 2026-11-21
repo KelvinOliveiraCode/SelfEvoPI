@@ -160,7 +160,7 @@ const esc = (s) =>
  * atualizar o painel em tempo real. Sem `pollUrl`, mostra o estado inicial.
  *
  * `indexUrl` (opcional) aponta para o `index.json` da ponte (`harness-store`): quando
- * existir, o painel mostra a lista de runs com status/progresso — é o que um desktop
+ * existir, o painel mostra a lista de runs com status/progresso — é o que a leitura
  * lê sem varrer diretório.
  *
  * @param {object} graph

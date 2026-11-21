@@ -101,7 +101,7 @@ Para garantir que qualquer erro de código, mutação defeituosa da auto-evoluç
 3. **Protocolo de Checkpoint & Auto-Recovery (Time-Machine):**
    * **Antes de qualquer mutação:** O harness cria um commit de checkpoint ou tag leve (`ckpt/<fase>-<step>-pre`) e salva o hash em `.pi/harness/last-known-good.json`.
    * **A cada tarefa/subfase concluída:** Commit atômico seguindo *Conventional Commits* (`feat(router): ...`, `evo(skill): ...`, `test(evals): ...`) + `git push origin <branch>` para backup remoto imediato.
-   * **Ao concluir cada Fase (P, 0, 1, 2, 3, 4):** Tag anotada assinada com relatório de testes (`v0.0-research`, `v0.1-foundation`, `v0.2-cli`, `v0.3-self-evo`, `v0.4-graph`, `v0.5-desktop`) e push para o GitHub (`git push origin --tags`).
+   * **Ao concluir cada Fase (P, 0, 1, 2, 3, 4):** Tag anotada assinada com relatório de testes (`v0.0-research`, `v0.1-foundation`, `v0.2-cli`, `v0.3-self-evo`, `v0.4-graph`) e push para o GitHub (`git push origin --tags`).
    * **Protocolo de Recuperação Automática (quando algo quebra):**
      * *Erro em subagente/worktree:* Descarta ou reseta apenas o worktree isolado (`git worktree remove --force`) sem contaminar `dev` ou `main`.
      * *Artefato auto-evoluído causou regressão:* Executa `git revert --no-edit <commit_do_artefato>`, marca a skill/artefato como `reverted` no ledger e reexecuta os evals para confirmar restauração do estado verde.
@@ -135,7 +135,7 @@ Você está operando no **Traycer**, coordenando agentes executores do **OpenCod
    - Nunca assuma caminhos POSIX (`/tmp`, `~/.config`) nem gere scripts `.sh` (Bash). Use sempre `path.join` / `os.homedir()` e crie ferramentas/CLIs apenas em **TypeScript/Node** ou **Python**.
    - Configure `git config core.longpaths true` e utilize `pnpm` ou `bun` (store global com junctions/hardlinks) para evitar duplicação de `node_modules` e travamento de arquivos NTFS nos 8 worktrees.
 3. **NÃO faça fork do núcleo do PI:** O SelfEvoPI acopla-se ao `pi` oficial via **extensões, skills, configuração e estado versionado em `.pi/harness/`**. O código upstream do PI nunca deve ser modificado diretamente.
-4. **Separar "Montar" de "Inventar":** Não reescreva funcionalidades que já existem na comunidade PI (MCP, web access, subagentes, visualização de grafo, desktop). Valide os pacotes via bake-off, fixe versões e concentre a engenharia autoral no **Roteador Multi-Provider**, na **Suíte de Evals** e no **Núcleo de Auto-Evolução**.
+4. **Separar "Montar" de "Inventar":** Não reescreva funcionalidades que já existem na comunidade PI (MCP, web access, subagentes, visualização de grafo). Valide os pacotes via bake-off, fixe versões e concentre a engenharia autoral no **Roteador Multi-Provider**, na **Suíte de Evals** e no **Núcleo de Auto-Evolução**.
 5. **Verificação Empírica de Pacotes e Links:** Nenhum pacote npm/GitHub pode ser instalado ou citado sem antes ter sua existência, versão e documentação verificadas diretamente nas fontes oficiais (`https://pi.dev/`, `https://pi.dev/packages/`, npm, GitHub).
 6. **Execução Estritamente Faseada (Phase-Gating):** Você **NÃO PODE** iniciar uma fase sem que a fase anterior cumpra 100% dos seus **Critérios de Saída** e passe na sua **Bateria de Testes**.
 7. **Blindagem de Qualidade, Áreas Protegidas e Revisão Cruzada:**
@@ -166,7 +166,7 @@ Você é responsável por manter o repositório Git impecavelmente organizado e 
      - *Falha em worktree de subagente:* Isole o erro, corrija na branch do subagente ou descarte o worktree (`git worktree remove --force`) e recrie a partir de `last-known-good`.
      - *Regressão causada por auto-evolução:* Execute `git revert --no-edit <sha>`, registre a falha no ledger e rode a suíte de evals para confirmar a recuperação.
      - *Quebra na branch `dev`:* Restaure `dev` para `last-known-good` (`git reset --hard <good_sha>`), crie uma branch `fix/<descricao>` para corrigir o defeito com testes e só depois reintegre.
-   - **Tags de Fase Obrigatórias (com push para GitHub):** `v0.0-research`, `v0.1-foundation`, `v0.2-cli`, `v0.3-self-evo`, `v0.4-graph`, `v0.5-desktop`.
+   - **Tags de Fase Obrigatórias (com push para GitHub):** `v0.0-research`, `v0.1-foundation`, `v0.2-cli`, `v0.3-self-evo`, `v0.4-graph`.
 
 ---
 
@@ -273,15 +273,7 @@ Implementar o loop autônomo de criação e validação de capacidades em 7 etap
 
 ---
 
-### FASE 4 — Desktop Completo Windows (`A8`)
-*(Liberada apenas após Fase 3 aprovada)*
-1. Adotar ou fazer fork fino do `Pi-Harness` (instalador `.exe` x64 para Windows; já traz Runs, Trace, Replay, Evaluation, Policy, Budget, Checkpoints, Recovery, Agent Teams, Task DAG e Worktrees) conectado ao estado `.pi/harness/`. **Alternativa:** `Pi Agent Desktop` (Windows 10/11 x64), que inclui terminais contidos por **Job Objects** — útil para a fila de aprovações/permissões. **Não usar `pi-native-app` como desktop:** desde a versão 0.2.2 ele é cliente web (AG-UI); o app desktop Tauri antigo só existe fixado em `0.1.15`.
-2. Integrar na interface Desktop: painel do grafo multi-agente, fila de aprovações de artefatos/permissões, painel de evals/telemetria (acurácia, tokens e latência), controle visual de rollback Git e **Live Web/UI Preview** local (inspirado no OpenDesign) para edição de sites/interfaces em tempo real.
-- **Teste & Critério de Saída:** Fluxo completo (`tarefa → lacuna → artefato → aprovação humana → execução`) concluído 100% pelo Desktop no Windows, abrindo sessões da CLI e recuperando checkpoints. Push para GitHub com tag `v0.5-desktop`.
-
----
-
-### FASE 5 — Evolução Contínua Autônoma
+### FASE 4 — Evolução Contínua Autônoma
 1. Ativar rotina periódica de `/refine` (somente deltas comprovados nos evals) + relatório semanal automático de métricas (taxa de sucesso, tokens/tarefa, latência média, lacunas resolvidas e reversões) publicado no repositório.
 
 ---

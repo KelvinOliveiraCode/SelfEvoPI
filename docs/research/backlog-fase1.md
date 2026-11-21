@@ -25,7 +25,6 @@ Bake-off (P2) **não começa** antes de P1 fechar, porque o bake-off precisa da 
 | ID | Tarefa | Dono | Critério de aceite (comando) |
 | :-- | :--- | :--- | :--- |
 | P0-1 | ~~Verificar existência, versão e licença dos pacotes não confirmados~~ **Concluído 2026-11-15** | A4 | `pi-agent-orchestrator` 0.2.1 · `@arhen/pi-core-subagent` 1.4.3 · `pi-continual` 0.1.0 · `@rahularya01/pi-essentials` 0.1.0 · `pi-agent-extensions` 0.5.6 — todos MIT e ativos |
-| P0-5 | Decidir a base desktop: **Pi-Harness** (Windows x64) vs `Pi Agent Desktop` (Job Objects) | A8 | Decisão registrada em `docs/research/alternativas-windows.md` com justificativa |
 | P0-2 | Verificar `Inspect AI` como alternativa de runner de eval | A2 | URL oficial aberta + decisão ADOTAR/DESCARTAR registrada |
 | P0-3 | Confirmar requisito mínimo de Node (22.19.1) e registrar em `docs/environment.md` | A1 | `node --version` ≥ 22.19.1 documentado |
 | P0-4 | Revisão de código dos pacotes finalistas do bake-off (segurança) | A6 | Checklist de revisão assinado por pacote em `docs/bakeoff-report.md` |

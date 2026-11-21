@@ -4,7 +4,7 @@
  * Sem dependências. Node ESM puro. Windows nativo (sem `.sh`).
  *
  * Grava **um arquivo por run** em `.pi/harness/graph/` (formato da ponte,
- * `harness-state.mjs`) e um `index.json` com a lista de runs — é o que um painel
+ * `harness-state.mjs`) e um `index.json` com a lista de runs — é o que a leitura
  * lê sem varrer diretório.
  *
  * Escrita atômica (tmp + rename). JSON indentado, legível.

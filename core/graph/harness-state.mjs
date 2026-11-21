@@ -1,5 +1,5 @@
 /**
- * selfevopi-harness-state — a ponte entre o grafo e o desktop (Fase 4).
+ * selfevopi-harness-state — o formato git-nativo do estado do grafo.
  *
  * Sem dependências. Node ESM puro. Windows nativo (sem `.sh`).
  *

@@ -6,7 +6,7 @@ updated: 2026-11-20
 
 # Comandos da CLI
 
-> Comandos que o usuário digita no prompt da CLI ou desktop. Extraídos de
+> Comandos que o usuário digita no prompt da CLI. Extraídos de
 > `apps/cli.mjs` (lista `COMMANDS`, com `name: "/..."`). A lista é a fonte única:
 > o `/help` e a paleta leem dela.
 
@@ -113,8 +113,8 @@ Sair: `q`, `/quit` ou `Ctrl+D`.
 | `Ctrl+C` | Cancela a resposta em curso e devolve a linha |
 | `Ctrl+O` | Abre o editor interativo de settings (tema, modo, permissão, modelo, esforço) |
 | `Ctrl+K` | Abre a lista de sessões; submenus para abrir ou deletar uma sessão |
-| `Ctrl+P` | Abre o painel de atividade (shells e subagentes em execução) |
-| `Ctrl+,` | Abre/fecha as configurações estáticas (mesma tecla do desktop) |
+| `Ctrl+P` | Abre a lista de atividade (shells e subagentes em execução) |
+| `Ctrl+,` | Abre/fecha as configurações estáticas |
 | `q` / `/quit` / `Ctrl+D` | Sai |
 
 `Ctrl+K` mostra as sessões; ao escolher uma, abre um submenu com "abrir" e "deletar"

@@ -7,7 +7,7 @@
  *
  * Então este módulo tem três saídas, e cada uma tem um motivo:
  *
- *   listMcpLogs({ root, server })   entradas estruturadas, para o painel listar
+ *   listMcpLogs({ root, server })   entradas estruturadas, para a CLI listar
  *   readMcpLog({ root, server })    linhas cruas, para quem quer ler tudo
  *   formatErrorReport({ root, server })  o texto que o usuário cola
  *

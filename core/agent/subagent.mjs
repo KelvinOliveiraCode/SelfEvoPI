@@ -112,7 +112,7 @@ export async function runSubagent(spec = {}, opts = {}) {
     return { name, provider, model, effort, mode, task, text: "", ok: false, error: "subagent: sem cliente (motor ausente?)" };
   }
 
-  // registra a atividade (para o painel Ctrl+P)
+  // registra a atividade (para a lista de atividade Ctrl+P)
   registerActivity({
     id: activityId(name),
     kind: "subagent",

@@ -62,7 +62,7 @@ Logo ASCII na inicialização. `core/agent/banner.mjs`.
 
 A visão de estado (`renderSettings`) vive em `apps/cli.mjs` (não em
 `core/agent/settings-view.mjs`). Devolve linhas ≤ 72 colunas com modo, permissão,
-modelo, esforço, tema, custo e contexto. Abre com `Ctrl+,` (mesma tecla do desktop).
+modelo, esforço, tema, custo e contexto. Abre com `Ctrl+,`.
 `Ctrl+O` abre o editor interativo (`startSettingsPicker`): escolhe e troca tema, modo,
 permissão, modelo e esforço sem sair da conversa.
 

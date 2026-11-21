@@ -2,7 +2,7 @@
 
 > **Data da execução:** 2026-11-19
 > **Máquina:** Windows, Node **24.13.0**
-> **Configuração:** `C:\Users\Kelvin\.config\opencode\opencode.jsonc`
+> **Configuração:** `~/.config/opencode/opencode.jsonc`
 > **Ferramenta:** `scripts/probe-mcps.mjs` (usa `core/agent/mcp-probe.mjs`)
 > **Comando do gate:** `node scripts/probe-mcps.mjs`
 
