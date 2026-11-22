@@ -46,7 +46,7 @@ escala tipográfica em px. Quem precisar disso usa o desktop.
 
 A TUI usa uma paleta quente de bronze/ouro, com contraste alto em todos os
 papéis de texto. Valores podem ser consultados em `core/agent/theme.mjs` (tema
-`escuro`, padrão): fundo `#0b0908`, texto `#fff6e5`, secundário `#d6b978`,
+`padrao`, padrão): fundo `#0b0908`, texto `#fff6e5`, secundário `#d6b978`,
 acento `#ffc857`, ferramenta `#ffd97d`, borda `#8a6e3c`. Todos os papéis de
 texto passam de 7:1 de contraste sobre o fundo. O spinner usa asas `⟪◈ ◈⟫` e
 verbos rotativos; a resposta do agente vive num bloco com rótulo e borda.

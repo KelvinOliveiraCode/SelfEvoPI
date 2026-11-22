@@ -1,7 +1,8 @@
 /**
  * selfevopi-theme — paleta da TUI.
  *
- * Três temas: `escuro` (padrão), `claro`, `alto-contraste`.
+ * Doze temas: `padrao` (padrão), `violeta`, `azul`, `ciano`, `verde`,
+ * `esmeralda`, `laranja`, `rosa`, `vermelho`, `magenta`, `dourado`, `grafite`.
  * O tema muda a **paleta** (fg, muted, accent, ok, warn, fail), não a estrutura.
  *
  * Persistência dupla:
@@ -22,7 +23,14 @@ import process from "node:process";
 
 const HOME = process.env.USERPROFILE || process.env.HOME || ".";
 const THEME_KEY = "selfevopi.theme";
-const DEFAULT_THEME = "escuro";
+const DEFAULT_THEME = "padrao";
+
+/** Nomes antigos ainda podem estar em theme.json/localStorage de quem atualizou. */
+const LEGACY_NAMES = { escuro: "padrao", "alto-contraste": "padrao", claro: "violeta" };
+function nomeAtual(value) {
+  const raw = String(value || "");
+  return LEGACY_NAMES[raw] || raw;
+}
 
 /** Caminho do arquivo de tema (resolvido a cada chamada, para respeitar overrides). */
 function themeFile() {
@@ -36,11 +44,12 @@ function themeFile() {
 
 /**
  * Cada tema define as mesmas chaves semânticas. Valores são hex (#rrggbb).
- * `alto-contraste` foi calibrado para WCAG AA em fundo preto (4.5:1 texto normal).
+ * Todos os temas foram calibrados para WCAG AA (4.5:1 em cada papel de texto
+ * sobre o respectivo fundo); o teste em `theme.test.mjs` verifica isso.
  */
 export const THEMES = {
-  escuro: {
-    name: "escuro",
+  padrao: {
+    name: "padrao",
     bg: "#0b0908",
     fg: "#fff6e5",
     muted: "#d6b978",
@@ -67,20 +76,16 @@ export const THEMES = {
     link: "#c4a7ff",
     rule: "#6b588e",
   },
-  "alto-contraste": {
-    name: "alto-contraste",
-    bg: "#000000",
-    fg: "#ffffff",
-    muted: "#e6e6e6",
-    accent: "#ffe600",
-    ok: "#39ff14",
-    warn: "#ffd700",
-    fail: "#ff6b6b",
-    code: "#ffffff",
-    tool: "#ffff66",
-    link: "#ffe600",
-    rule: "#8c8c8c",
-  },
+  azul: { name: "azul", bg: "#0c0d0e", fg: "#f4f5f6", muted: "#b7c2cd", accent: "#6ea8e2", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e3e6", tool: "#afcce9", link: "#6ea8e2", rule: "#404d59" },
+  ciano: { name: "ciano", bg: "#0c0d0e", fg: "#f4f5f6", muted: "#b6cacd", accent: "#6cd1e5", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e5e6", tool: "#ade0eb", link: "#6cd1e5", rule: "#3f565a" },
+  verde: { name: "verde", bg: "#0c0e0d", fg: "#f4f6f5", muted: "#b7cdc0", accent: "#70e19f", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e6e2", tool: "#b0e8c7", link: "#70e19f", rule: "#41584b" },
+  esmeralda: { name: "esmeralda", bg: "#0c0e0d", fg: "#f4f6f5", muted: "#b7cdc7", accent: "#70e1c4", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e6e4", tool: "#b0e8da", link: "#70e1c4", rule: "#415852" },
+  laranja: { name: "laranja", bg: "#0e0d0c", fg: "#f6f5f4", muted: "#cfc1b5", accent: "#e8a469", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e3e0", tool: "#eccaac", link: "#e8a469", rule: "#5b4c3e" },
+  rosa: { name: "rosa", bg: "#0e0c0d", fg: "#f6f4f5", muted: "#cdb6c2", accent: "#e56ca8", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e0e3", tool: "#ebadcc", link: "#e56ca8", rule: "#5a3f4d" },
+  vermelho: { name: "vermelho", bg: "#0e0c0c", fg: "#f6f4f4", muted: "#cfb6b5", accent: "#e86d69", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e0e0", tool: "#ecaeac", link: "#e86d69", rule: "#5b3f3e" },
+  magenta: { name: "magenta", bg: "#0e0c0e", fg: "#f6f4f6", muted: "#cdb6cd", accent: "#e46ce4", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e0e6", tool: "#eaaeea", link: "#e46ce4", rule: "#5a3f5a" },
+  dourado: { name: "dourado", bg: "#0e0d0c", fg: "#f6f6f4", muted: "#d1ccb3", accent: "#eed763", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e7e6df", tool: "#f0e4a8", link: "#eed763", rule: "#5e583b" },
+  grafite: { name: "grafite", bg: "#0c0d0e", fg: "#f4f5f6", muted: "#b7c0cd", accent: "#83a2ce", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e2e6", tool: "#bbc9dd", link: "#83a2ce", rule: "#454b54" },
 };
 
 /* ------------------------------------------------------------------ */
@@ -135,9 +140,9 @@ let current = null;
 
 function resolveInitial() {
   // prioridade: arquivo (fonte da verdade) > padrão
-  const saved = readThemeFile() || readLocalStorage();
+  const saved = nomeAtual(readThemeFile() || readLocalStorage());
   if (!saved) return DEFAULT_THEME;
-  // tema salvo que não existe mais (removido/renomeado) cai no padrão (escuro)
+  // tema salvo que não existe mais (removido/renomeado) cai no padrão
   const isBuiltin = Object.prototype.hasOwnProperty.call(THEMES, saved);
   const isCustom = /^custom:[1-3]$/.test(String(saved));
   if (!isBuiltin && !isCustom) return DEFAULT_THEME;
@@ -161,7 +166,7 @@ export function getTheme() {
 
 /** A paleta do tema ativo. */
 export function getThemeColors(nome) {
-  const name = nome || getTheme();
+  const name = nomeAtual(nome) || getTheme();
   return THEMES[name] || THEMES[DEFAULT_THEME];
 }
 
@@ -171,12 +176,13 @@ export function getThemeColors(nome) {
  * @returns {boolean} true se aplicou
  */
 export function setTheme(nome) {
+  const nomeFinal = nomeAtual(nome);
   // aceita temas embutidos E slots customizados ("custom:1".."custom:3")
-  const isCustom = typeof nome === "string" && /^custom:[1-3]$/.test(nome);
-  if (!THEMES[nome] && !isCustom) return false;
-  current = nome;
-  writeThemeFile(nome);
-  writeLocalStorage(nome);
+  const isCustom = typeof nomeFinal === "string" && /^custom:[1-3]$/.test(nomeFinal);
+  if (!THEMES[nomeFinal] && !isCustom) return false;
+  current = nomeFinal;
+  writeThemeFile(nomeFinal);
+  writeLocalStorage(nomeFinal);
   return true;
 }
 

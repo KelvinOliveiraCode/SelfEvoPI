@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-21 · **Versão:** 1.2.7 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-22 · **Versão:** 1.2.8 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 

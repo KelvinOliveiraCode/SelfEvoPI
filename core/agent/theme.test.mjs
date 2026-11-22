@@ -19,18 +19,29 @@ import {
 
 /* --------------------------- estrutura ---------------------------------- */
 
-test("THEMES exporta os três temas", () => {
-  assert.ok(THEMES.escuro, "falta escuro");
+test("THEMES tem padrão, violeta e várias cores", () => {
+  assert.ok(THEMES.padrao, "falta padrao");
   assert.ok(THEMES.violeta, "falta violeta");
-  assert.ok(THEMES["alto-contraste"], "falta alto-contraste");
+  for (const cor of ["azul", "ciano", "verde", "rosa", "vermelho", "grafite"]) {
+    assert.ok(THEMES[cor], `falta ${cor}`);
+  }
+  assert.equal(THEMES.escuro, undefined, "escuro foi renomeado para padrao");
+  assert.equal(THEMES["alto-contraste"], undefined, "alto-contraste saiu do conjunto");
 });
 
-test("listThemes devolve os três nomes", () => {
+test("listThemes devolve pelo menos doze nomes", () => {
   const names = listThemes();
-  assert.equal(names.length, 3);
-  assert.ok(names.includes("escuro"));
+  assert.ok(names.length >= 12, `esperados >=12 temas, veio ${names.length}`);
+  assert.ok(names.includes("padrao"));
   assert.ok(names.includes("violeta"));
-  assert.ok(names.includes("alto-contraste"));
+});
+
+test("nomes antigos migram para padrão", () => {
+  assert.equal(getThemeColors("escuro"), THEMES.padrao);
+  assert.equal(getThemeColors("alto-contraste"), THEMES.padrao);
+  assert.equal(setTheme("escuro"), true);
+  assert.equal(getTheme(), "padrao");
+  setTheme("padrao");
 });
 
 test("getTheme devolve um tema válido por padrão", () => {
@@ -56,7 +67,7 @@ test("setTheme aceita e persiste um tema válido", () => {
   } finally {
     process.env.USERPROFILE = orig;
     rmSync(tmp, { recursive: true, force: true });
-    setTheme("escuro"); // restaura
+    setTheme("padrao"); // restaura
   }
 });
 
@@ -85,16 +96,16 @@ test("getThemeColors com nome inválido cai no padrão", () => {
 /* --------------------------- CSS ---------------------------------------- */
 
 test("themeToCss gera variáveis --fg, --muted, --accent, --ok, --warn, --fail", () => {
-  const css = themeToCss("escuro");
+  const css = themeToCss("padrao");
   for (const v of ["--bg", "--fg", "--muted", "--accent", "--ok", "--warn", "--fail"]) {
     assert.ok(css.includes(v), `CSS sem ${v}`);
   }
-  assert.ok(css.includes(THEMES.escuro.fg), "CSS deve usar o fg do tema");
+  assert.ok(css.includes(THEMES.padrao.fg), "CSS deve usar o fg do tema");
 });
 
-test("themeToCss do alto-contraste usa as cores do tema", () => {
-  const css = themeToCss("alto-contraste");
-  assert.ok(css.includes(THEMES["alto-contraste"].accent), "accent do alto-contraste");
+test("themeToCss de uma cor usa as cores do tema", () => {
+  const css = themeToCss("azul");
+  assert.ok(css.includes(THEMES.azul.accent), "accent do tema azul");
 });
 
 test("temas têm contraste alto no texto (WCAG >= 4.5)", () => {
@@ -117,18 +128,18 @@ test("temas têm contraste alto no texto (WCAG >= 4.5)", () => {
 /* --------------------------- ANSI --------------------------------------- */
 
 test("themeToAnsi gera sequências truecolor", () => {
-  const ansi = themeToAnsi("escuro");
+  const ansi = themeToAnsi("padrao");
   assert.ok(ansi.fg.startsWith("\x1b[38;2;"), "fg não é truecolor");
   assert.ok(ansi.ok.startsWith("\x1b[38;2;"), "ok não é truecolor");
 });
 
 test("themeToAnsi256 gera sequências ANSI-256 (38;5;N) e é distinta por tema", () => {
-  const a = themeToAnsi256("escuro");
+  const a = themeToAnsi256("padrao");
   assert.ok(a.accent.startsWith("\x1b[38;5;"), "accent não é 256 cores");
   const idx = (seq) => { const n = (seq.match(/\d+/g) || []); return Number(n[n.length - 1]); };
-  // os três temas têm accent 256 distintos (não caem todos no mesmo índice)
-  const accents = new Set(["escuro", "violeta", "alto-contraste"].map((t) => idx(themeToAnsi256(t).accent)));
-  assert.ok(accents.size >= 2, "accent 256 não distingue os temas");
+  // temas diferentes não podem cair todos no mesmo índice ANSI-256
+  const accents = new Set(listThemes().map((t) => idx(themeToAnsi256(t).accent)));
+  assert.ok(accents.size >= 8, "accent 256 não distingue os temas de cor");
   // hexToAnsi256 mapeia branco/preto para índices do cubo
   const branco = hexToAnsi256("#ffffff");
   assert.ok(branco >= 16 && branco <= 255, "hexToAnsi256 fora da faixa");
@@ -170,20 +181,16 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-test("alto-contraste passa WCAG AA em fundo preto (4.5:1)", () => {
-  const t = THEMES["alto-contraste"];
-  const bg = t.bg; // #000000
-  for (const k of ["fg", "muted", "accent", "ok", "warn", "fail"]) {
-    const ratio = contrast(t[k], bg);
-    assert.ok(ratio >= 4.5, `${k} = ${t[k]} contrast ${ratio.toFixed(2)} < 4.5`);
+test("padrão: fg, accent e muted passam AA", () => {
+  const t = THEMES.padrao;
+  const bg = t.bg;
+  for (const k of ["fg", "accent", "muted"]) {
+    assert.ok(contrast(t[k], bg) >= 4.5, `${k} = ${t[k]} contrast ${contrast(t[k], bg).toFixed(2)} < 4.5`);
   }
 });
 
-test("escuro: fg e accent passam AA; muted é decorativo (>= 3:1)", () => {
-  const t = THEMES.escuro;
-  const bg = t.bg;
-  assert.ok(contrast(t.fg, bg) >= 4.5, "fg do escuro deve passar AA");
-  assert.ok(contrast(t.accent, bg) >= 4.5, "accent do escuro deve passar AA");
-  // muted é texto secundário/decorativo: exige >= 3:1 (AA large / decorativo)
-  assert.ok(contrast(t.muted, bg) >= 3.0, "muted do escuro deve passar 3:1");
+test("temas de cor têm accents distintos uns dos outros", () => {
+  const cores = listThemes().filter((n) => n !== "padrao" && n !== "grafite");
+  const accents = new Set(cores.map((n) => THEMES[n].accent));
+  assert.equal(accents.size, cores.length, "duas cores compartilham o mesmo accent");
 });

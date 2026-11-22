@@ -68,10 +68,10 @@ Ver [[03-Comandos/CLI]] para `/settings`.
 
 ## Temas
 
-A TUI tem **3 temas embutidos** (`escuro`, `violeta`, `alto-contraste`) e **3 slots
+A TUI tem **12 temas embutidos** (padrao, violeta, azul, ciano, verde, esmeralda, laranja, rosa, vermelho, magenta, dourado, grafite) e **3 slots
 custom** editáveis pelo usuário (`custom:1`..`custom:3`).
 
-- `/theme` abre o seletor: 3 built-in + os 3 slots + "gerenciar temas custom…".
+- `/theme` abre o seletor: as 12 paletas + os 3 slots + "gerenciar temas custom…".
 - Cada tema define **11 papéis de cor** semânticos: `fg`, `muted`, `accent`, `ok`,
   `warn`, `fail`, `code`, `tool`, `link`, `rule`, `bg`.
 - "gerenciar temas custom…" abre o editor: modo **geral** (5 papéis, fg, accent,

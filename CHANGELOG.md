@@ -4,6 +4,20 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.8] - 2026-11-22
+
+**Conjunto de temas reorganizado: um `padrao` e uma paleta de cores para cada gosto.**
+
+- **Doze temas embutidos:** `padrao` (padrão, o bronze/ouro anterior), `violeta`,
+  `azul`, `ciano`, `verde`, `esmeralda`, `laranja`, `rosa`, `vermelho`, `magenta`,
+  `dourado` e `grafite` — além dos três slots customizados.
+- **`escuro` e `alto-contraste` removidos do conjunto.** Nomes antigos salvos em
+  `theme.json`/`localStorage` migram automaticamente para `padrao` — ninguém
+  fica com tema quebrado ao atualizar.
+- Cada paleta tem 11 papéis semânticos e passa WCAG AA (4,5:1) no próprio fundo;
+  teste de contraste e de accents distintos cobre todas as cores.
+- `/theme` agora mostra `[tema]` genérico em vez de uma lista fixa de três nomes.
+
 ## [1.2.7] - 2026-11-22
 
 **TUI reorganizada no estilo dos CLIs modernos: bloco de resposta, skins quentes e sem sobreposição.**

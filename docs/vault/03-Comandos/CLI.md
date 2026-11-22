@@ -25,7 +25,7 @@ Os comandos reais, conforme a lista `COMMANDS` em `apps/cli.mjs` (a fonte
 | `/model [nome]` | Mostra ou troca o modelo da conversa | `core/router/router.mjs` |
 | `/effort [off\|low\|medium\|high]` | Esforço de raciocínio do modelo atual | `apps/cli.mjs` |
 | `/mode [modo]` | Alterna o modo (plan, build, manual, ask, goal) | `core/governance/modes.mjs` |
-| `/theme [escuro\|violeta\|alto-contraste]` | Tema da interface (3 built-in escuros + 3 slots custom) | `apps/cli.mjs`, `core/agent/theme.mjs`, `core/agent/theme-custom.mjs` |
+| `/theme [tema]` | Tema da interface (12 paletas: padrao, violeta, azul, ciano, verde, esmeralda, laranja, rosa, vermelho, magenta, dourado, grafite; + 3 slots custom) | `apps/cli.mjs`, `core/agent/theme.mjs`, `core/agent/theme-custom.mjs` |
 | `/settings` | Visão de tudo que está configurado | `apps/cli.mjs` (`renderSettings`) |
 | `/fork [nome]` | Bifurca a sessão preservando a original | `core/agent/sessions.mjs` |
 | `/export [md\|json]` | Exporta a conversa | `apps/cli.mjs` |

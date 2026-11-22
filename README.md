@@ -154,10 +154,12 @@ npm run models:check    # capabilities of every configured model, no API call
 npm run models:prompt   # also sends one minimal prompt to each model
 ```
 
-**Themes.** Three built-in dark themes plus three editable custom slots, each
-with 11 semantic color roles. If the terminal does not announce truecolor, the
-palette degrades honestly to ANSI-256 — no "I changed the theme and nothing
-happened" bug.
+**Themes.** Twelve built-in palettes (`padrao`, `violeta`, `azul`, `ciano`,
+`verde`, `esmeralda`, `laranja`, `rosa`, `vermelho`, `magenta`, `dourado`,
+`grafite`) plus three editable custom slots, each with 11 semantic color roles.
+`/theme` opens a picker; every palette passes WCAG AA on its own background. If
+the terminal does not announce truecolor, the palette degrades honestly to
+ANSI-256 — no "I changed the theme and nothing happened" bug.
 
 ## Install
 
@@ -255,6 +257,7 @@ node core/forge/cli.mjs status          # harness state
 | [`docs/research/cli-landscape/matriz.md`](docs/research/cli-landscape/matriz.md) | competitor capability matrix |
 | [`docs/research/cli-landscape/round2.md`](docs/research/cli-landscape/round2.md) | second-pass gap analysis |
 | [`SECURITY.md`](SECURITY.md) | security model in one page |
+
 
 ## License
 

@@ -113,7 +113,7 @@ let _customHex = null; // paleta hex do tema custom ativo (pré-carregada)
 /** Paleta hex do tema ativo (built-in ou custom). */
 function currentPaletteHex() {
   const name = getTheme();
-  if (String(name).startsWith("custom")) return _customHex || getThemeColors("escuro");
+  if (String(name).startsWith("custom")) return _customHex || getThemeColors("padrao");
   return getThemeColors(name);
 }
 
@@ -153,7 +153,7 @@ async function refreshThemeCache() {
     try {
       const { getCustomTheme } = await import("../core/agent/theme-custom.mjs");
       const c = await getCustomTheme(slot);
-      _customHex = { ...getThemeColors("escuro"), ...(c?.colors || {}) };
+      _customHex = { ...getThemeColors("padrao"), ...(c?.colors || {}) };
     } catch {
       _customHex = null;
     }
@@ -1280,7 +1280,7 @@ export const COMMANDS = [
   { name: "/ask", args: "", description: tr("cmd.ask"), run: (ctx) => runMode("ask", ctx) },
   { name: "/goal", args: "[condição|clear]", description: tr("cmd.goal"), run: runGoal },
   { name: "/settings", args: "", description: tr("cmd.settings"), run: runSettingsView },
-  { name: "/theme", args: "[escuro|violeta|alto-contraste]", description: tr("cmd.theme"), run: runTheme },
+  { name: "/theme", args: "[tema]", description: tr("cmd.theme"), run: runTheme },
   { name: "/language", args: "[en|pt]", description: tr("cmd.language"), run: runLanguage },
   { name: "/fork", args: "[nome]", description: tr("cmd.fork"), run: runFork },
   { name: "/diff", args: "", description: tr("cmd.diff"), run: runDiff },
@@ -1314,7 +1314,7 @@ const ARG_TR = {
     "[nome|test]": "[name|test]",
     "[importar|--undo|--status]": "[import|--undo|--status]",
     "[condição|clear]": "[condition|clear]",
-    "[escuro|violeta|alto-contraste]": "[dark|violet|high-contrast]",
+    "[tema]": "[theme]",
     "[n] <tarefa>": "[n] <task>",
     "<nome> <tarefa> [--provider --model --effort --mode --persistent]":
       "<name> <task> [--provider --model --effort --mode --persistent]",
@@ -4020,7 +4020,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     const tc = await import("../core/agent/theme-custom.mjs");
     // getThemeColors devolve { name, bg, fg, ... }; "name" não é papel de cor,
     // então separa antes de compor a paleta (senão validateColors rejeita).
-    const { name: _nomeBase, ...baseCores } = getThemeColors("escuro");
+    const { name: _nomeBase, ...baseCores } = getThemeColors("padrao");
     const custom = (await tc.getCustomTheme(slot)) || { name: `meu tema ${slot}`, colors: {} };
     let colors = { ...baseCores, ...(custom.colors || {}) };
     let nome = custom.name || `meu tema ${slot}`;
