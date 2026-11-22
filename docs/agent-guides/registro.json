@@ -16,7 +16,7 @@
     "provider": {
       "guias": ["adicionar-provider.md", "mapa-e-dono.md"],
       "arquivos": ["config/providers.example.json", "scripts/import-providers.mjs", "scripts/providers-setup.mjs", "core/agent/model-metadata.mjs", "core/agent/providers.mjs", "core/agent/models-config.mjs", "core/agent/provider-discovery.mjs", "core/router/"],
-      "externo": "~/.pi/agent/models.json; overrides privados em config/providers.private.json (so no repo privado)",
+      "externo": "~/.pi/agent/models.json; overrides locais em config/providers.private.json (ignorado pelo Git)",
       "testes": ["npm run models:check", "npm run providers:check", "node --test core/agent/*.test.mjs", "node scripts/providers-setup.mjs --list --json"],
       "invariantes": [1, 2, 3, 9, 19]
     },

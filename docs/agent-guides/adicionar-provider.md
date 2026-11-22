@@ -72,13 +72,13 @@ O padrão é **dry-run**; `--apply` grava. A chave nunca aparece na saída — s
 OpenRouter, Kilo, Nous e genéricos, infere efforts, reasoning, imagem e variantes
 `free`/`fast`, e tenta Bearer antes de `X-API-Key`.
 
-## Repositório público vs privado
+## Configuração local
 
-O repositório público **não vem com provider pré-configurado**. Quem baixar
-configura o primeiro provider no início, pelos comandos acima. Overrides
-específicos do mantenedor vivem em `config/providers.private.json` (ignorado pelo
-Git), lidos por `scripts/import-providers.mjs`. Nunca copie esse arquivo para o
-repositório público.
+O release **não vem com provider pré-configurado**. Quem baixar configura o
+primeiro provider no início, pelos comandos acima. Toda configuração real fica
+em `~/.pi/agent/models.json`, fora do repositório. Overrides opcionais vivem em
+`config/providers.private.json` (ignorado pelo Git) e são lidos por
+`scripts/import-providers.mjs`. Nunca versionar chaves ou config de conta.
 
 ## Passos
 

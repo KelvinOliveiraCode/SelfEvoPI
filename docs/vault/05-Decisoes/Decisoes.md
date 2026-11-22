@@ -17,7 +17,7 @@ OpenRouter free tier responde exit 0 com corpo vazio ao esgotar a cota — falha
 
 ## D3. Orçamento de prompt é requisito (2026-11-16)
 
-1.659 tok de `pi-subagents` sozinhos estouravam os 1.500 (medido em 2026-11-17: `docs/medidas-2026-11-17.md`, `scripts/measure-selfevopi-overhead.mjs --runs 3`). A extensão saiu do prompt padrão e passou a carregar sob demanda. Ver [[08-Desempenho/Desempenho]].
+1.659 tok de `pi-subagents` sozinhos estouravam os 1.500 (medido com `scripts/measure-selfevopi-overhead.mjs --runs 3`; ver `docs/estado.md`). A extensão saiu do prompt padrão e passou a carregar sob demanda. Ver [[08-Desempenho/Desempenho]].
 
 ## D4. `verify.mjs` roda fora do sandbox (2026-11-16)
 
@@ -50,7 +50,7 @@ Skills e MCPs passam a ler a config **do próprio SelfEvoPI** (`~/.pi/skills/<no
 
 ## D11. Agnóstico estrito: sem fallback do outro produto (2026-11-19)
 
-O 1.1.1 deixou o import como ponte; o 1.1.3 removeu o fallback do runtime. O produto não lê a config de outro harness nem em último caso — se não achar a própria config (`~/.pi/`), diz a verdade e para. Ver [[11-Handoff/Estado-Atual]].
+O 1.1.1 deixou o import como ponte; o 1.1.3 removeu o fallback do runtime. O produto não lê a config de outro harness nem em último caso — se não achar a própria config (`~/.pi/`), diz a verdade e para. Ver [[04-Features/Features]].
 
 ## D12. Launcher no PATH do usuário (2026-11-19)
 

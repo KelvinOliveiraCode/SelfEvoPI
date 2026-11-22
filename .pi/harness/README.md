@@ -16,13 +16,11 @@ Tudo que precisa sobreviver entre sessões do PI vive aqui. Nada disto é códig
 |:---|:---|
 | `last-known-good.json` | SHA do último commit com 100% dos evals verdes |
 | `decisions.md` | decisões de arquitetura com data e motivo |
-| `handoffs/` | contratos curtos entre subagentes (objetivo, arquivos, restrições, aceite) |
 | `ledger/` | trilha JSONL de execuções (trajetória, tokens, latência) |
 | `tmp/` | rascunho efêmero (ignorado pelo Git) |
 
 ## Regras
 
-1. **Handoff nunca carrega histórico bruto.** Só contrato estruturado.
 2. **Artefato promovido** ganha commit atômico aqui e atualiza `last-known-good.json`.
 3. **Regressão** dispara `git revert` e marca o artefato como `reverted` no ledger.
 4. **Áreas protegidas** (`evals/`, `core/governance/`) não são editáveis pelo loop autônomo.

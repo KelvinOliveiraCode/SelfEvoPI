@@ -96,6 +96,6 @@ Sem esses dois, nenhuma tarefa de modelo real funciona.
 ## Pendências
 
 - [ ] Gatekeeper: rodar a suíte com e sem o artefato e exigir zero regressão.
-- [ ] Baseline oficial no PI puro (números publicados em `docs/baseline-f0.md`).
+- [ ] Baseline oficial no PI puro (baseline versionada em `evals/baseline.json`).
 - [ ] Mais tarefas do grupo D cobrindo refatoração e leitura de código.
 - [ ] Bloqueio por regressão no gate de merge.

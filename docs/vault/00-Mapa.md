@@ -44,14 +44,10 @@ created: 2026-11-19
 - [[09-Replicacao/Replicacao]], como montar do zero, 1:1
 - [[10-Glossario]], termos do projeto
 
-### Estado e continuação
-- [[11-Handoff/Estado-Atual]], retrato da v1.2.1: modelos e efforts, anexos de imagem, idioma, comandos de sessão, o que está pronto e o que falta
-
 ## Sobre
 
 O SelfEvoPI é um harness de agente de código ultraleve, rápido, econômico em contexto e auto-evolutivo, construído sobre o PI Coding Agent sem fork.
 
-- **Repositório privado:** SelfEvoPI-Priv
-- **Repositório público:** SelfEvoPI (release limpa)
-- **HEAD de referência das medições:** `ed939e6` (2026-11-20); medições antigas em `ee74ed9` (2026-11-18)
+- **Repositório:** SelfEvoPI (release pública)
+- **Medições correntes:** `docs/estado.md`
 - **Fases:** P, 0, 1, 2, 3, 4, 5, todas concluídas

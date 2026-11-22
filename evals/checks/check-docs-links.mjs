@@ -15,7 +15,6 @@ const REQUIRED = [
   "docs/research/inspiracoes.md",
   "docs/research/backlog-fase1.md",
   "docs/research/alternativas-windows.md",
-  "docs/fase0/providers.md",
   "docs/fase0/router.md",
   "docs/fase0/evals.md",
 ];

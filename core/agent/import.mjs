@@ -13,7 +13,7 @@
  *   applyImport({ home, plan }) -> backup + merge + manifesto (escrita atômica)
  *   undoImport({ home })        -> restaura o backup e apaga skills criadas
  *
- * Princípios (do desenho docs/design/import-2026-11-19.md):
+ * Princípios do desenho do import:
  *
  *  1. **Merge, não overwrite.** "O que já existe vence." Nome que já está no
  *     alvo é mantido, não sobrescrito. Torna o import idempotente.

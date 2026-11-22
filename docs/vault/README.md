@@ -29,7 +29,6 @@ Abra esta pasta como cofre no Obsidian. O cofre depende apenas de uma subpasta
 | `08-Desempenho/` | números medidos, com data e comando de reprodução |
 | `09-Replicacao/` | como montar o projeto do zero, passo a passo |
 | `10-Glossario.md` | termos e siglas do projeto |
-| `11-Handoff/` | estado atual para quem continua o trabalho |
 
 ## Fontes de verdade
 

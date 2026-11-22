@@ -8,6 +8,10 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 **Sessão nova por padrão; retomar é escolha do usuário.**
 
+A release pública também foi enxugada: plano de execução, handoffs de agentes,
+auditorias internas e notas de ambiente ficam apenas no repositório de origem.
+Aqui restam documentação de uso, arquitetura, pesquisa e guias para agentes.
+
 - O motor deixou de ser iniciado com `--no-session` (efêmero). Cada abertura
   agora cria uma sessão **nova e persistida** com `--session-id <uuid>`.
 - Para continuar uma conversa antiga: `node apps/cli.mjs --resume <id>` (ou
@@ -61,11 +65,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
   interativo para humanos e modo `--json`/flags para agentes. Padrão é dry-run;
   `--apply` grava. A chave nunca é impressa.
 - **`/providers discover <url> [ENV]`** na CLI.
-- **Overrides privados** saem do código: `config/providers.private.json` (fora
-  do release público) é lido por `scripts/import-providers.mjs`. O provider
-  `nous` do mantenedor vive aí, não no repositório público.
-- Release público sem providers pré-configurados; o download fica só no repo
-  privado até virar asset do site.
+- **Overrides locais** saem do código: `config/providers.private.json` (arquivo
+  ignorado pelo Git) é lido por `scripts/import-providers.mjs`. Nenhum provider
+  vem pré-configurado no release; cada usuário cadastra os seus.
+- Release sem providers pré-configurados; o pacote de download será publicado
+  no site do projeto.
 
 ## [1.2.2] - 2026-11-21
 

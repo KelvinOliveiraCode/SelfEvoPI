@@ -38,7 +38,7 @@ Bake-off (P2) **não começa** antes de P1 fechar, porque o bake-off precisa da 
 | P1-3 | Roteador fino: perfis `orchestrator`/`worker`/`reviewer` + **seleção por modelo** + circuit breaker + teto de tokens | A3 | Simular falha em 1 provider → troca automática; revisor ≠ provider do autor |
 | P1-4 | Suíte de evals: 30–50 tarefas determinísticas (Grupos A/B/C) | A2 | `node evals/run.mjs` executa e produz JSON por tarefa |
 | P1-5 | Ledger JSONL: acurácia, tokens, TTFT, latência total, **US$/tarefa resolvida** | A2 | `node evals/report.mjs` gera relatório reproduzível (2 execuções, mesma saída) |
-| P1-6 | Baseline oficial no PI puro + roteador | A2 | Números publicados em `docs/baseline-f0.md` |
+| P1-6 | Baseline oficial no PI puro + roteador | A2 | Baseline versionada em `evals/baseline.json` |
 | P1-7 | Telemetria: **ADOTAR `@earendil-works/pi-telemetry`** (não construir) | A2 | Eventos de agente/tool/LLM aparecem no ledger |
 | P1-8 | Script de checkpoint/rollback Git + `last-known-good.json` | A1 | `node scripts/checkpoint.mjs create` e `restore` testados em branch descartável |
 | P1-9 | GitHub: `gh auth status`, `gh repo create`, branches `main`/`dev`, 8 worktrees | A1 | `git push` OK; `.worktrees/A1..A8` criados |

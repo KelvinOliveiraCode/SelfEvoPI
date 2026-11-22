@@ -3,7 +3,7 @@
  *
  * Escopo de escrita: só este arquivo (A2 é dono da varredura). Não conserta
  * `apps/cli.mjs` — cada teste aqui é uma REGRESSÃO para um bug real achado na
- * varredura, descrito em docs/auditoria-cli-1.1.md.
+ * varredura de bugs e gargalos da CLI (1.1).
  *
  * CONVENÇÃO (honesta, sem afrouxar): cada teste de bug afirma o comportamento
  * CORRETO e está marcado `test.todo(...)`. O `todo` é o idiom canônico do

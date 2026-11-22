@@ -18,7 +18,7 @@ created: 2026-11-19
 ### 1. Clonar o repositório
 
 ```powershell
-git clone <repo-privado> SelfEvoPI
+git clone <url-do-repositorio> SelfEvoPI
 cd SelfEvoPI
 ```
 

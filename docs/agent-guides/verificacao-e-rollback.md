@@ -54,9 +54,8 @@ sobrescrever.
 5. **Desfaça ou corrija.** Prefira `git checkout --` quando a mudança é sua e
    pequena; `git revert` quando já entrou.
 6. **Revalide.** `npm test` e `npm run verify` na árvore de destino.
-7. **Registre.** Se a causa era desconhecida, escreva no handoff
-   (`docs/vault/11-Handoff/Estado-Atual.md`) o sintoma, a causa e o comando que
-   prova a correção.
+7. **Registre.** Se a causa era desconhecida, escreva no CHANGELOG o sintoma,
+   a causa e o comando que prova a correção.
 
 ## Regra final
 

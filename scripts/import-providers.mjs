@@ -131,7 +131,7 @@ function ROOT_DIR() {
   return path.resolve(import.meta.dirname, "..");
 }
 
-/** Overrides privados são opcionais: target/catálogos/efforts específicos de uma máquina. */
+/** Overrides locais são opcionais: target/catálogos/efforts específicos de uma máquina. */
 async function loadPrivateOverrides() {
   try {
     const doc = JSON.parse(await readFile(PRIVATE_OVERRIDES_FILE, "utf8"));
