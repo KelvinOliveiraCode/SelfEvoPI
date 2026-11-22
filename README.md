@@ -170,6 +170,16 @@ configuration and last results. Every `block`/`warn` gate decision is appended
 to a local security ledger (relative paths, redacted excerpts); `/security-log`
 reads it back.
 
+**Code Mode (opt-in).** In workspaces with many MCP servers, the tool catalog can
+flood the context. `core/agent/code-mode.mjs` runs a short JavaScript program in
+a restricted `node:vm` context whose only effect is `tools.call(name, args)` —
+no `process`, `require`, `fetch`, `eval` or `Function`, plus an allowlist, call
+limit, deadline and output cap. `scripts/code-mode-mcp.mjs` is an opt-in MCP
+gateway exposing a single `run_code` tool; it discovers servers and tools from
+the **local** config at runtime, so no server name, command or secret lives in
+this repository. The gateway is registered locally by the user, with a backup
+of the config. See `docs/agent-guides/hooks-e-seguranca.md`.
+
 ## Install
 
 ```powershell

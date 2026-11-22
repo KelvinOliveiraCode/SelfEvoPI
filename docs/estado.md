@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-22 · **Versão:** 1.3.0 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-22 · **Versão:** 1.4.0 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
@@ -43,6 +43,7 @@ O produto é a CLI. Nada mais.
 | Erro transitivo do modelo | 429 seguido de resposta não vira "não consegui" | 0 falsos negativos | teste em `apps/cli.test.mjs` |
 | Hooks de ciclo de vida | 6 eventos, sem shell, timeout, redação; hook real disparou em turno real | 0 falhas fatais | `core/agent/hooks.test.mjs` + teste ponta a ponta |
 | Ledger de segurança | decisões `block`/`warn` registradas com excerpt redigido | 0 segredos | `core/sandbox/telemetry.test.mjs` |
+| Code Mode | gateway opt-in descobre tools locais em runtime; 7 testes de unidade + 1 de integração | 0 nomes de servidor no repo | `core/agent/code-mode.test.mjs`, `scripts/code-mode-mcp.test.mjs` |
 
 > Os números são fotografias desta data, não garantia de desempenho. Cada linha
 > traz o comando que a produziu.

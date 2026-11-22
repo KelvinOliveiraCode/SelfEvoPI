@@ -4,6 +4,27 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.4.0] - 2026-11-22
+
+**Code Mode opt-in para ambientes com muitos servidores MCP.**
+
+- `core/agent/code-mode.mjs`: executa um programa curto que encadeia chamadas
+  por `tools.call()`. Contexto `node:vm` sem `process`, `require`, `fetch`,
+  `eval` ou `Function`; allowlist, limite de chamadas, prazo e teto de saída.
+  O módulo é puro — não lê config nem sobe processo.
+- `scripts/code-mode-mcp.mjs`: gateway MCP que expõe apenas `run_code`. Descobre
+  servidores e ferramentas da config **local em tempo de execução** — nenhum
+  nome de servidor, comando ou segredo vive no repositório. Servidores que
+  falham são ignorados; a descoberta é cacheada.
+- Registro local feito pelo usuário, com backup da config. Na validação com um
+  ambiente numeroso, a primeira chamada levou ~39 s (cold) e as seguintes ficaram
+  em cache. Nenhuma config, nome de servidor ou segredo foi versionado.
+- Testes: 7 de unidade + 1 de integração com servidor MCP falso. Validação real
+  ponta a ponta: o modelo chamou `run_code`, o gateway descobriu centenas de
+  ferramentas de dezenas de servidores e devolveu a contagem em milissegundos.
+- Documentação: README, `docs/estado.md`, `docs/produto.md`, vault e guia
+  `hooks-e-seguranca.md` atualizados.
+
 ## [1.3.0] - 2026-11-22
 
 **Hooks de ciclo de vida e registro de segurança, sem depender do motor.**

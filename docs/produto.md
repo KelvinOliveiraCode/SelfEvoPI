@@ -102,6 +102,11 @@ skill — recair para CLI gerava sucesso com a interface errada.
   ambiente mínimo. `/hooks` mostra a config e os últimos resultados.
 - Toda decisão `block`/`warn` do gate vai para um ledger append-only local;
   `/security-log` consulta as últimas entradas sem expor segredos.
+- **Code Mode opt-in**: um único tool `run_code` roda um programa curto que
+  encadeia chamadas MCP. O contexto não tem `process`, `require`, `fetch`, `eval`
+  ou `Function`; há allowlist, limite de chamadas, prazo e teto de saída. Os
+  servidores são descobertos da config local em tempo de execução — nenhum nome
+  de servidor, comando ou credencial entra no repositório.
 
 ### 4.2 Comandos
 

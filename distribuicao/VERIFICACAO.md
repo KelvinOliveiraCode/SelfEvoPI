@@ -1,4 +1,4 @@
-# Verificação — SelfEvoPI 1.3.0
+# Verificação — SelfEvoPI 1.4.0
 
 Medições feitas em 21/11/2026. Cada número tem origem rastreável.
 

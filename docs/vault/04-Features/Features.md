@@ -93,6 +93,19 @@ a saída é redigida antes de aparecer. Um hook que falha ou expira é registrad
 como observabilidade e **nunca** derruba o turno. `/hooks` mostra a config e os
 últimos resultados. Implementação em `core/agent/hooks.mjs`.
 
+## Code Mode (opt-in)
+
+Para instalações com muitos servidores MCP, `core/agent/code-mode.mjs` permite
+que o modelo escreva um programa curto que encadeia chamadas por
+`tools.call(nome, args)`, em vez de fazer uma ida e volta por ferramenta. O
+contexto é um `node:vm` sem `process`, `require`, `fetch`, `eval` ou `Function`,
+com allowlist, limite de chamadas, prazo e teto de saída.
+
+`scripts/code-mode-mcp.mjs` é o gateway: expõe só `run_code` e descobre servidores
+e ferramentas da config **local** em tempo de execução. Nenhum nome de servidor,
+comando ou segredo entra no repositório. O registro é local e opt-in, com backup
+da config. Ver `docs/agent-guides/hooks-e-seguranca.md`.
+
 ## Ledger de segurança
 
 Decisões `block` e `warn` do gate são gravadas em

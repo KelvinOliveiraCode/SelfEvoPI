@@ -1,6 +1,6 @@
 {
   "projeto": "SelfEvoPI",
-  "versao": "1.3.0",
+  "versao": "1.4.0",
   "atualizado": "2026-11-22",
   "entrada": "AGENTS.md",
   "indice": "docs/agent-guides/README.md",
@@ -58,6 +58,13 @@
       "externo": ".pi/hooks.json e .pi/harness/ledger/blocked.jsonl (workspace, nunca release público)",
       "testes": ["node --test core/agent/hooks.test.mjs", "node --test core/sandbox/telemetry.test.mjs", "npm test", "npm run verify"],
       "invariantes": [1, 2, 5, 7, 8, 13]
+    },
+    "code_mode": {
+      "guias": ["hooks-e-seguranca.md"],
+      "arquivos": ["core/agent/code-mode.mjs", "scripts/code-mode-mcp.mjs", "core/agent/code-mode.test.mjs", "scripts/code-mode-mcp.test.mjs"],
+      "externo": "config local de MCP do usuario (somente leitura em runtime); nunca versionar nomes, comandos ou segredos",
+      "testes": ["node --test core/agent/code-mode.test.mjs", "node --test scripts/code-mode-mcp.test.mjs", "npm test", "npm run verify"],
+      "invariantes": [1, 2, 5, 7, 8]
     }
   }
 }

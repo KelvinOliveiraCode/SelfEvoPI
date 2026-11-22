@@ -1,4 +1,4 @@
-# Hooks e observabilidade de segurança
+# Hooks, Code Mode e observabilidade de segurança
 
 ## Onde mexer
 
@@ -52,6 +52,34 @@ a 4 KB e redigida (`apiKey`, `token`, `sk-…`, `eyJ…`).
    do gate. Nunca jogue o erro da gravação para o chamador.
 4. Documente o comando novo no README, `docs/produto.md`, `docs/estado.md` e
    na vault (`03-Comandos/CLI.md`, `02-Componentes/*`, `04-Features/Features.md`).
+
+## Code Mode (opt-in)
+
+`core/agent/code-mode.mjs` executa um programa curto num contexto `node:vm` cuja
+única forma de efeito é `tools.call(nome, args)`. Não há `process`, `require`,
+`fetch`, `eval` nem `Function` (codeGeneration desligado). Limites: allowlist de
+ferramentas, contador de chamadas, prazo e teto de saída. O módulo não lê config
+nem sobe processo.
+
+`scripts/code-mode-mcp.mjs` é o gateway: expõe apenas `run_code` e descobre os
+servidores da config **local** em tempo de execução. Nenhum nome de servidor,
+comando ou segredo pode entrar no repositório. O registro é feito localmente
+pelo usuário, com backup da config; o gateway ignora servidores que falham e
+cacheia a descoberta.
+
+### O que não mexer
+
+- Não hardcoded nomes de servidores nem caminhos de máquina no gateway.
+- Não ligue `codeGeneration.strings` nem exponha `process`/`require`/`fetch` no
+  contexto — isso transformaria o Code Mode em execução arbitrária.
+- Não versionar config local, backup nem lista de ferramentas descobertas.
+
+### Verificação específica
+
+```powershell
+node --test core/agent/code-mode.test.mjs
+node --test scripts/code-mode-mcp.test.mjs
+```
 
 ## Verificação
 
