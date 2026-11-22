@@ -20,6 +20,7 @@ created: 2026-11-19
 | `core/agent/settings-view.mjs` | Visão única do estado (`/settings`) | `renderSettings` |
 | `core/agent/theme.mjs` | Tema da interface: 12 paletas de cor, 11 papéis de cor | `getTheme`, `setTheme`, `listThemes`, `themeToAnsi256` |
 | `core/agent/theme-custom.mjs` | 3 slots custom editáveis (`~/.pi/agent/custom-themes.json`) | `listCustomThemes`, `getCustomTheme`, `saveCustomTheme` |
+| `core/agent/hooks.mjs` | Hooks de ciclo de vida do workspace (`turn_start`…`compact`), sem shell e com redação de segredos | `readHooks`, `runHooks`, `EVENTS` |
 | `core/agent/mcp.mjs` | Inventaria MCPs do projeto (`.mcp.json` / `.pi/settings.json`) | `readMcpConfig`, `listMcpServers` |
 | `core/agent/mcp-probe.mjs` | Lê MCPs do settings global (`~/.pi/settings.json`) e sonda handshake/tools (`/mcp`, `/plugins`) (ex-`mcp-opencode.mjs`) | `listConfiguredMcp` (+ alias `listOpencodeMcp`), `probeMcpServer` |
 | `core/agent/mcp-logs.mjs` | Logs dos servidores MCP |, |

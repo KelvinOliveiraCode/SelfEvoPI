@@ -22,6 +22,8 @@ Os 30 comandos reais, conforme `apps/cli.mjs` (`name: "/..."`):
 | `/effort [off\|low\|medium\|high]` | Esforço de raciocínio do modelo atual |
 | `/mode [modo]` | Alterna o modo (plan → build → manual → ask → goal) |
 | `/theme [tema]` | Tema da interface (12 paletas + 3 slots custom) |
+| `/hooks` | Hooks de ciclo de vida do workspace |
+| `/security-log` | Ledger local de decisões do gate |
 | `/settings` | Visão de tudo que está configurado |
 | `/sessions [id]` | Lista sessões ou carrega uma |
 | `/cost` | Tokens e custo da sessão |

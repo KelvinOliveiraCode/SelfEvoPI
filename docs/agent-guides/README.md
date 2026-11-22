@@ -13,6 +13,7 @@ Leia `AGENTS.md` na raiz primeiro. Depois venha aqui.
 | `adicionar-comando.md` | novo comando de barra, picker ou atalho |
 | `idioma-e-verbosity.md` | traduzir strings, adicionar nível de detalhamento |
 | `conexoes-e-eventos.md` | integrar sistema externo, webhook, fila ou workflow |
+| `hooks-e-seguranca.md` | hooks de ciclo de vida, ledger de decisões do gate, novos eventos |
 | `invariantes.md` | revisão final: o que nunca pode mudar |
 | `verificacao-e-rollback.md` | rodar gates, interpretar falha, desfazer, se reparar |
 | `registro.json` | versão machine-readable dos mesmos ponteiros |

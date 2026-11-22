@@ -97,6 +97,11 @@ skill — recair para CLI gerava sucesso com a interface errada.
 - Paleta quente bronze/ouro, com todos os papéis de texto acima de 7:1 de
   contraste. Sem truecolor, degrada para ANSI-256. Movimento reduzido troca o
   spinner por um indicador estático.
+- Hooks de ciclo de vida opcionais (`turn_start`, `turn_end`, `tool_start`,
+  `tool_result`, `error`, `compact`): JSON no stdin, sem shell, com timeout e
+  ambiente mínimo. `/hooks` mostra a config e os últimos resultados.
+- Toda decisão `block`/`warn` do gate vai para um ledger append-only local;
+  `/security-log` consulta as últimas entradas sem expor segredos.
 
 ### 4.2 Comandos
 
@@ -105,7 +110,7 @@ skill — recair para CLI gerava sucesso com a interface errada.
 | Núcleo | `/evo`, `/detect`, `/memory`, `/skills`, `/compact`, `/goal` |
 | Conversa | `/model`, `/effort`, `/mode`, `/plan`, `/build`, `/ask`, `/clear` |
 | Sessão | `/sessions`, `/resume`, `/history`, `/fork`, `/export`, `/undo`, `/redo`, `/copy`, `/diff` |
-| Contexto | `/cost`, `/status`, `/context`, `/settings`, `/reload` |
+| Contexto | `/cost`, `/status`, `/context`, `/settings`, `/reload`, `/hooks`, `/security-log` |
 | Integrações | `/mcp`, `/plugins`, `/init`, `/import`, `/providers`, `/workspace`, `/explorer` |
 | Agentes | `/swarm`, `/subagent`, `/worktree` |
 | Aparência | `/theme`, `/language`, `/verbosity` |

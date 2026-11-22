@@ -83,6 +83,25 @@ custom** editáveis pelo usuário (`custom:1`..`custom:3`).
 
 Ver `core/agent/theme.mjs` e `core/agent/theme-custom.mjs`.
 
+## Hooks de ciclo de vida
+
+Workspaces podem declarar ganchos em `.pi/hooks.json` (arquivo do workspace,
+não a config pessoal do agente). Eventos: `turn_start`, `turn_end`,
+`tool_start`, `tool_result`, `error` e `compact`. Cada hook recebe um payload
+JSON no stdin, roda sem shell, com ambiente mínimo e timeout configurável;
+a saída é redigida antes de aparecer. Um hook que falha ou expira é registrado
+como observabilidade e **nunca** derruba o turno. `/hooks` mostra a config e os
+últimos resultados. Implementação em `core/agent/hooks.mjs`.
+
+## Ledger de segurança
+
+Decisões `block` e `warn` do gate são gravadas em
+`.pi/harness/ledger/blocked.jsonl`: timestamp, arquivo relativo ao workspace,
+regras, linha e excerpt redigido. A gravação é best-effort — falha de I/O não
+altera a decisão do gate nem impede a execução. `/security-log` consulta as
+últimas entradas. Implementação em `core/sandbox/telemetry.mjs`, ligada em
+`core/sandbox/run-sandboxed.mjs`.
+
 ## Subagentes
 
 Filosofia dsh: o modelo principal **molda** subagentes (provider/modelo/esforço/modo)

@@ -161,6 +161,15 @@ npm run models:prompt   # also sends one minimal prompt to each model
 the terminal does not announce truecolor, the palette degrades honestly to
 ANSI-256 — no "I changed the theme and nothing happened" bug.
 
+**Hooks and security log.** Workspaces can declare lifecycle hooks in
+`.pi/hooks.json` (workspace-local, never your personal agent config). Events:
+`turn_start`, `turn_end`, `tool_start`, `tool_result`, `error`, `compact`. Each
+hook receives JSON on stdin, runs without a shell under a minimal environment
+and a timeout; a failing hook is recorded, never fatal. `/hooks` shows the
+configuration and last results. Every `block`/`warn` gate decision is appended
+to a local security ledger (relative paths, redacted excerpts); `/security-log`
+reads it back.
+
 ## Install
 
 ```powershell

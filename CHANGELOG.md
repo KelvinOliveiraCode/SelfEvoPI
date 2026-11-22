@@ -4,6 +4,23 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.3.0] - 2026-11-22
+
+**Hooks de ciclo de vida e registro de segurança, sem depender do motor.**
+
+- **Hooks** em `.pi/hooks.json` do workspace (não é config pessoal): eventos
+  `turn_start`, `turn_end`, `tool_start`, `tool_result`, `error` e `compact`.
+  Payload chega como JSON no stdin, sem shell, com ambiente mínimo, timeout e
+  redação de segredos. Hook que falha nunca derruba o turno. Novo comando
+  `/hooks` mostra a config e os últimos resultados.
+- **Registro de segurança append-only:** toda decisão `block`/`warn` do gate
+  vira uma linha em `.pi/harness/ledger/blocked.jsonl`, com caminho relativo e
+  excerpt redigido. Novo comando `/security-log` consulta as últimas decisões.
+- Testes novos cobrem validação de config, injeção de shell, timeout, redação
+  e gravação/leitura do ledger. Integração ponta a ponta verificada com hook
+  real disparado num turno da CLI.
+- Corrigido drift em `docs/estado.md` (dizia "três temas" e `⏺`/`⎿`).
+
 ## [1.2.9] - 2026-11-22
 
 **Modelos com reasoning obrigatório validados e saída de comandos sem quebras de moldura.**

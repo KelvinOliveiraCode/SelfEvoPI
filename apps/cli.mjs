@@ -1353,6 +1353,8 @@ export const COMMANDS = [
   { name: "/images", args: "[clear]", description: tr("cmd.images"), run: runImages },
   { name: "/verbosity", args: "[nível]", description: tr("cmd.verbosity"), run: runVerbosity },
   { name: "/history", args: "[n|clear]", description: tr("cmd.history"), run: runHistory },
+  { name: "/hooks", args: "", description: tr("cmd.hooks"), run: runHooksCommand },
+  { name: "/security-log", args: "", description: tr("cmd.securitylog"), run: runSecurityLogCommand },
   { name: "/resume", args: "[id]", description: tr("cmd.resume"), run: (ctx) => runSessions(ctx) },
   { name: "/swarm", args: "[n] <tarefa>", description: tr("cmd.swarm"), run: runSwarm },
   { name: "/subagent", args: "<nome> <tarefa> [--provider --model --effort --mode --persistent]", description: tr("cmd.subagent"), run: runSubagentCmd },
@@ -2676,6 +2678,11 @@ async function runCompact({ out, pi }) {
   lines.push(`    depois:   ${res.tokensAfter} tokens`);
   lines.push(`    saíram:   ${res.removed} mensagem(ns) (resumidas ou descartadas)`);
   out(lines.join("\n"));
+  await fireHook("compact", {
+    tokensBefore: res.tokensBefore,
+    tokensAfter: res.tokensAfter,
+    removed: res.removed,
+  });
   return 0;
 }
 
@@ -3147,6 +3154,81 @@ export function recordEvent(kind, text, meta = {}) {
   return sessionEvents[sessionEvents.length - 1];
 }
 
+/* ------------------------ hooks de ciclo de vida ------------------------ */
+
+let hooksCache; // undefined = ainda não lido; null = indisponível
+const hookResults = [];
+
+async function hooksConfig() {
+  if (hooksCache === undefined) {
+    try {
+      const { readHooks } = await import("../core/agent/hooks.mjs");
+      hooksCache = await readHooks({ root: workspaceRoot });
+    } catch (err) {
+      hooksCache = { ok: false, hooks: {}, counts: {}, error: String(err?.message || err) };
+    }
+  }
+  return hooksCache;
+}
+
+/** Dispara um hook sem nunca lançar nem atrasar o turno por falha externa. */
+async function fireHook(evento, payload = {}) {
+  try {
+    const cfg = await hooksConfig();
+    if (!cfg.ok || !cfg.counts?.[evento]) return;
+    const { runHooks } = await import("../core/agent/hooks.mjs");
+    const resultados = await runHooks(evento, payload, cfg);
+    for (const r of resultados) {
+      hookResults.push({ evento, ...r });
+      recordEvent("hook", `${evento}:${r.name}:${r.ok ? "ok" : "fail"}`, { durationMs: r.durationMs });
+    }
+    if (hookResults.length > 200) hookResults.splice(0, hookResults.length - 200);
+  } catch {
+    /* hook é observabilidade: nunca derruba a conversa */
+  }
+}
+
+async function runSecurityLogCommand({ out }) {
+  try {
+    const { readGateDecisions } = await import("../core/sandbox/telemetry.mjs");
+    const registros = await readGateDecisions({ root: workspaceRoot, n: 20 });
+    if (!registros.length) {
+      out(paint(`  ${tr("securitylog.empty")}`, "muted"));
+      return 0;
+    }
+    const linhas = [paint(`  ${tr("securitylog.title")}: ${registros.length}`, "fg")];
+    for (const r of registros.slice(-10)) {
+      const cor = r.decision === "block" ? "fail" : "warn";
+      linhas.push(`  ${paint(String(r.decision).toUpperCase(), cor)} ${r.file || "-"} ${(r.rules?.blocking || []).concat(r.rules?.warning || []).join(",")}`);
+    }
+    out(linhas.join("\n"));
+    return 0;
+  } catch (err) {
+    out(paint(`  ${String(err?.message || err).slice(0, 120)}`, "fail"));
+    return 1;
+  }
+}
+
+async function runHooksCommand({ out }) {
+  const cfg = await hooksConfig();
+  if (!cfg.ok) {
+    out(paint(`  ${tr("hooks.title")}: ${String(cfg.error || "erro").slice(0, 110)}`, "fail"));
+    return 1;
+  }
+  const eventos = Object.entries(cfg.counts || {}).filter(([, n]) => n > 0);
+  if (!eventos.length) {
+    out(paint(`  ${tr("hooks.none")}`, "muted"));
+    return 0;
+  }
+  out(paint(`  ${tr("hooks.title")}: workspace hooks config`, "fg"));
+  for (const [evento, n] of eventos) out(`  ${paint(evento, "accent")}  ${n} hook(s)`);
+  const recentes = hookResults.slice(-5);
+  for (const r of recentes) {
+    out(`  ${paint(r.ok ? "✓" : "✗", r.ok ? "ok" : "fail")} ${r.evento}:${r.name} ${r.durationMs}ms`);
+  }
+  return 0;
+}
+
 export function listEvents(n = 30) {
   const limit = Math.max(1, Math.min(MAX_EVENTS, Number(n) || 30));
   return sessionEvents.slice(-limit);
@@ -3388,6 +3470,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
       recordEvent("tool", `${call.name || "tool"} ${argHint}`.trim(), {
         name: call.name || "tool", args: argHint, id: call.id, phase: "start",
       });
+      void fireHook("tool_start", { name: call.name || "tool", args: argHint });
       if (shows("tools")) {
         const nome = String(call.name || "tool");
         write(`  ${paint("┊", "rule")} ${toolEmoji(nome)} ${paint(nome.slice(0, 9).padEnd(9), "fg")} ${paint(argHint, "muted")}\n`);
@@ -3411,6 +3494,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     recordEvent("tool_result", `└ ${detail}${call.isError ? " · 1 failed" : ""}`, {
       name: call.name || "tool", id: call.id, isError: Boolean(call.isError), result: String(raw || "").slice(0, 4000),
     });
+    void fireHook("tool_result", { name: call.name || "tool", ok: !call.isError, detail: detail.slice(0, 200) });
     if (shows("toolResult") || call.isError) {
       const marker = call.isError ? paint(tr("tool.failed"), "fail") : paint(detail, "muted");
       write(`  ${paint("┊", "rule")} ${" ".repeat(12)}${paint("└", "muted")} ${marker}\n`);
@@ -3419,6 +3503,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   const offError = pi.on("error", (message) => {
     hadError = true;
     rawError = String(message || "");
+    void fireHook("error", { message: rawError.slice(0, 500) });
     spin.stop();
     flush();
   });
@@ -3447,6 +3532,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   }
 
   setBusy(true);
+  await fireHook("turn_start", { text: String(text || "").slice(0, 2000) });
   if (shows("activity")) {
     spin.start(tr("spin.thinking"));
     void pollTokens(); // depois do start: o loop depende de spin.active
@@ -3463,6 +3549,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     offSettled();
     offThink();
     setBusy(false);
+    await fireHook("turn_end", { ok: false, chars: 0, reason: "prompt_error" });
     return { ok: false, error: String(err?.message || "prompt"), text: "", aborted: false };
   }
   // espera o settled (o redesenho roda nos eventos)
@@ -3492,6 +3579,12 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   offSettled();
   offThink();
   setBusy(false);
+  await fireHook("turn_end", {
+    ok: Boolean(answerText.trim()),
+    chars: answerText.length,
+    aborted: Boolean(wasAborted),
+    hadTransientError: Boolean(wasError),
+  });
   // O motor pode emitir `error` em tentativas intermediárias (429 transitório)
   // e ainda assim responder depois. Se há texto final, o turno deu certo: não
   // imprimir "não consegui" acima de uma resposta que o usuário já recebeu.

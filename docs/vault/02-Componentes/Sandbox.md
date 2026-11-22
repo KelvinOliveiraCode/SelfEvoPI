@@ -13,6 +13,15 @@ created: 2026-11-19
 2. **Node Permission Model** — isolamento em runtime. Recusa `fs.readFile` fora do workdir, `fetch`, `net.connect`, `child_process`.
 3. **Job Objects** (Windows) — contenção de processos. Descartado com número na mesa (ver `docs/fase2/sandbox.md`).
 
+## Observabilidade
+
+`core/sandbox/telemetry.mjs` registra toda decisão `block`/`warn` em
+`.pi/harness/ledger/blocked.jsonl` (caminho relativo, excerpt redigido, sem
+segredos). A gravação é best-effort e não muda a decisão do gate. O comando
+`/security-log` consulta as últimas entradas. O gate permanece puro: quem
+registra é `core/sandbox/run-sandboxed.mjs`, no ponto em que a decisão já foi
+tomada.
+
 ## O que o gate bloqueia
 
 | Regra | Exemplo |

@@ -281,6 +281,13 @@ export async function runSandboxed(opts = {}) {
       return { ...base, stderr: `run-sandboxed: não li o script para o gate (${err?.code ?? "erro"})` };
     }
     const gate = evaluate(source, { file: scriptPath, workspace: workdir, allow: gateAllow });
+    // Observabilidade: recusas e avisos viram registro append-only. Best-effort —
+    // falha de escrita de log nunca pode impedir a execução ou mudar o gate.
+    if (gate.decision === "block" || gate.decision === "warn") {
+      void import("./telemetry.mjs")
+        .then(({ recordGateDecision }) => recordGateDecision(gate, { root: workdir, source: "run-sandboxed" }))
+        .catch(() => {});
+    }
     if (gate.decision === "block") {
       const reason = gate.violations
         .filter((v) => v.severity === "block")

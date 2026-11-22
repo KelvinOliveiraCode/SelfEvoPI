@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-22 · **Versão:** 1.2.9 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-22 · **Versão:** 1.3.0 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
@@ -41,6 +41,8 @@ O produto é a CLI. Nada mais.
 | ERNIE 5.5 Flash Preview | 8/8 provedores responderam; 8 tarefas + 4 tarefas de stress + 72 comandos sem erro de interface | 0 quebras | suíte Ernie (kilo1–4, or1–4) |
 | Saída em pipe/CI | zero `\r`/`\x1b[2K`; bloco escrito uma vez | 0 escapes de cursor | logs das 12 tarefas |
 | Erro transitivo do modelo | 429 seguido de resposta não vira "não consegui" | 0 falsos negativos | teste em `apps/cli.test.mjs` |
+| Hooks de ciclo de vida | 6 eventos, sem shell, timeout, redação; hook real disparou em turno real | 0 falhas fatais | `core/agent/hooks.test.mjs` + teste ponta a ponta |
+| Ledger de segurança | decisões `block`/`warn` registradas com excerpt redigido | 0 segredos | `core/sandbox/telemetry.test.mjs` |
 
 > Os números são fotografias desta data, não garantia de desempenho. Cada linha
 > traz o comando que a produziu.
@@ -49,7 +51,7 @@ O produto é a CLI. Nada mais.
 
 ## 3. O que a CLI tem hoje
 
-- **Conversa com streaming**, atividade de ferramenta (`⏺` + `⎿` com linhas/KB),
+- **Conversa com streaming**, atividade de ferramenta (`┊` + emoji e resultado alinhado),
   exibição de falha em cor de falha, raciocínio ocultável com `Alt+T`.
 - **Barra de estado** com modo, permissão, modelo, esforço, uso de contexto em
   porcentagem e branch; painel de estado em `Ctrl+O`.
@@ -65,7 +67,7 @@ O produto é a CLI. Nada mais.
   arquivo no prompt.
 - **Idioma**: `/language [en|pt]`. Preferência em `~/.pi/agent/cli-locale.json`,
   sobrescrita por `SELFEOPI_LOCALE`. Inglês por padrão.
-- **Temas**: três embutidos + três slots custom, degradação honesta para ANSI-256.
+- **Temas**: doze embutidos + três slots custom, degradação honesta para ANSI-256.
 - **Agentes**: `/swarm`, `/subagent`, A2A, lista de atividade (`Ctrl+P`),
   worktrees (`/worktree`).
 
@@ -105,7 +107,7 @@ A sonda pega isso antes.
 
 | Item | Situação |
 |:--|:--|
-| `/btw`, keybindings customizáveis, hooks e barra de progresso no título | não implementados: exigem roteamento de modelo auxiliar ou camada de config que ainda não existe. Decisão registrada em `round2.md`. |
+| `/btw`, keybindings customizáveis e barra de progresso no título | não implementados: exigem roteamento de modelo auxiliar ou camada de config que ainda não existe. Decisão registrada em `round2.md`. Hooks já existem (`.pi/hooks.json`). |
 | Recuperação de skills é lexical | busca por termo em texto e tags, sem embeddings. |
 | Auto-disparo do loop evolutivo | `core/forge/auto.mjs` já faz `--once`/`--watch` com dry-run por padrão e travas; falta reagir a eventos externos (webhook, fila, ticket). |
 | Grupo B do gate com chamadas reais de modelo | não roda no CI; fica local para quem tem credencial. |
