@@ -34,6 +34,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -343,6 +344,23 @@ class PiClient {
  *           globalRoot?: string, modulePath?: string, client?: any }} [options]
  * @returns {Promise<PiClient>}
  */
+/**
+ * Argumentos de sessão passados ao motor. Puro e testável.
+ *  - "new" (padrão): SEMPRE uma sessão nova, com id fresco e persistida;
+ *  - "resume": abre a sessão pedida (escolha explícita do usuário);
+ *  - "ephemeral": em memória, sem gravação (usada por verificações/scripts).
+ */
+export function buildEngineArgs({ session = "new", sessionId = null, resumeId = null } = {}) {
+  if (session === "ephemeral") return ["--no-session"];
+  if (session === "resume") {
+    const id = String(resumeId || sessionId || "").trim();
+    if (!id) throw new Error("pi-rpc: sessão 'resume' exige resumeId");
+    return ["--session", id];
+  }
+  const id = String(sessionId || randomUUID()).trim();
+  return ["--session-id", id];
+}
+
 export async function createPiClient(options = {}) {
   if (options.client) return new PiClient(options.client);
 
@@ -361,17 +379,19 @@ export async function createPiClient(options = {}) {
     throw err;
   }
 
+  const sessionArgs = buildEngineArgs(options);
   const rpc = new RpcClient({
     cliPath: engine.cliPath,
     cwd: options.cwd || process.cwd(),
-    args: ["--no-session"],
+    args: sessionArgs,
     ...(options.model ? { model: options.model } : {}),
     ...(options.env ? { env: options.env } : {}),
   });
 
   const client = new PiClient(rpc);
+  client.selfEvoSessionId = sessionArgs[0] === "--session-id" ? sessionArgs[1] : (options.resumeId || options.sessionId || null);
   await client.start();
   return client;
 }
 
-export default { createPiClient, normalizeEvent, findEngine, listConfiguredModels };
+export default { createPiClient, normalizeEvent, findEngine, listConfiguredModels, buildEngineArgs };

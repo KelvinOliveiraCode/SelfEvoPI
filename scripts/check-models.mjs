@@ -40,7 +40,7 @@ if (models.length === 0) {
 
 console.log(`Modelos: ${models.length} · prompt real: ${withPrompt ? "sim" : "não (só capacidades)"}\n`);
 
-const pi = await createPiClient({ cwd: ROOT }).catch((err) => {
+const pi = await createPiClient({ cwd: ROOT, session: "ephemeral" }).catch((err) => {
   console.error(`Falha ao iniciar o motor: ${err.message}`);
   process.exit(2);
 });

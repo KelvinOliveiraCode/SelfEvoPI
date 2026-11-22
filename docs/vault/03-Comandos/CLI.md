@@ -33,6 +33,7 @@ Os comandos reais, conforme a lista `COMMANDS` em `apps/cli.mjs` (a fonte
 | `/diff` | Mostra mudanças git no workspace | `apps/cli.mjs` |
 | `/language [en\|pt]` | Idioma da interface (inglês por padrão) | `core/agent/i18n.mjs` |
 | `/history [n\|clear]` | Trilha da sessão: tools, resultados, raciocínio, respostas | `apps/cli.mjs` |
+| `/resume [id]` | Retoma sessão salva (nova é o padrão na abertura) | `apps/cli.mjs`, `core/agent/pi-rpc.mjs` |
 | `/verbosity [nível]` | Quanto feedback aparece no turno | `core/agent/verbosity.mjs` |
 | `/paste` / `/attach` / `/images` | Anexos de imagem | `core/agent/attachments.mjs` |
 

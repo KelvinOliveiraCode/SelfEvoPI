@@ -1258,6 +1258,7 @@ export const COMMANDS = [
   { name: "/images", args: "[clear]", description: tr("cmd.images"), run: runImages },
   { name: "/verbosity", args: "[nível]", description: tr("cmd.verbosity"), run: runVerbosity },
   { name: "/history", args: "[n|clear]", description: tr("cmd.history"), run: runHistory },
+  { name: "/resume", args: "[id]", description: tr("cmd.resume"), run: (ctx) => runSessions(ctx) },
   { name: "/swarm", args: "[n] <tarefa>", description: tr("cmd.swarm"), run: runSwarm },
   { name: "/subagent", args: "<nome> <tarefa> [--provider --model --effort --mode --persistent]", description: tr("cmd.subagent"), run: runSubagentCmd },
   { name: "/worktree", args: "[list|new|rm]", description: tr("cmd.worktree"), run: runWorktree },
@@ -3658,7 +3659,7 @@ function printHeader(write, data) {
  * Loop interativo (TTY, modo cru). `pi` pode ser null (conversa desativada;
  * comandos de barra seguem). `write` escreve no terminal.
  */
-export async function repl({ pi, engineRef, write, input, setRaw, data = {}, sessionsDir: sessionsDirInjetado } = {}) {
+export async function repl({ pi, engineRef, write, input, setRaw, data = {}, sessionsDir: sessionsDirInjetado, sessionOpts = {} } = {}) {
   const keymap = makeKeyMap();
   let line = { buf: "", cur: 0, sel: 0, dismissed: false };
   let history = [];
@@ -4227,7 +4228,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     workspaceRoot = alvo;
     sessionDirMemo = null; // o workspace muda, a pasta de sessões também
     // Recria o motor (fecha o antigo) para o novo diretório valer nas conversas.
-    const novo = await startEngine(workspaceRoot);
+    const novo = await startEngine(workspaceRoot, { session: "new" });
     if (!novo) {
       // não conseguiu recriar: mantém o antigo e avisa
       workspaceRoot = antes;
@@ -4641,6 +4642,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         if (parsed.name === "/settings") { await startSettingsPicker(); return; }
         if (parsed.name === "/language") { await startLanguagePicker(); return; }
         if (parsed.name === "/verbosity") { await startVerbosityPicker(); return; }
+        if (parsed.name === "/resume") { await startSessionsPicker(); return; }
         if (parsed.name === "/workspace") { await startWorkspacePicker(); return; }
         if (parsed.name === "/providers") { await startProvidersPicker(); return; }
       }
@@ -4995,9 +4997,9 @@ function makeKeyMap() {
 }
 
 /** Cria o cliente de conversa e aplica SELFEOPI_MODEL (formato "provedor/modelo"). */
-async function startEngine(cwd = workspaceRoot) {
+async function startEngine(cwd = workspaceRoot, sessionOpts = {}) {
   const { createPiClient } = await import("../core/agent/pi-rpc.mjs");
-  const client = await createPiClient({ cwd }).catch(() => null);
+  const client = await createPiClient({ cwd, ...sessionOpts }).catch(() => null);
   if (client) {
     const m = process.env.SELFEOPI_MODEL;
     if (m && m.includes("/")) {
@@ -5023,6 +5025,8 @@ function printHelpText() {
   out.push("    node apps/cli.mjs --render banner        mostra só o banner + estado");
   out.push("    node apps/cli.mjs --help                 esta ajuda");
   out.push("    node apps/cli.mjs --version              mostra a versão");
+  out.push("    node apps/cli.mjs --resume <id>          retoma uma sessão antiga");
+  out.push("    node apps/cli.mjs --session <id>         alias de --resume");
   out.push("");
   out.push("  comandos de barra: " + SLASH_COMMANDS.map((c) => c.cmd).join("  "));
   out.push("  modelo da conversa:  SELFEOPI_MODEL=provedor/modelo");
@@ -5032,6 +5036,16 @@ function printHelpText() {
 
 async function main() {
   const args = process.argv.slice(2);
+
+  // Sessão: nova por padrão. Retomar só com escolha explícita.
+  const resumeIdx = args.indexOf("--resume");
+  const sessionIdx = args.indexOf("--session");
+  const requestedSession = resumeIdx !== -1 ? args[resumeIdx + 1] : sessionIdx !== -1 ? args[sessionIdx + 1] : null;
+  const sessionOpts = requestedSession ? { session: "resume", resumeId: requestedSession } : { session: "new" };
+  if ((resumeIdx !== -1 || sessionIdx !== -1) && !requestedSession) {
+    process.stderr.write("erro: --resume/--session exigem um id de sessão\n");
+    process.exit(2);
+  }
 
   if (args.includes("--version") || args.includes("-v")) {
     process.stdout.write(VERSION + "\n");
@@ -5114,7 +5128,7 @@ async function main() {
     if (!engine.available) process.stdout.write(engineUnavailableNote() + "\n");
     let pi = null;
     if (engine.available) {
-      pi = await startEngine();
+      pi = await startEngine(workspaceRoot, sessionOpts);
     }
     let buf = "";
     process.stdin.setEncoding("utf8");
@@ -5206,7 +5220,11 @@ async function main() {
   // cwd), então main lê engineRef.current no fim em vez de um `pi` fixo.
   const engineRef = { current: null };
   if (engine.available) {
-    engineRef.current = await startEngine(workspaceRoot);
+    engineRef.current = await startEngine(workspaceRoot, sessionOpts);
+    if (engineRef.current?.selfEvoSessionId) {
+      statusInfo.sessionId = engineRef.current.selfEvoSessionId;
+      recordEvent("system", `sessão ${sessionOpts.session === "resume" ? "retomada" : "iniciada"}: ${engineRef.current.selfEvoSessionId}`);
+    }
   } else {
     process.stdout.write(engineUnavailableNote() + "\n\n");
   }
@@ -5220,7 +5238,7 @@ async function main() {
       /* idem */
     }
   };
-  await repl({ pi: engineRef.current, engineRef, write: (s) => stdout.write(s), input: stdin, setRaw, data });
+  await repl({ pi: engineRef.current, engineRef, write: (s) => stdout.write(s), input: stdin, setRaw, data, sessionOpts });
   setRaw(false);
   if (engineRef.current) await engineRef.current.close().catch(() => {});
   process.exitCode = 0;

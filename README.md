@@ -165,6 +165,21 @@ Or create the Desktop shortcut with `pwsh launcher/instalar-atalhos.ps1`.
 Requirements: Windows (native, no Docker/WSL/VM), Node ≥ 22.19.1, the engine
 CLI installed, Git ≥ 2.55 with `core.longpaths true`.
 
+## Sessions
+
+Every launch opens a **new, persisted session**. Nothing is resumed silently.
+To continue older work, choose it explicitly:
+
+```powershell
+node apps/cli.mjs --resume <session-id>   # or --session <id>
+/resume                                  # session picker inside the CLI
+/sessions <id>                           # load a known session
+```
+
+The active session id appears in `/status`, in the status panel and in
+`/history`. Scripts that only inspect models run with an ephemeral session and
+leave no files behind.
+
 ## First run: configure a provider
 
 The public release ships with **no pre-configured provider**. Point the CLI at

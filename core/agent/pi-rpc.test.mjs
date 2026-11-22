@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { createPiClient, normalizeEvent, findEngine } from "./pi-rpc.mjs";
+import { createPiClient, normalizeEvent, findEngine, buildEngineArgs } from "./pi-rpc.mjs";
 
 /** Dublê de RpcClient: registra chamadas e deixa o teste emitir eventos. */
 function makeFakeRpc() {
@@ -226,6 +226,17 @@ test("promptAndWait: timeout rejeita", async () => {
 
   // prompt dispara, mas nenhum settled chega dentro do timeout curto
   await assert.rejects(pi.promptAndWait("x", 30), /tempo esgotado/);
+});
+
+test("buildEngineArgs: nova sessão por padrão, retomada explícita e efêmera", () => {
+  const novo = buildEngineArgs();
+  assert.equal(novo[0], "--session-id");
+  assert.match(novo[1], /^[0-9a-f-]{36}$/);
+  assert.notEqual(buildEngineArgs()[1], novo[1], "cada abertura gera um id novo");
+  assert.deepEqual(buildEngineArgs({ session: "resume", resumeId: "abc123" }), ["--session", "abc123"]);
+  assert.deepEqual(buildEngineArgs({ session: "ephemeral" }), ["--no-session"]);
+  assert.deepEqual(buildEngineArgs({ session: "new", sessionId: "fixo" }), ["--session-id", "fixo"]);
+  assert.throws(() => buildEngineArgs({ session: "resume" }), /resumeId/);
 });
 
 test("findEngine: forceAbsent / SELFEOPI_FORCE_NO_ENGINE diz ausente", () => {

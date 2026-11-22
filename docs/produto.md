@@ -93,7 +93,7 @@ skill — recair para CLI gerava sucesso com a interface errada.
 |:--|:--|
 | Núcleo | `/evo`, `/detect`, `/memory`, `/skills`, `/compact`, `/goal` |
 | Conversa | `/model`, `/effort`, `/mode`, `/plan`, `/build`, `/ask`, `/clear` |
-| Sessão | `/sessions`, `/history`, `/fork`, `/export`, `/undo`, `/redo`, `/copy`, `/diff` |
+| Sessão | `/sessions`, `/resume`, `/history`, `/fork`, `/export`, `/undo`, `/redo`, `/copy`, `/diff` |
 | Contexto | `/cost`, `/status`, `/context`, `/settings`, `/reload` |
 | Integrações | `/mcp`, `/plugins`, `/init`, `/import`, `/providers`, `/workspace`, `/explorer` |
 | Agentes | `/swarm`, `/subagent`, `/worktree` |
@@ -105,7 +105,19 @@ skill — recair para CLI gerava sucesso com a interface errada.
 shell do workspace sem passar pelo modelo; `@arquivo` injeta texto e
 `@imagem.png` anexa a imagem.
 
-### 4.3 Teclado
+### 4.3 Sessões
+
+Cada abertura cria uma sessão nova e persistida (`--session-id <uuid>`). O
+motor não retoma nada automaticamente; o usuário escolhe quando quer continuar:
+
+- `--resume <id>` ou `--session <id>` na linha de comando;
+- `/resume` abre o seletor dentro da CLI;
+- `/sessions <id>` carrega uma sessão conhecida.
+
+O id ativo aparece em `/status`, no painel de estado e no `/history`. Ferramentas
+de verificação (`npm run models:check`) usam sessão efêmera e não gravam arquivo.
+
+### 4.4 Teclado
 
 | Tecla | Ação |
 |:--|:--|
@@ -121,7 +133,7 @@ shell do workspace sem passar pelo modelo; `@arquivo` injeta texto e
 Enquanto o agente trabalha, o usuário pode continuar digitando: `Enter`
 enfileira a mensagem e ela é enviada ao fim do turno.
 
-### 4.4 Modos e permissão
+### 4.5 Modos e permissão
 
 Modo e permissão são eixos distintos e aparecem em linhas separadas na barra.
 
@@ -136,7 +148,7 @@ Modo e permissão são eixos distintos e aparecem em linhas separadas na barra.
 `full access` é o tipo de permissão; `auto` é o aprovador. Nenhum dos dois é
 um modo.
 
-### 4.5 Idioma
+### 4.6 Idioma
 
 Inglês é o padrão. `/language [en|pt]` troca a interface inteira — ajuda,
 paleta, painel, configurações, spinner, raciocínio, ferramentas e mensagens de
@@ -144,7 +156,7 @@ erro — sem reiniciar. A preferência fica em `~/.pi/agent/cli-locale.json` e
 `SELFEOPI_LOCALE` a sobrescreve por execução. Nada do que é enviado ao modelo
 depende dessa preferência.
 
-### 4.6 Detalhamento do feedback
+### 4.7 Detalhamento do feedback
 
 `/verbosity [nível]` controla o que aparece durante um turno:
 
@@ -166,7 +178,7 @@ A preferência fica em `~/.pi/agent/cli-verbosity.json` e
 apenas na sessão corrente, sem mudar a preferência salva. As linhas de
 ferramenta mostram o **alvo** (`⏺ write  arquivo.md`), não o conteúdo escrito.
 
-### 4.7 Modelos, provedores e esforço
+### 4.8 Modelos, provedores e esforço
 
 O catálogo vivo é `~/.pi/agent/models.json`, gerado pelo importador a partir
 das configurações locais e enriquecido com os catálogos públicos de OpenRouter
@@ -185,7 +197,7 @@ npm run models:check    # compara capacidades de todos os modelos, sem chamar a 
 npm run models:prompt   # envia um prompt mínimo a cada modelo
 ```
 
-### 4.8 Imagens
+### 4.9 Imagens
 
 Terminais transmitem texto, não binário. `/paste` lê a área de transferência
 do Windows via PowerShell em STA, `/attach <arquivo>` anexa um arquivo e

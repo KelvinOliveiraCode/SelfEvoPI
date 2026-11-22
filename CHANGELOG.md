@@ -4,6 +4,19 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.6] - 2026-11-21
+
+**Sessão nova por padrão; retomar é escolha do usuário.**
+
+- O motor deixou de ser iniciado com `--no-session` (efêmero). Cada abertura
+  agora cria uma sessão **nova e persistida** com `--session-id <uuid>`.
+- Para continuar uma conversa antiga: `node apps/cli.mjs --resume <id>` (ou
+  `--session <id>`), `/resume` com seletor, ou `/sessions <id>`.
+- `createPiClient` ganhou `buildEngineArgs()` puro, com os modos `new`,
+  `resume` e `ephemeral`; verificações que não precisam de histórico
+  (`models:check`) continuam efêmeras.
+- O id da sessão entra no `/status`, no painel e no `/history`.
+
 ## [1.2.5] - 2026-11-21
 
 **Resposta longa não quebra mais a tela; histórico da sessão.**
