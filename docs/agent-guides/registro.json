@@ -1,6 +1,6 @@
 {
   "projeto": "SelfEvoPI",
-  "versao": "1.2.4",
+  "versao": "1.2.5",
   "atualizado": "2026-11-21",
   "entrada": "AGENTS.md",
   "indice": "docs/agent-guides/README.md",
@@ -28,7 +28,7 @@
     },
     "comando": {
       "guias": ["adicionar-comando.md", "idioma-e-verbosity.md"],
-      "arquivos": ["apps/cli.mjs", "core/agent/i18n.mjs", "apps/cli.test.mjs", "apps/cli-features.test.mjs", "apps/cli-audit.test.mjs"],
+      "arquivos": ["apps/cli.mjs", "core/agent/i18n.mjs", "core/agent/verbosity.mjs", "apps/cli.test.mjs", "apps/cli-features.test.mjs", "apps/cli-audit.test.mjs"],
       "testes": ["node --test apps/*.test.mjs", "node apps/cli.mjs --render help", "node apps/cli.mjs --render palette", "npm run verify"],
       "invariantes": [3, 12, 13, 14, 15, 17, 18]
     },

@@ -93,7 +93,7 @@ skill — recair para CLI gerava sucesso com a interface errada.
 |:--|:--|
 | Núcleo | `/evo`, `/detect`, `/memory`, `/skills`, `/compact`, `/goal` |
 | Conversa | `/model`, `/effort`, `/mode`, `/plan`, `/build`, `/ask`, `/clear` |
-| Sessão | `/sessions`, `/fork`, `/export`, `/undo`, `/redo`, `/copy`, `/diff` |
+| Sessão | `/sessions`, `/history`, `/fork`, `/export`, `/undo`, `/redo`, `/copy`, `/diff` |
 | Contexto | `/cost`, `/status`, `/context`, `/settings`, `/reload` |
 | Integrações | `/mcp`, `/plugins`, `/init`, `/import`, `/providers`, `/workspace`, `/explorer` |
 | Agentes | `/swarm`, `/subagent`, `/worktree` |
@@ -155,6 +155,11 @@ depende dessa preferência.
 | `reasoning` | bloco `⤷` de raciocínio e a resposta final |
 | `full` (padrão) | raciocínio, ferramentas, resultados `⎿` e resposta final |
 | `verbose` | tudo isso, mais tempo decorrido e contador de tokens |
+
+`/history [n|clear]` mostra a trilha da sessão — ferramentas, resultados,
+raciocínio, respostas, fallback e comandos — registrada **mesmo quando o
+`/verbosity` escondeu essas peças na hora**. É o recurso para auditar o que o
+agente fez sem precisar repetir a tarefa.
 
 A preferência fica em `~/.pi/agent/cli-verbosity.json` e
 `SELFEOPI_VERBOSITY` a sobrescreve por execução. `Alt+T` alterna o raciocínio

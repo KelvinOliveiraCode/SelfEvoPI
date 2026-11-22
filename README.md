@@ -101,6 +101,7 @@ A conversation, not a menu. Type `/` at any time for the command palette.
 | `/reload` | reapply configuration without restarting |
 | `/paste` / `/attach <file>` / `/images [clear]` | attach clipboard/file images to the next message |
 | `/verbosity [level]` | choose what appears during a turn: `minimal`, `tools`, `reasoning`, `full`, `verbose` |
+| `/history [n\|clear]` | inspect the session trail: tools, results, reasoning, answers |
 | `/clear` / `/help` | clear the conversation, show this list |
 
 **Keyboard.** `Ctrl+O` status view · `Ctrl+,` settings editor · `Ctrl+K` sessions
@@ -121,6 +122,11 @@ switches the whole interface to Portuguese. The choice lives outside the repo
 in `~/.pi/agent/cli-locale.json`; `SELFEOPI_LOCALE` overrides it for a single
 run. Nothing about the engine, the prompts sent to it, or the artifacts it
 writes depends on this setting.
+
+**Long answers and history.** Wide markdown tables are rendered as stacked
+label/value pairs instead of broken columns, and the live redraw counts visual
+rows so a long response never eats the prompt bar. `/history` keeps tools, tool
+results, reasoning, answers and fallbacks even when `/verbosity` hid them.
 
 **Feedback control.** `/verbosity` chooses how much appears while the agent
 works: `minimal` (final answer only), `tools`, `reasoning`, `full` (default) or

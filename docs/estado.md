@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-21 · **Versão:** 1.2.4 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-21 · **Versão:** 1.2.5 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
@@ -23,7 +23,7 @@ O produto é a CLI. Nada mais.
 
 | Métrica | Valor | Meta | Comando |
 |:--|:--|:--|:--|
-| Testes unitários | **1041** (1040 passam, 1 skip) | 0 falhas | `npm test` |
+| Testes unitários | **1043** (1042 passam, 1 skip) | 0 falhas | `npm test` |
 | `npm run verify` | **exit 0** | exit 0 | `npm run verify` |
 | Evals A/B/C | verdes | sem regressão | `node evals/run.mjs --group A` etc. |
 | Integridade de fontes | ok=33, fail=0 | todas 200 | `node scripts/verify-urls.mjs` |

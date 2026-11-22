@@ -3,7 +3,7 @@ tags: [handoff, estado, cli]
 updated: 2026-11-21
 ---
 
-# Estado atual — 1.2.4
+# Estado atual — 1.2.5
 
 > Uma superfície: a CLI. Inglês por padrão, `/language pt` para português.
 
@@ -46,7 +46,7 @@ interface por kind de artefato. Áreas protegidas: `evals/` e `core/governance/`
 ### Verificação
 
 ```
-npm test        # 1041 testes, 1040 passam, 1 skip
+npm test        # 1043 testes, 1042 passam, 1 skip
 npm run verify  # exit 0
 ```
 

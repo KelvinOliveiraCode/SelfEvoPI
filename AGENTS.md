@@ -50,7 +50,7 @@ projeto não faz fork dele. Zero dependências npm, Windows nativo, ESM puro.
 ## Comandos que todo agente deve conhecer
 
 ```powershell
-npm test                      # suíte completa (1041 testes)
+npm test                      # suíte completa (1043 testes)
 npm run verify                # testes + evals A/B/C + 33 URLs — o que o CI roda
 npm run models:check          # efforts/capacidades dos 48 modelos, sem API
 npm run models:prompt         # idem, com um prompt real por modelo

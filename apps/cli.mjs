@@ -303,11 +303,28 @@ function renderTable(rows) {
     const t = stripAnsi(txt);
     return txt + " ".repeat(Math.max(0, w - t.length));
   };
+  const total = widths.reduce((a, b) => a + b, 0) + Math.max(0, ncol - 1) * 2;
+  // Tabela larga não cabe em 72 colunas: empilha como pares rótulo/valor.
+  // Colunas forçadas a quebrar no meio produzem linhas órfãs e confundem o
+  // redraw — foi exatamente isso que quebrou a tela numa resposta longa.
+  if (total > WIDTH - 4) {
+    const out = [];
+    for (const row of body) {
+      out.push("  " + paint("•", "fg") + " " + renderInline(row[0] || ""));
+      for (let c = 1; c < ncol; c++) {
+        const value = renderInline(row[c] || "");
+        if (!stripAnsi(value).trim()) continue;
+        out.push("    " + paint(stripAnsi(header[c] || ""), "muted") + ": " + value);
+      }
+      out.push("");
+    }
+    return out;
+  }
   const out = [];
-  out.push("  " + header.map((h, i) => pad(paint(h, "bold"), widths[i])).join("  "));
+  out.push("  " + header.map((h, i) => pad(paint(stripAnsi(h), "bold"), widths[i])).join("  "));
   out.push("  " + widths.map((w) => paint("─".repeat(w), "rule")).join("  "));
   for (const row of body) {
-    out.push("  " + row.map((c, i) => pad(c, widths[i])).join("  "));
+    out.push("  " + row.map((c, i) => pad(renderInline(c), widths[i])).join("  "));
   }
   return out;
 }
@@ -1157,6 +1174,38 @@ function runVerbosity({ arg, out }) {
   return 0;
 }
 
+/** /history [n|clear] — trilha da sessão, mesmo do que o /verbosity esconde. */
+function runHistory({ arg, out }) {
+  const bruto = String(arg ?? "").trim().toLowerCase();
+  if (bruto === "clear" || bruto === "limpar") {
+    clearEvents();
+    out(paint(`  ${tr("hist.clear")}`, "ok"));
+    return 0;
+  }
+  const shown = listEvents(bruto ? Number(bruto) || 30 : 30);
+  const lines = [
+    paint(`  ${tr("hist.title")}`, "fg"),
+    `  ${tr("hist.count", { n: sessionEvents.length, shown: shown.length })}`,
+    "",
+  ];
+  const CORES = {
+    user: "fg", assistant: "ok", tool: "accent", tool_result: "muted",
+    reasoning: "muted", fallback: "warn", system: "muted", command: "fg",
+  };
+  for (const ev of shown) {
+    const hora = String(ev.at).slice(11, 19);
+    const meta = ev.meta?.name ? ` ${String(ev.meta.name)}` : "";
+    lines.push(paint(`  [${hora}] ${ev.kind}${meta}`, CORES[ev.kind] || "muted"));
+    for (const l of capLinhas(String(ev.text || "").split("\n").map((x) => "    " + x), WIDTH - 2)) {
+      lines.push(l);
+    }
+  }
+  lines.push("");
+  lines.push(paint(`  ${tr("hist.hint")}`, "dim"));
+  out(lines.join("\n"));
+  return 0;
+}
+
 // FONTE ÚNICA dos comandos de barra. A paleta e o /help leem daqui; o `run`
 // é o executor. Nada de lista duplicada.
 export const COMMANDS = [
@@ -1208,6 +1257,7 @@ export const COMMANDS = [
   { name: "/attach", args: "<arquivo>", description: tr("cmd.attach"), run: runAttach },
   { name: "/images", args: "[clear]", description: tr("cmd.images"), run: runImages },
   { name: "/verbosity", args: "[nível]", description: tr("cmd.verbosity"), run: runVerbosity },
+  { name: "/history", args: "[n|clear]", description: tr("cmd.history"), run: runHistory },
   { name: "/swarm", args: "[n] <tarefa>", description: tr("cmd.swarm"), run: runSwarm },
   { name: "/subagent", args: "<nome> <tarefa> [--provider --model --effort --mode --persistent]", description: tr("cmd.subagent"), run: runSubagentCmd },
   { name: "/worktree", args: "[list|new|rm]", description: tr("cmd.worktree"), run: runWorktree },
@@ -1234,6 +1284,7 @@ const ARG_TR = {
     "[list|new|rm]": "[list|new|rm]",
     "[caminho]": "[path]",
     "[nível]": "[level]",
+    "[n|clear]": "[n|clear]",
     "[list|add|rm|models]": "[list|add|rm|models]",
     "[list|discover|add|rm|models]": "[list|discover|add|rm|models]",
   },
@@ -2970,6 +3021,32 @@ function reasoningOn() {
   return reasoningToggle ?? shows("reasoning");
 }
 let pendingImages = []; // caminhos de imagens anexadas ao próximo prompt
+
+// Histórico da sessão: ferramentas, raciocínio, respostas e avisos. Registrado
+// independentemente do /verbosity — o usuário decide depois o que quer ver.
+const sessionEvents = [];
+const MAX_EVENTS = 500;
+
+export function recordEvent(kind, text, meta = {}) {
+  sessionEvents.push({
+    at: new Date().toISOString(),
+    kind: String(kind || "system"),
+    text: String(text ?? "").slice(0, 20_000),
+    meta,
+  });
+  if (sessionEvents.length > MAX_EVENTS) sessionEvents.splice(0, sessionEvents.length - MAX_EVENTS);
+  return sessionEvents[sessionEvents.length - 1];
+}
+
+export function listEvents(n = 30) {
+  const limit = Math.max(1, Math.min(MAX_EVENTS, Number(n) || 30));
+  return sessionEvents.slice(-limit);
+}
+
+export function clearEvents() {
+  sessionEvents.length = 0;
+}
+
 let queued = [];
 let lastAnswer = "";
 const undoStack = [];
@@ -3100,17 +3177,23 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   let rawError = "";
   let aborted = false;
   const redraw = () => {
-    if (drawn > 0) write(`\x1b[${drawn}A`); // sobe para o topo do bloco
-    const rendered = buf ? renderMarkdown(buf).split("\n") : [];
-    for (const line of rendered) write("\x1b[2K" + line + "\n"); // limpa a linha e escreve
-    if (rendered.length === 0) write("\x1b[2K\n");
-    if (drawn > 0 && rendered.length > 0) {
-      // se o bloco encolheu, limpa as sobras
-      for (let k = rendered.length; k < drawn; k++) write("\x1b[2K\n");
+    // Cada linha lógica pode virar várias linhas VISUAIS após wrapAnsi. O
+    // terminal avança pelas visuais: contar linhas lógicas desalinha o
+    // \x1b[<n>A e faz o prompt desaparecer depois de uma resposta longa.
+    const visual = [];
+    for (const line of buf ? renderMarkdown(buf).split("\n") : []) {
+      visual.push(...line.split("\n"));
     }
-    drawn = Math.max(rendered.length, 1);
-    // devolve o cursor ao fim do bloco
-    if (drawn > 0) write(`\x1b[${drawn - 1}A`);
+    if (visual.length === 0) visual.push("");
+    if (drawn > 0) write(`\x1b[${drawn}A`); // sobe para o topo do bloco
+
+    // Reescreve o bloco inteiro de cima. A contagem é de linhas VISUAIS,
+    // então o \x1b[<n>A sempre volta ao topo real mesmo após wraps — foi
+    // essa diferença entre linha lógica e visual que fazia o prompt sumir.
+    for (const row of visual) write("\x1b[2K" + row + "\n");
+    for (let k = visual.length; k < drawn; k++) write("\x1b[2K\n");
+    drawn = visual.length;
+    if (drawn > 0) write(`\x1b[${drawn - 1}A`); // devolve o cursor ao fim do bloco
   };
   const flush = () => {
     if (drawn > 0) {
@@ -3150,6 +3233,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     const lines = renderThinking(thinkBuf, { collapsed: !reasoningOn(), seconds });
     if (lines.length === 0) return;
     thinkCommitted = true;
+    recordEvent("reasoning", thinkBuf, { seconds });
     spin.stop();
     write(lines.join("\n") + "\n");
   };
@@ -3176,6 +3260,9 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
         argHint = (parts.slice(-2).join("/") || argHint).slice(0, 44);
       }
       toolStart.set(call.id, Date.now());
+      recordEvent("tool", `${call.name || "tool"} ${argHint}`.trim(), {
+        name: call.name || "tool", args: argHint, id: call.id, phase: "start",
+      });
       if (shows("tools")) {
         write(`  ${paint("⏺", "accent")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
       }
@@ -3195,6 +3282,9 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
       : secs != null
         ? tr("spin.elapsed", { s: secs })
         : tr("tool.done");
+    recordEvent("tool_result", `⎿ ${detail}${call.isError ? " · 1 failed" : ""}`, {
+      name: call.name || "tool", id: call.id, isError: Boolean(call.isError), result: String(raw || "").slice(0, 4000),
+    });
     if (shows("toolResult") || call.isError) {
       const marker = call.isError ? paint(tr("tool.failed"), "fail") : paint(detail, "muted");
       write(`    ${paint("⎿", "muted")} ${marker}\n`);
@@ -3282,6 +3372,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     return { ok: true, error: null, text: "", aborted: true };
   }
   if (answerText.trim() === "") write("\n");
+  if (answerText.trim()) recordEvent("assistant", answerText);
   write("\n");
   return { ok: true, error: null, text: answerText, aborted: false };
 }
@@ -3343,6 +3434,8 @@ export async function converseOrFallback(pi, text, write, opts = {}) {
     if (r.aborted) return r; // cancelou durante o fallback
     if (usable(r)) {
       const model = `${m.provider}/${m.id}`;
+      recordEvent("fallback", fallbackNotice(model).replace(/\x1b\[[0-9;]*m/g, "").trim());
+      recordEvent("assistant", r.text);
       write(fallbackNotice(model) + "\n");
       write(renderMarkdown(r.text) + "\n");
       write("\n");
@@ -4563,11 +4656,13 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         prompt();
         return;
       }
+      recordEvent("command", text, { name: parsed.name });
       await runSlash(parsed.name, parsed.arg, (s) => write(s + "\n"), { pi, onClear: () => write("\x1b[2J\x1b[H") });
       prompt();
       return;
     }
     // conversa
+    recordEvent("user", text, { images: pendingImages.length });
     if (!pi) {
       write(engineUnavailableNote() + "\n");
       prompt();
@@ -5070,10 +5165,12 @@ async function main() {
       }
       if (parsed.type === "empty") return;
       if (parsed.type === "slash") {
+        recordEvent("command", parsed.text, { name: parsed.name });
         await runSlash(parsed.name, parsed.arg, (s) => process.stdout.write(s + "\n"), { pi });
         return;
       }
       // conversa
+      recordEvent("user", parsed.text);
       if (!pi) {
         process.stdout.write(engineUnavailableNote() + "\n");
         return;

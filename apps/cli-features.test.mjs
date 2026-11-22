@@ -18,6 +18,10 @@ import {
   renderPaletteFrame,
   renderSettings,
   runSlash,
+  renderMarkdown,
+  recordEvent,
+  listEvents,
+  clearEvents,
   metadataEfforts,
   frameWidth,
   stripAnsi,
@@ -41,14 +45,14 @@ test.after(() => {
 
 test("novos comandos estão registrados", () => {
   const names = COMMANDS.map((c) => c.name);
-  for (const name of ["/language", "/fork", "/diff", "/export", "/undo", "/redo", "/copy", "/reload", "/verbosity"]) {
+  for (const name of ["/language", "/fork", "/diff", "/export", "/undo", "/redo", "/copy", "/reload", "/verbosity", "/history"]) {
     assert.ok(names.includes(name), `falta ${name}`);
   }
 });
 
 test("comandos novos não lançam sem motor", async () => {
   process.env.SELFEOPI_LOCALE = "en";
-  for (const name of ["/language", "/fork", "/diff", "/export", "/undo", "/redo", "/reload", "/verbosity"]) {
+  for (const name of ["/language", "/fork", "/diff", "/export", "/undo", "/redo", "/reload", "/verbosity", "/history"]) {
     let out = "";
     const code = await runSlash(name, "", (s) => (out += s + "\n"), { pi: null });
     assert.equal(code, 0, `${name} saiu ${code}`);
@@ -130,6 +134,41 @@ test("efforts e largura do frame vêm de fontes reais", () => {
     else process.env.PI_MODELS_FILE = savedModels;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("histórico registra tools, raciocínio e respostas", async () => {
+  clearEvents();
+  recordEvent("user", "resuma o link");
+  recordEvent("reasoning", "Vou abrir a página e resumir.");
+  recordEvent("tool", "web_open https://exemplo", { name: "web_open" });
+  recordEvent("tool_result", "⎿ 3 linhas", { name: "web_open" });
+  recordEvent("assistant", "Resumo em **duas** linhas.");
+  assert.equal(listEvents().length, 5);
+  assert.equal(listEvents(2).length, 2);
+
+  let out = "";
+  assert.equal(await runSlash("/history", "10", (s) => (out += s + "\n"), {}), 0);
+  const plain = stripAnsi(out);
+  assert.match(plain, /tool/);
+  assert.match(plain, /reasoning/);
+  assert.match(plain, /Resumo em/);
+  for (const ln of plain.split("\n")) assert.ok(visibleWidth(ln) <= 72, `linha de histórico >72: ${ln}`);
+
+  assert.equal(await runSlash("/history", "clear", (s) => (out += s), {}), 0);
+  assert.equal(listEvents().length, 0);
+});
+
+test("tabela markdown larga não quebra a tela nem deixa ** cru", () => {
+  const md = [
+    "| Aspecto | Detalhes | Outro |",
+    "|---|---|---|",
+    "| **Foco** | Workflows agênticos, arquitetura multiagente aplicados a software, infra, cibersegurança, dados, backend e redes. | 131 itens |",
+    "| **Números** | 105 repositórios públicos, 13 páginas no ar. | 219h formação |",
+  ].join("\n");
+  const out = stripAnsi(renderMarkdown(md));
+  assert.equal(out.includes("**"), false, "negrito deve ser renderizado, inclusive em células");
+  assert.match(out, /Foco/);
+  for (const ln of out.split("\n")) assert.ok(visibleWidth(ln) <= 72, `linha de tabela >72: ${ln}`);
 });
 
 test("nenhuma linha dos frames passa de 72 colunas em qualquer idioma", () => {

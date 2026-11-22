@@ -1,6 +1,6 @@
 {
   "name": "selfevopi",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "private": true,
   "type": "module",
   "description": "Harness auto-evolutivo, leve e Windows-nativo sobre o PI Coding Agent",

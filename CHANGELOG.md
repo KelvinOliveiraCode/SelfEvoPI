@@ -4,6 +4,23 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.5] - 2026-11-21
+
+**Resposta longa não quebra mais a tela; histórico da sessão.**
+
+- **Redraw corrigido**: o cursor subia pela contagem de linhas *lógicas*, mas o
+  terminal avança por linhas *visuais* após `wrapAnsi`. Numa resposta longa com
+  tabela larga isso desalinhava tudo e fazia o prompt desaparecer. Agora o
+  redesenho conta linhas visuais e sempre termina com prompt + barra de estado.
+- **Tabela markdown larga** deixa de ser forçada em colunas: vira pares
+  rótulo/valor empilhados. Negrito dentro de célula é renderizado (antes
+  aparecia `**Foco**` cru).
+- **`/history [n|clear]`**: trilha da sessão com tools, resultados, raciocínio,
+  respostas, fallback e comandos. Registrada independentemente do `/verbosity`,
+  então o que foi oculto continua consultável depois.
+- Caso reproduzido: resposta de acesso à internet com tabela de 3 colunas —
+  saída sem `**` cru, nenhuma linha acima de 72 colunas e prompt visível no fim.
+
 ## [1.2.4] - 2026-11-21
 
 **Várias contas do mesmo gateway.**
