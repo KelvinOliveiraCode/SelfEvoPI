@@ -7,7 +7,7 @@ import tempfile
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SVG = os.path.join(ROOT, "assets", "logo.svg")
+SVG = os.path.join(ROOT, "assets", "logo-dna.svg")
 OUT = os.path.join(ROOT, "assets", "selfevopi.ico")
 
 # Renderiza grande e reduz: as bordas ficam limpas nos tamanhos pequenos.
@@ -15,10 +15,10 @@ RENDER = 1024
 SIZES = [(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)]
 
 CHROME_CANDIDATES = [
-    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     "/usr/bin/google-chrome",
     "/usr/bin/chromium",
     "/usr/bin/microsoft-edge",
@@ -74,6 +74,7 @@ def main():
             "--disable-gpu",
             "--no-sandbox",
             "--hide-scrollbars",
+            "--user-data-dir=" + os.path.join(tmp, "perfil"),
             "--default-background-color=00000000",
             "--force-device-scale-factor=1",
             "--window-size=" + str(RENDER) + "," + str(RENDER),

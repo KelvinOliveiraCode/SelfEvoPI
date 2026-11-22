@@ -3,10 +3,10 @@
  *
  * Sem dependências. Determinístico. Não usa cor (legível em terminal monocromático).
  *
- * O desenho original (assets/logo.svg, assets/wordmark.svg):
+ * O desenho de referencia (assets/logo-dna.svg, assets/wordmark.svg):
  *  - um **anel aberto** (o ciclo evolutivo: detecta, gera, valida, promove);
- *  - o glifo **π** abstrato (barra + pernas) no lugar de "PI";
- *  - um **nó** (círculo) na abertura do anel — a variação que passou no gate e fecha o ciclo.
+ *  - uma **helice dupla** que forma o glifo PI abstrato e se molda a tarefa;
+ *  - um **no** (circulo) na abertura do anel, a variacao promovida pelo gate.
  *
  * Aqui o desenho é **desenhado em ASCII**, não copiado do SVG. A wordmark "SelfEvoPI"
  * é renderizada em letras de bloco; a versão detalhada acrescenta o anel aberto e o nó.

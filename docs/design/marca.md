@@ -113,13 +113,15 @@ Hover muda `background` para `--bg-3` e a borda para `--line-strong`; é só iss
 
 ## 5. O logo
 
-- **Símbolo** (`logo.svg`): anel aberto com o glifo `p`. Ícone, favicon, bullet de
-  seção. Sempre quadrado, nunca esticado.
-- **Wordmark** (`wordmark-pi.svg`): "SelfEvoPI" desenhado. Banner do CLI, cabeçalho
-  do desktop. Largura mínima 240 px.
-- **Wordmark em anel** (`wordmark-pi-circulo.svg`): lockup fechado. Tela de abertura.
-- **No escuro**: o traço original é `#111` e desaparece contra `#000`. Use branco
-  (`currentColor` com `color: #fff`) — o SVG já foi desenhado para isso.
+- **Símbolo** (`logo-dna.svg`): anel aberto do ciclo evolutivo envolvendo uma
+  hélice dupla que forma o glifo PI. A perna que se curva é a adaptação; o nó no
+  fim do arco é a variação promovida. Ícone, favicon, bullet de seção. Sempre
+  quadrado, nunca esticado.
+- **Símbolo para fundo escuro** (`logo-dna-branco.svg`): o mesmo desenho em branco.
+- **Símbolo para README** (`logo-readme.svg`): o mesmo desenho em `#6e7781`, legível
+  em tema claro e escuro.
+- **Wordmarks** (`wordmark.svg`, `wordmark-circulo.svg`, `wordmark-readme.svg`):
+  "SelfEvoPI" desenhado, em anel e a versão para README. Largura mínima 240 px.
 - **Nunca**: recolorir fora da paleta, girar, somar sombra, ou pôr sobre imagem sem
   contraste verificado.
 
