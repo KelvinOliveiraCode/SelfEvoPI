@@ -82,7 +82,12 @@ skill — recair para CLI gerava sucesso com a interface errada.
 - Atividade de ferramenta: `┊ 📄 read      arquivo`, com o resultado alinhado
   na coluna seguinte; falha aparece como `1 failed`.
 - Spinner com asas e verbos rotativos (`⟪◈ ⠋ processando ◈⟫`); em pipe, um único
-  frame, sem spam de escapes.
+  frame, sem `\r` nem `\x1b[2K` no log.
+- Toda saída de comando passa pelo mesmo crivo dos frames (`makeOut()`): linhas
+  longas quebram em ≤ 72 colunas sem reticência e com ANSI balanceado. O aviso
+  do motor ao criar sessão nova é filtrado em vez de poluir o topo da tela.
+- Erro transitivo (429) seguido de resposta não imprime "não consegui": o erro
+  só aparece quando o turno termina sem texto.
 - Raciocínio em bloco discreto; `Alt+T` oculta ou mostra, restando uma linha de
   resumo com duração.
 - Barra de estado: modo, permissão, modelo, medidor `▰▱` de contexto, tempo do

@@ -82,6 +82,12 @@ export function frameWidth() {
   return Math.max(WIDTH, Math.min(cols - 2, 160));
 }
 
+/**
+ * Em pipe/CI não há terminal para redesenhar: `\r` e `\x1b[2K` viram texto
+ * sujo no log. Nesse modo a saída é escrita uma vez, em linhas normais.
+ */
+const PLAIN_MODE = !process.stdout.isTTY;
+
 /* ------------------------------------------------------------------ */
 /* Paleta (marca §1.1 / §2) — truecolor ou degradação honesta          */
 /* ------------------------------------------------------------------ */
@@ -570,7 +576,10 @@ export function responseFrame(md, label = "SelfEvoPI") {
     paint("─".repeat(Math.max(0, inner - [...titulo].length)), "rule");
   const rows = [header];
   for (const line of renderMarkdown(text).split("\n")) {
-    for (const pedaco of wrapAnsi(line, inner).split("\n")) {
+    // wrapBalanced (não wrapAnsi cru) fecha o SGR em cada linha visual:
+    // negrito de markdown que atravessa uma quebra não pode deixar `\x1b[1m`
+    // aberto numa linha e um `\x1b[0m` órfão na seguinte.
+    for (const pedaco of wrapBalanced(line, inner)) {
       rows.push("  " + paint("│", "rule") + " " + padVisible(pedaco, inner));
     }
   }
@@ -605,21 +614,56 @@ function sgrState(text) {
   return { open, style };
 }
 
+/**
+ * Remove resets órfãos e fecha estilos ainda abertos numa linha visual.
+ * O `wrapAnsi` reposiciona o `\x1b[0m` original no meio da linha seguinte;
+ * sem esta passada a borda da resposta ficava com `open != close`.
+ */
+function equilibrarSgr(linha) {
+  const re = /\x1b\[[0-9;]*m/g;
+  let abertos = 0;
+  let saida = "";
+  let last = 0;
+  let m;
+  while ((m = re.exec(linha))) {
+    saida += linha.slice(last, m.index);
+    const corpo = m[0].slice(2, -1);
+    if (corpo === "0" || corpo === "") {
+      if (abertos > 0) {
+        saida += m[0];
+        abertos -= 1;
+      }
+    } else {
+      saida += m[0];
+      abertos += 1;
+    }
+    last = re.lastIndex;
+  }
+  saida += linha.slice(last);
+  if (abertos > 0) saida += "\x1b[0m".repeat(abertos);
+  return saida;
+}
+
 /** Quebra sem perder texto e sem deixar SGR aberto no fim de cada linha visual. */
 function wrapBalanced(text, width) {
   const pieces = String(text ?? "").split("\n");
   const out = [];
   for (const piece of pieces) {
     if (visibleWidth(piece) <= width) {
-      out.push(piece);
+      out.push(equilibrarSgr(piece));
       continue;
     }
     let carry = "";
-    for (const part of wrapAnsi(piece, width).split("\n")) {
+    for (const cru of wrapAnsi(piece, width).split("\n")) {
+      // wrapAnsi devolve um reset no fim de cada pedaço, inclusive quando o
+      // pedaço não abriu estilo (o reset veio do pedaço anterior). Removemos
+      // esses resets e reconstruímos o fechamento a partir do estado real —
+      // senão a última linha fica com um `\x1b[0m` órfão.
+      const part = cru.replace(/(?:\x1b\[0m)+$/g, "");
       const state = sgrState(part);
       let line = carry + part;
       if (sgrState(line).open) line += "\x1b[0m";
-      out.push(line);
+      out.push(equilibrarSgr(line));
       carry = state.open ? state.style : "";
     }
   }
@@ -638,6 +682,20 @@ function capLinhas(linhas, largura = WIDTH) {
   const out = [];
   for (const l of linhas) out.push(...wrapBalanced(l, largura));
   return out;
+}
+
+/**
+ * Adaptador de `out` usado por comandos de barra. Antes, cada comando escrevia
+ * `s + "\n"` direto e linhas longas (/theme, /detect, /mcp) estouravam a moldura.
+ * Agora toda saída passa pelo mesmo crivo dos frames: quebra sem reticência e
+ * com SGR balanceado por linha visual.
+ */
+export function makeOut(write, largura = frameWidth()) {
+  return (s) => {
+    for (const linha of capLinhas(String(s ?? "").split("\n"), largura)) {
+      write(linha + "\n");
+    }
+  };
 }
 
 async function runSettingsView({ out }) {
@@ -1060,7 +1118,8 @@ async function runDiff({ out }) {
   const det = await runProcess("git", ["-C", workspaceRoot, "diff", "--unified=2"]);
   const lines = [paint(`  ${tr("diff.title")}`, "fg"), ""];
   for (const l of String(det.out || "").split("\n").slice(0, 80)) {
-    lines.push(paint("  " + (l.length > 68 ? l.slice(0, 67) + "…" : l), "muted"));
+    // makeOut quebra linhas longas; cortar aqui escondia o final do diff.
+    lines.push(paint("  " + l, "muted"));
   }
   out(lines.join("\n"));
   return 0;
@@ -1395,13 +1454,6 @@ function wrapPlain(text, width) {
   return lines.length > 0 ? lines : [""];
 }
 
-/** Corta texto plano a `w` colunas, com "…" (sem ANSI). */
-function clipPlain(text, w) {
-  const chars = [...String(text ?? "")];
-  if (chars.length <= w) return String(text ?? "");
-  return chars.slice(0, Math.max(1, w - 1)).join("") + "…";
-}
-
 export function renderHelp() {
   const out = [];
   out.push(paint(tr("help.commands"), "bold"));
@@ -1409,9 +1461,15 @@ export function renderHelp() {
   const LABEL = 32;
   for (const c of localizedCommands()) {
     const raw = c.name + (c.args ? " " + c.args : "");
-    const label = clipPlain(raw, LABEL).padEnd(LABEL);
     const descW = Math.max(8, WIDTH - LABEL - 4);
     const descLines = wrapPlain(c.description, descW);
+    if (visibleWidth(raw) > LABEL) {
+      // Nome longo vai na própria linha: cortar com "…" esconderia argumentos.
+      out.push("  " + paint(raw, "fg"));
+      for (const desc of descLines) out.push("    " + paint(desc, "muted"));
+      continue;
+    }
+    const label = raw.padEnd(LABEL);
     out.push(`  ${paint(label, "fg")}  ${paint(descLines[0], "muted")}`);
     for (let i = 1; i < descLines.length; i += 1) {
       out.push(`  ${" ".repeat(LABEL)}  ${paint(descLines[i], "muted")}`);
@@ -1427,7 +1485,7 @@ export function renderHelp() {
   out.push(`  ${paint("Ctrl+P", "fg")} ${tr("help.activity")}`);
   out.push(`  ${paint("q", "fg")} / ${paint("/quit", "fg")} / ${paint("Ctrl+D", "fg")} ${tr("help.quit")}`);
   return out
-    .map((line) => (visibleWidth(line) > WIDTH ? truncateVisible(line, WIDTH) : line))
+    .flatMap((line) => wrapBalanced(line, WIDTH))
     .join("\n");
 }
 
@@ -3018,6 +3076,10 @@ function createSpinner(write, stats = () => ({})) {
       }
     }
     const linha = "  " + parts.join(" ");
+    if (PLAIN_MODE) {
+      write(linha + "\n");
+      return;
+    }
     // Space-pad em vez de \x1b[2K: alguns encapsuladores de terminal deixam
     // escapos \x1b[K vazarem como texto; espaços são sempre seguros.
     write("\r" + linha + " ".repeat(Math.max(0, lastWidth - visibleWidth(linha))));
@@ -3046,7 +3108,7 @@ function createSpinner(write, stats = () => ({})) {
         clearInterval(timer);
         timer = null;
       }
-      if (active) write("\r" + " ".repeat(lastWidth) + "\r");
+      if (active && !PLAIN_MODE) write("\r" + " ".repeat(lastWidth) + "\r");
       active = false;
       lastWidth = 0;
     },
@@ -3239,6 +3301,11 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     const visual = [];
     for (const line of responseFrame(buf)) visual.push(...line.split("\n"));
     if (visual.length === 0) visual.push("");
+    // Pipe/CI: não redesenha — o flush escreve o bloco final uma única vez.
+    if (PLAIN_MODE) {
+      drawn = 0;
+      return;
+    }
     if (drawn > 0) write(`\x1b[${drawn}A`); // sobe para o topo do bloco
 
     // Reescreve o bloco inteiro de cima. A contagem é de linhas VISUAIS,
@@ -3251,6 +3318,10 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     drawn = visual.length;
   };
   const flush = () => {
+    if (PLAIN_MODE && buf.trim()) {
+      // Sem terminal, o redraw foi suprimido: escreve o que acumulou agora.
+      for (const linha of responseFrame(buf)) write(linha + "\n");
+    }
     // Cada linha do bloco já termina com \n: o cursor está na linha seguinte.
     // Um \n extra aqui criava uma lacuna entre a resposta e o prompt.
     drawn = 0;
@@ -3399,11 +3470,14 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   let answerText = buf; // markdown completo, antes de o flush limpar
   // Alguns modelos não emitem text_delta: o texto só existe na mensagem final.
   // Sem isso a conversa parecia vazia embora o modelo tivesse respondido.
-  if (!answerText.trim() && !hadError && !aborted && typeof pi.getLastAssistantText === "function") {
+  if (!answerText.trim() && !aborted && typeof pi.getLastAssistantText === "function") {
     const finalText = await pi.getLastAssistantText().catch(() => "");
     if (String(finalText || "").trim()) {
+      // Alimenta o mesmo buffer do streaming para que a resposta passe pelo
+      // responseFrame — antes este caminho escrevia markdown cru, sem moldura.
       answerText = String(finalText);
-      write(renderMarkdown(answerText) + "\n");
+      buf = answerText;
+      redraw();
     }
   }
   const wasError = hadError;
@@ -3418,7 +3492,10 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   offSettled();
   offThink();
   setBusy(false);
-  if (wasError) {
+  // O motor pode emitir `error` em tentativas intermediárias (429 transitório)
+  // e ainda assim responder depois. Se há texto final, o turno deu certo: não
+  // imprimir "não consegui" acima de uma resposta que o usuário já recebeu.
+  if (wasError && !answerText.trim()) {
     write("\n");
     return { ok: false, error: errText, text: "", aborted: false };
   }
@@ -4183,7 +4260,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       })),
       footer: tr("verb.hint"),
       onChoose: async (it) => {
-        runVerbosity({ arg: it.value, out: (s) => write(s + "\n") });
+        runVerbosity({ arg: it.value, out: makeOut(write) });
       },
     });
   };
@@ -4198,7 +4275,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       })),
       footer: tr("lang.hint"),
       onChoose: async (it) => {
-        await runLanguage({ arg: it.value, out: (s) => write(s + "\n") });
+        await runLanguage({ arg: it.value, out: makeOut(write) });
       },
     });
   };
@@ -4729,7 +4806,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         return;
       }
       recordEvent("command", text, { name: parsed.name });
-      await runSlash(parsed.name, parsed.arg, (s) => write(s + "\n"), { pi, onClear: () => write("\x1b[2J\x1b[H") });
+      await runSlash(parsed.name, parsed.arg, makeOut(write), { pi, onClear: () => write("\x1b[2J\x1b[H") });
       prompt();
       return;
     }
@@ -4764,7 +4841,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     if (quitting) return;
     if (res?.text) lastAnswer = res.text;
     undoStack.push({ text, answer: res?.text || "" });
-    await checkGoal(res?.text, (s) => write(s + "\n"));
+    await checkGoal(res?.text, makeOut(write));
     await finishRun();
   };
 
@@ -5105,7 +5182,31 @@ function printHelpText() {
   process.stdout.write(out.join("\n") + "\n");
 }
 
+/**
+ * O motor avisa no stderr ao criar uma sessão nova com `--session-id`
+ * ("Warning: No project session found with id ..."). A linha tem 118 colunas
+ * e aparecia acima do banner, quebrando a regra de largura. Filtramos só essa
+ * linha exata; qualquer outro stderr segue intacto.
+ */
+function instalarFiltroAvisoSessao() {
+  const original = process.stderr.write.bind(process.stderr);
+  const alvo = /Warning: No project session found with id '[^']+'; creating a new session with that id\./;
+  let pendente = "";
+  process.stderr.write = (chunk, encoding, callback) => {
+    const texto = pendente + (chunk instanceof Buffer ? chunk.toString("utf8") : String(chunk));
+    const linhas = texto.split("\n");
+    pendente = linhas.pop() ?? "";
+    for (const linha of linhas) {
+      if (!alvo.test(linha)) original(linha + "\n");
+    }
+    if (typeof encoding === "function") encoding();
+    if (typeof callback === "function") callback();
+    return true;
+  };
+}
+
 async function main() {
+  instalarFiltroAvisoSessao();
   const args = process.argv.slice(2);
 
   // Sessão: nova por padrão. Retomar só com escolha explícita.
@@ -5195,7 +5296,7 @@ async function main() {
 
   if (!isTTY) {
     // Modo linha (pipe/CI): lê linhas, processa, sai em q / EOF. Nunca pendura.
-    printHeader((s) => process.stdout.write(s + "\n"), data);
+    printHeader(makeOut((s) => process.stdout.write(s)), data);
     if (!engine.available) process.stdout.write(engineUnavailableNote() + "\n");
     let pi = null;
     if (engine.available) {
@@ -5251,7 +5352,7 @@ async function main() {
       if (parsed.type === "empty") return;
       if (parsed.type === "slash") {
         recordEvent("command", parsed.text, { name: parsed.name });
-        await runSlash(parsed.name, parsed.arg, (s) => process.stdout.write(s + "\n"), { pi });
+        await runSlash(parsed.name, parsed.arg, makeOut((s) => process.stdout.write(s)), { pi });
         return;
       }
       // conversa
@@ -5264,7 +5365,7 @@ async function main() {
         allowFallback: !process.env.SELFEOPI_MODEL,
         candidates: listConfiguredModels(),
       });
-      await checkGoal(res?.text, (s) => process.stdout.write(s + "\n"));
+      await checkGoal(res?.text, makeOut((s) => process.stdout.write(s)));
     };
     process.stdin.on("data", (chunk) => {
       buf += chunk;
@@ -5286,7 +5387,7 @@ async function main() {
   }
 
   // TTY: conversa
-  printHeader((s) => process.stdout.write(s + "\n"), data);
+  printHeader(makeOut((s) => process.stdout.write(s)), data);
   // engineRef carrega o client atual; /workspace pode trocá-lo (recria com novo
   // cwd), então main lê engineRef.current no fim em vez de um `pi` fixo.
   const engineRef = { current: null };

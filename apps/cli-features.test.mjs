@@ -22,6 +22,7 @@ import {
   responseFrame,
   contextBar,
   renderBanner,
+  makeOut,
   recordEvent,
   listEvents,
   clearEvents,
@@ -205,6 +206,23 @@ test("verbos do spinner existem nos dois idiomas", () => {
   process.env.SELFEOPI_LOCALE = "pt";
   assert.match(t("spin.verbs"), /processando/);
   restore();
+});
+
+test("makeOut aplica o crivo da tela à saída de comandos longos", () => {
+  const escrito = [];
+  const out = makeOut((s) => escrito.push(s), 40);
+  const longo = "disponíveis: " +
+    "padrao, violeta, azul, ciano, verde, esmeralda, laranja, rosa, vermelho, magenta, dourado, grafite";
+  out("\x1b[38;2;255;200;87m" + longo + "\x1b[0m");
+  const bruto = escrito.join("");
+  assert.ok(!bruto.includes("…"), "nunca pode truncar com reticência");
+  assert.ok(bruto.includes("grafite"), "última palavra não pode se perder");
+  for (const linha of bruto.split("\n")) {
+    assert.ok(visibleWidth(stripAnsi(linha)) <= 40, `linha > 40: ${visibleWidth(stripAnsi(linha))}`);
+    const aberto = (linha.match(/\x1b\[(?!0m)[0-9;]*m/g) || []).length;
+    const fechado = (linha.match(/\x1b\[0m/g) || []).length;
+    assert.equal(aberto, fechado, "SGR deve fechar na mesma linha visual");
+  }
 });
 
 test("nenhuma linha dos frames passa de 72 colunas em qualquer idioma", () => {

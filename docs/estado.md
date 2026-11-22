@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-22 · **Versão:** 1.2.8 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-22 · **Versão:** 1.2.9 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
@@ -29,17 +29,18 @@ O produto é a CLI. Nada mais.
 | Integridade de fontes | ok=33, fail=0 | todas 200 | `node scripts/verify-urls.mjs` |
 | Cold start da CLI | **~82 ms** média (7 execuções, 80–102 ms) | < 150 ms p95 | `node apps/cli.mjs --version` |
 | Acréscimo de prompt | **+499 tok** no teto | < 1.500 tok | `node scripts/measure-selfevopi-overhead.mjs --runs 3` |
-| Largura da TUI | ≤ 72 col em todas as telas | ≤ 72 col | medição sobre `--render` |
+| Largura da TUI | ≤ 72 col em frames, respostas e saída de comandos | ≤ 72 col | `--render` + logs de tarefas reais |
 | Idiomas da interface | en (padrão) + pt | — | `/language` |
 | Modelos verificados (capacidades) | 48/48 OK | 0 divergências | `npm run models:check` |
 | Modelos com prompt real | 37/48 responderam texto | falhas concentradas em 4 ids | `npm run models:prompt` |
 | Sessão na abertura | sempre nova e persistida; retomada só explícita | — | `--resume <id>` / `/resume` |
 | Contraste dos papéis de texto | > 7:1 sobre o fundo em todos os temas | ≥ 4,5:1 | teste WCAG em `core/agent/theme.test.mjs` |
-| Largura da TUI | nenhuma linha acima de 72 colunas | ≤ 72 | `--render` + teste de moldura da resposta |
 | Tarefa real: app Node | 7,4 s, arquivos criados, tool calling OK | — | tarefa em workspace temporário |
 | Tarefa real: site HTML | 9,2 s, arquivos criados, tool calling OK | — | tarefa em workspace temporário |
 | Dois subagentes em paralelo | 3,1 s, ambos responderam | — | `runSwarmExecution` |
-| ERNIE 5.5 Flash Preview | effort `high` único nos 8 provedores, 8/8 responderam | — | `npm run models:prompt` |
+| ERNIE 5.5 Flash Preview | 8/8 provedores responderam; 8 tarefas + 4 tarefas de stress + 72 comandos sem erro de interface | 0 quebras | suíte Ernie (kilo1–4, or1–4) |
+| Saída em pipe/CI | zero `\r`/`\x1b[2K`; bloco escrito uma vez | 0 escapes de cursor | logs das 12 tarefas |
+| Erro transitivo do modelo | 429 seguido de resposta não vira "não consegui" | 0 falsos negativos | teste em `apps/cli.test.mjs` |
 
 > Os números são fotografias desta data, não garantia de desempenho. Cada linha
 > traz o comando que a produziu.

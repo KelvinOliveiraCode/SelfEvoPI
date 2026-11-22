@@ -4,6 +4,27 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.9] - 2026-11-22
+
+**Ernie 5.5 validado nos oito providers e saída de comandos sem quebras de moldura.**
+
+- **Providers pessoais:** `baidu/ernie-5.5-flash-preview:free` ganhou override
+  explícito em `config/providers.private.json` (`high` único). O endpoint exige
+  reasoning obrigatório — `off`/`none` devolve 400 — e o override impede que uma
+  reimportação perca esse mapa.
+- **Erro transitivo não é mais falha:** quando o motor recebe 429 e responde na
+  tentativa seguinte, a CLI mostrava "não consegui falar com o modelo" **acima**
+  da resposta correta. Agora o erro só aparece se o turno terminar sem texto.
+- **Saída de comandos passou pelo crivo da tela:** `makeOut()` quebra linhas de
+  `/theme`, `/detect`, `/mcp` e afins em ≤ 72 colunas, sem reticência e com SGR
+  balanceado. `/help` e `/diff` não cortam mais com "…".
+- **Negrito que atravessa quebra** não deixa `\x1b[1m` aberto nem `\x1b[0m`
+  órfão na moldura da resposta.
+- **Modo pipe/CI limpo:** sem `\r` nem `\x1b[2K` em log; o aviso de 118 colunas
+  do motor ao criar sessão nova é filtrado.
+- Verificação: 1051 testes (1050 passam, 1 skip), `npm run verify` 33/33,
+  12 tarefas e 72 comandos com o Ernie em `kilo1–4` e `or1–4`.
+
 ## [1.2.8] - 2026-11-22
 
 **Conjunto de temas reorganizado: um `padrao` e uma paleta de cores para cada gosto.**

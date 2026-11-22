@@ -304,6 +304,23 @@ test("engineErrorMessage: 401 vira voz do produto, sem corpo cru", () => {
   assert.match(msg, /\/model/);
 });
 
+test("converse: erro transitivo seguido de resposta não vira falha na tela", async () => {
+  const pi = fakePi({
+    script: (emit) => {
+      emit("error", "429: Provider returned error"); // tentativa intermediária
+      emit("text", "56"); // o motor recuperou e respondeu
+      emit("settled", { aborted: false });
+    },
+  });
+  const chunks = [];
+  const res = await converse(pi, "oi", (s) => chunks.push(s));
+  const out = stripAnsi(chunks.join(""));
+  assert.equal(res.ok, true);
+  assert.equal(res.text, "56");
+  assert.ok(out.includes("56"), "resposta final deve aparecer");
+  assert.ok(!/não consegui/.test(out), "erro das tentativas anteriores não pode aparecer");
+});
+
 test("engineErrorMessage: erro genérico (rede) adapta sem corpo cru", () => {
   const msg = stripAnsi(engineErrorMessage("connect ETIMEDOUT 1.2.3.4:443"));
   assert.match(msg, /não consegui falar com o modelo agora/);
