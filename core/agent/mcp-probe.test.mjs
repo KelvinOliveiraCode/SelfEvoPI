@@ -381,8 +381,7 @@ test("probeOpencodeMcp devolve ok:false para servidor remoto", async () => {
 /**
  * Servidor que manda tools/list em múltiplos chunks stdout SEM \n entre
  * eles (só \n no final do último chunk). Reproduz o comportamento dos
- * *-cli.exe (lightcraft/pdfcraft/soundcraft) que fazia o probeOpencodeMcp
- * retornar tools=0.
+ * de CLI (`*-cli.exe`) que fazia o probeOpencodeMcp retornar tools=0.
  */
 const SERVIDOR_CHUNKS = `
 import { appendFileSync } from "node:fs";

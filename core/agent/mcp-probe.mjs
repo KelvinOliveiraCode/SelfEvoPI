@@ -539,7 +539,7 @@ export async function probeMcpServer({ name, home, configPath, timeoutMs = 5_000
   // por profundidade de chaves resolve sem quebrar o caso que já funcionava
   // (servidores newline-delimited continuam funcionando: cada linha completa
   // é um objeto JSON que fecha antes do próximo \n).
-  const MAX_BUFFER = 4 * 1024 * 1024; // 4 MB — catálogo do lightcraft ~150KB, folga 26x
+  const MAX_BUFFER = 4 * 1024 * 1024; // 4 MB — catálogo grande ~150 KB, folga 26x
   let buffer = "";
   const mensagens = []; // objetos JSON-RPC já parseados e prontos
 

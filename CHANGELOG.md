@@ -6,12 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ## [1.2.9] - 2026-11-22
 
-**Ernie 5.5 validado nos oito providers e saída de comandos sem quebras de moldura.**
+**Modelos com reasoning obrigatório validados e saída de comandos sem quebras de moldura.**
 
-- **Providers pessoais:** `baidu/ernie-5.5-flash-preview:free` ganhou override
-  explícito em `config/providers.private.json` (`high` único). O endpoint exige
-  reasoning obrigatório — `off`/`none` devolve 400 — e o override impede que uma
-  reimportação perca esse mapa.
+- **Capabilities preservadas na reimportação:** um modelo com reasoning
+  obrigatório (`off`/`none` devolve 400) teve seu mapa de esforço fixado para
+  que uma reimportação de providers não o perca.
 - **Erro transitivo não é mais falha:** quando o motor recebe 429 e responde na
   tentativa seguinte, a CLI mostrava "não consegui falar com o modelo" **acima**
   da resposta correta. Agora o erro só aparece se o turno terminar sem texto.
@@ -23,7 +22,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 - **Modo pipe/CI limpo:** sem `\r` nem `\x1b[2K` em log; o aviso de 118 colunas
   do motor ao criar sessão nova é filtrado.
 - Verificação: 1051 testes (1050 passam, 1 skip), `npm run verify` 33/33,
-  12 tarefas e 72 comandos com o Ernie em `kilo1–4` e `or1–4`.
+  12 tarefas e 72 comandos em oito contas de gateway configuradas.
 
 ## [1.2.8] - 2026-11-22
 
