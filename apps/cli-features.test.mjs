@@ -19,6 +19,9 @@ import {
   renderSettings,
   runSlash,
   renderMarkdown,
+  responseFrame,
+  contextBar,
+  renderBanner,
   recordEvent,
   listEvents,
   clearEvents,
@@ -169,6 +172,39 @@ test("tabela markdown larga não quebra a tela nem deixa ** cru", () => {
   assert.equal(out.includes("**"), false, "negrito deve ser renderizado, inclusive em células");
   assert.match(out, /Foco/);
   for (const ln of out.split("\n")) assert.ok(visibleWidth(ln) <= 72, `linha de tabela >72: ${ln}`);
+});
+
+test("bloco de resposta tem moldura, negrito renderizado e largura fixa", () => {
+  const frame = responseFrame("Resumo **importante** com uma linha bem longa que precisa quebrar sem sobrepor nada na tela.");
+  const plain = stripAnsi(frame.join("\n"));
+  assert.match(plain, /╭─ ◆ SelfEvoPI/);
+  assert.match(plain, /╰/);
+  assert.equal(plain.includes("**"), false);
+  for (const linha of frame) {
+    assert.ok(visibleWidth(linha) <= 72, `linha do bloco >72: ${visibleWidth(linha)}`);
+    const aberto = (linha.match(/\x1b\[(?!0m)[0-9;]*m/g) || []).length;
+    const fechado = (linha.match(/\x1b\[0m/g) || []).length;
+    assert.equal(aberto, fechado, "estilo ANSI deve fechar na mesma linha");
+  }
+});
+
+test("medidor de contexto e banner respeitam a moldura", () => {
+  assert.equal(visibleWidth(stripAnsi(contextBar(0))), 8);
+  assert.equal(visibleWidth(stripAnsi(contextBar(100))), 8);
+  const banner = stripAnsi(renderBanner());
+  assert.match(banner, /◈ SelfEvoPI/);
+  assert.match(banner, /____/, "logo ASCII continua presente");
+  for (const linha of banner.split("\n")) {
+    assert.ok(visibleWidth(linha) <= 72, `linha do banner >72: ${visibleWidth(linha)}`);
+  }
+});
+
+test("verbos do spinner existem nos dois idiomas", () => {
+  process.env.SELFEOPI_LOCALE = "en";
+  assert.match(t("spin.verbs"), /processing/);
+  process.env.SELFEOPI_LOCALE = "pt";
+  assert.match(t("spin.verbs"), /processando/);
+  restore();
 });
 
 test("nenhuma linha dos frames passa de 72 colunas em qualquer idioma", () => {

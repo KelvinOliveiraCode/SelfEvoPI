@@ -247,9 +247,13 @@ export function renderStatusLine(data = {}) {
  * baseline. Substituiu a antiga linha "◍ SelfEvoPI ... v0.5.0".
  */
 export function renderBanner() {
-  const logo = LOGO.map((l) => "  " + paint(l, "accent")).join("\n");
+  const titulo = paint("◈ SelfEvoPI", "accent") + " " + paint("· harness auto-evolutivo", "muted");
   const ver = paint(`v${VERSION}`, "muted");
-  return `${logo}\n  ${ver}`;
+  const espaco = Math.max(1, WIDTH - 2 - visibleWidth(titulo) - visibleWidth(ver));
+  const topo = "  " + titulo + " ".repeat(espaco) + ver;
+  const logo = LOGO.map((l) => "  " + paint(l, "fg")).join("\n");
+  const regua = rule();
+  return `${topo}\n${regua}\n${logo}\n${regua}`;
 }
 
 /**
@@ -283,6 +287,16 @@ function renderInline(text) {
   // restaura código inline
   s = s.replace(/\u0000(\d+)\u0000/g, (_m, i) => paint(codeSpans[Number(i)] ?? "", "code"));
   return s;
+}
+
+/** Ícone curto por ferramenta — vocabulário visual consistente, como um skin. */
+const TOOL_EMOJI = {
+  read: "📄", write: "✎", edit: "✎", bash: "⚙", shell: "⚙",
+  web: "🌐", fetch: "🌐", search: "🔍", grep: "🔍",
+  browser: "🌐", mcp: "🔌", image: "🖼", spawn: "🚀",
+};
+function toolEmoji(name) {
+  return TOOL_EMOJI[String(name || "").toLowerCase()] || "◆";
 }
 
 /** Tabela markdown → linhas alinhadas em colunas (larguras por conteúdo). */
@@ -540,6 +554,28 @@ export function renderMarkdown(md) {
   }
   if (inCode) flushCode();
   return out.map((line) => wrapAnsi(line, WIDTH)).join("\n");
+}
+
+/**
+ * Bloco de resposta com moldura aberta — o mesmo gesto dos CLIs modernos:
+ * um rótulo, uma borda esquerda e uma linha de fechamento. A largura total
+ * nunca passa de WIDTH; linhas longas são quebradas antes de receber a borda.
+ */
+export function responseFrame(md, label = "SelfEvoPI") {
+  const text = String(md ?? "");
+  if (!text.trim()) return [];
+  const inner = Math.max(8, WIDTH - 4);
+  const titulo = ` ◆ ${label} `;
+  const header = "  " + paint("╭─", "accent") + paint(titulo, "fg") +
+    paint("─".repeat(Math.max(0, inner - [...titulo].length)), "rule");
+  const rows = [header];
+  for (const line of renderMarkdown(text).split("\n")) {
+    for (const pedaco of wrapAnsi(line, inner).split("\n")) {
+      rows.push("  " + paint("│", "rule") + " " + padVisible(pedaco, inner));
+    }
+  }
+  rows.push("  " + paint("╰" + "─".repeat(Math.max(0, WIDTH - 3)), "rule"));
+  return rows;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2963,13 +2999,17 @@ function createSpinner(write, stats = () => ({})) {
   let start = 0;
   let label = "";
   let active = false;
+  let lastWidth = 0;
+  const verbs = String(tr("spin.verbs")).split(",").map((v) => v.trim()).filter(Boolean);
   const render = () => {
     // Movimento reduzido: indicador estático (sem piscar). Os números continuam:
     // são eles que dizem "está trabalhando" vs "está travado".
     const now = Date.now();
     const frame = prefersReducedMotion() ? "●" : spinnerFrame(now - start);
     const s = stats() || {};
-    const parts = [paint(frame, "fg"), paint(label, "muted")];
+    const indice = Math.floor((now - start) / 420) % Math.max(1, verbs.length);
+    const verbo = shows("activity") && verbs.length ? verbs[indice] : label;
+    const parts = ["⟪◈", paint(frame, "accent"), paint(verbo, "muted"), "◈⟫"];
     if (shows("metrics")) {
       const seconds = Math.floor(((s.elapsedMs ?? (now - start)) / 1000));
       parts.push(paint(tr("spin.elapsed", { s: seconds }), "muted"));
@@ -2977,7 +3017,11 @@ function createSpinner(write, stats = () => ({})) {
         parts.push(paint(tr("spin.tokens", { n: s.tokens }), "muted"));
       }
     }
-    write("\r\x1b[2K  " + parts.join(" "));
+    const linha = "  " + parts.join(" ");
+    // Space-pad em vez de \x1b[2K: alguns encapsuladores de terminal deixam
+    // escapos \x1b[K vazarem como texto; espaços são sempre seguros.
+    write("\r" + linha + " ".repeat(Math.max(0, lastWidth - visibleWidth(linha))));
+    lastWidth = visibleWidth(linha);
   };
   return {
     start(l) {
@@ -2990,8 +3034,9 @@ function createSpinner(write, stats = () => ({})) {
       start = Date.now();
       active = true;
       render();
-      // Sem animação quando movimento reduzido: um único render basta.
-      if (!prefersReducedMotion()) {
+      // Sem animação em movimento reduzido, em pipe/CI ou quando o chamador
+      // captura a saída: um único render basta e não polui o log.
+      if (!prefersReducedMotion() && process.stdout.isTTY) {
         timer = setInterval(render, SPINNER_MS);
         if (timer && typeof timer.unref === "function") timer.unref();
       }
@@ -3001,8 +3046,9 @@ function createSpinner(write, stats = () => ({})) {
         clearInterval(timer);
         timer = null;
       }
-      if (active) write("\r\x1b[2K");
+      if (active) write("\r" + " ".repeat(lastWidth) + "\r");
       active = false;
+      lastWidth = 0;
     },
     get active() {
       return active;
@@ -3049,6 +3095,8 @@ export function clearEvents() {
 }
 
 let queued = [];
+let turnStartedAt = null;
+let lastTurnMs = null;
 let lastAnswer = "";
 const undoStack = [];
 const redoStack = [];
@@ -3111,6 +3159,13 @@ function shortModelSafe(m) {
   if (!m) return null;
   const tail = String(m).split("/").pop() || String(m);
   return tail.length > 24 ? tail.slice(0, 23) + "…" : tail;
+}
+
+/** Barra de contexto em blocos, como um medidor de uso da janela. */
+export function contextBar(pct, width = 8) {
+  const valor = Math.max(0, Math.min(100, Number(pct) || 0));
+  const cheios = Math.round((valor / 100) * width);
+  return paint("▰".repeat(cheios), "accent") + paint("▱".repeat(width - cheios), "rule");
 }
 
 /** Rótulo alinhado a 13 colunas (o painel e as configurações usam o mesmo passo). */
@@ -3182,9 +3237,7 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     // terminal avança pelas visuais: contar linhas lógicas desalinha o
     // \x1b[<n>A e faz o prompt desaparecer depois de uma resposta longa.
     const visual = [];
-    for (const line of buf ? renderMarkdown(buf).split("\n") : []) {
-      visual.push(...line.split("\n"));
-    }
+    for (const line of responseFrame(buf)) visual.push(...line.split("\n"));
     if (visual.length === 0) visual.push("");
     if (drawn > 0) write(`\x1b[${drawn}A`); // sobe para o topo do bloco
 
@@ -3193,14 +3246,14 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     // essa diferença entre linha lógica e visual que fazia o prompt sumir.
     for (const row of visual) write("\x1b[2K" + row + "\n");
     for (let k = visual.length; k < drawn; k++) write("\x1b[2K\n");
+    // O cursor JÁ está na linha seguinte ao bloco (cada row termina com \n).
+    // Subir daqui era o bug que fazia a resposta seguinte sobrepor o texto.
     drawn = visual.length;
-    if (drawn > 0) write(`\x1b[${drawn - 1}A`); // devolve o cursor ao fim do bloco
   };
   const flush = () => {
-    if (drawn > 0) {
-      write("\n"); // deixa o bloco committed
-      drawn = 0;
-    }
+    // Cada linha do bloco já termina com \n: o cursor está na linha seguinte.
+    // Um \n extra aqui criava uma lacuna entre a resposta e o prompt.
+    drawn = 0;
     buf = "";
   };
 
@@ -3265,7 +3318,8 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
         name: call.name || "tool", args: argHint, id: call.id, phase: "start",
       });
       if (shows("tools")) {
-        write(`  ${paint("⏺", "accent")} ${paint(String(call.name || "tool").padEnd(10), "fg")} ${paint(argHint, "muted")}\n`);
+        const nome = String(call.name || "tool");
+        write(`  ${paint("┊", "rule")} ${toolEmoji(nome)} ${paint(nome.slice(0, 9).padEnd(9), "fg")} ${paint(argHint, "muted")}\n`);
       }
       if (shows("activity")) spin.start(tr("spin.running", { name: String(call.name || "tool") }));
       return;
@@ -3283,12 +3337,12 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
       : secs != null
         ? tr("spin.elapsed", { s: secs })
         : tr("tool.done");
-    recordEvent("tool_result", `⎿ ${detail}${call.isError ? " · 1 failed" : ""}`, {
+    recordEvent("tool_result", `└ ${detail}${call.isError ? " · 1 failed" : ""}`, {
       name: call.name || "tool", id: call.id, isError: Boolean(call.isError), result: String(raw || "").slice(0, 4000),
     });
     if (shows("toolResult") || call.isError) {
       const marker = call.isError ? paint(tr("tool.failed"), "fail") : paint(detail, "muted");
-      write(`    ${paint("⎿", "muted")} ${marker}\n`);
+      write(`  ${paint("┊", "rule")} ${" ".repeat(12)}${paint("└", "muted")} ${marker}\n`);
     }
   });
   const offError = pi.on("error", (message) => {
@@ -3438,7 +3492,7 @@ export async function converseOrFallback(pi, text, write, opts = {}) {
       recordEvent("fallback", fallbackNotice(model).replace(/\x1b\[[0-9;]*m/g, "").trim());
       recordEvent("assistant", r.text);
       write(fallbackNotice(model) + "\n");
-      write(renderMarkdown(r.text) + "\n");
+      write(responseFrame(r.text).join("\n") + "\n");
       write("\n");
       return { ok: true, error: null, text: r.text, model };
     }
@@ -3606,15 +3660,10 @@ export function renderConversationFrame(data = {}) {
   out.push("");
   out.push("  " + paint("›", "accent") + " " + SAMPLE_QUESTION);
   out.push("");
-  // resposta renderizada (markdown), recuada por "SelfEvoPI  "
-  const rendered = renderMarkdown(SAMPLE_ANSWER).split("\n");
-  rendered.forEach((line, idx) => {
-    if (idx === 0) out.push("  " + paint("SelfEvoPI", "bold") + "  " + line.replace(/^  /, ""));
-    else out.push(line);
-  });
+  out.push(...responseFrame(SAMPLE_ANSWER));
   out.push("");
-  out.push(`  ${paint("⏺", "fg")} ${paint("read".padEnd(10), "fg")} ${paint("evals/baseline.json", "muted")}`);
-  out.push(`  ${paint("⏺", "fg")} ${paint("bash".padEnd(10), "fg")} ${paint("npm test", "muted")}`);
+  out.push(`  ${paint("┊", "rule")} ${toolEmoji("read")} ${paint("read".padEnd(9), "fg")} ${paint("evals/baseline.json", "muted")}`);
+  out.push(`  ${paint("┊", "rule")} ${toolEmoji("bash")} ${paint("bash".padEnd(9), "fg")} ${paint("npm test", "muted")}`);
   out.push("");
   out.push(rule());
   out.push("  " + SLASH_COMMANDS.slice(0, 7).map((c) => paint(c.cmd.split(" ")[0], "muted")).join("  "));
@@ -3700,17 +3749,34 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     // Linha de status (sempre visível): modo · permissão · modelo · goal.
     // permission/model em "fg" (branco, legível); think em "muted" (secundário).
     // Antes tudo era "muted" (cinza fraco) e a barra ficava difícil de ler.
-    const statusParts = [paint(currentMode, "fg"), paint(permissionMode, "fg")];
+    const statusParts = [
+      paint("◍ " + currentMode, "fg"),
+      paint(permissionMode, "tool"),
+    ];
     const model = shortModel(statusInfo.model);
-    if (model) statusParts.push(paint(model, "fg"));
-    if (statusInfo.reasoning) statusParts.push(paint("think:" + statusInfo.reasoning, "muted"));
-    if (statusInfo.contextPct != null) statusParts.push(paint(tr("panel.context") + " " + statusInfo.contextPct + "%", "muted"));
-    if (statusInfo.branch) statusParts.push(paint(statusInfo.branch, "muted"));
+    if (model) statusParts.push(paint("⚡ " + model, "fg"));
+    if (statusInfo.contextPct != null) {
+      statusParts.push(contextBar(statusInfo.contextPct) + " " + statusInfo.contextPct + "%");
+    }
+    const elapsed = turnStartedAt
+      ? Date.now() - turnStartedAt
+      : lastTurnMs;
+    if (elapsed != null) statusParts.push(paint("⏱ " + Math.round(elapsed / 1000) + "s", "muted"));
+    if (statusInfo.branch) statusParts.push(paint("⎇ " + statusInfo.branch, "muted"));
+    if (statusInfo.sessionId) statusParts.push(paint(String(statusInfo.sessionId).slice(0, 8), "rule"));
     if (goalTag) statusParts.push(paint(goalTag, "warn"));
     if (queued.length) statusParts.push(paint(tr("queue.hint", { n: queued.length }), "warn"));
-    // Sem reticência: a linha é quebrada pelo mesmo mecanismo das outras
-    // linhas abaixo, e o redraw conta as linhas visuais de verdade.
-    const statusLine = "  " + statusParts.join(" · ");
+
+    // Barra de estado não quebra: segmentos de baixa prioridade são descartados
+    // inteiros antes de estourar a largura. Nunca há "con…" na borda nem
+    // sobreposição com a linha de atalhos.
+    let statusLine = "";
+    for (const parte of statusParts) {
+      const candidata = statusLine ? statusLine + "  " + parte : parte;
+      if (visibleWidth(candidata) > frameWidth() - 2) break;
+      statusLine = candidata;
+    }
+    statusLine = "  " + statusLine;
 
     const keysLine = "  " + paint(
       panelOpen
@@ -4548,6 +4614,10 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
 
   const finishRun = async () => {
     running = false;
+    if (turnStartedAt != null) {
+      lastTurnMs = Date.now() - turnStartedAt;
+      turnStartedAt = null;
+    }
     if (queued.length) {
       const next = queued.shift();
       write(paint("  " + tr("queue.sent"), "muted") + "\n");
@@ -4671,6 +4741,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       return;
     }
     running = true;
+    turnStartedAt = Date.now();
     const images = [...pendingImages];
     const imageBlocks = images.map(imageContent).filter(Boolean);
     if (images.length > 0 && imageBlocks.length === 0) {

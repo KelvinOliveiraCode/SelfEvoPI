@@ -769,7 +769,7 @@ test("REPL: ctrl+o abre e fecha o painel; ctrl+c não mata", async () => {
   await sleep(20);
   // boot: linha de status tem modo+permissão e a dica ctrl+o
   const boot = stripAnsi(all);
-  assert.match(boot, /build · full access/);
+  assert.match(boot, /build\s+full access/);
   assert.match(boot, /ctrl\+o painel/);
   // ctrl+o abre a leitura de estado (o que a dica promete)
   all = "";

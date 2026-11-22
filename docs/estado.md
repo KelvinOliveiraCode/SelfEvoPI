@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-21 · **Versão:** 1.2.6 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-21 · **Versão:** 1.2.7 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
@@ -34,6 +34,8 @@ O produto é a CLI. Nada mais.
 | Modelos verificados (capacidades) | 48/48 OK | 0 divergências | `npm run models:check` |
 | Modelos com prompt real | 37/48 responderam texto | falhas concentradas em 4 ids | `npm run models:prompt` |
 | Sessão na abertura | sempre nova e persistida; retomada só explícita | — | `--resume <id>` / `/resume` |
+| Contraste dos papéis de texto | > 7:1 sobre o fundo em todos os temas | ≥ 4,5:1 | teste WCAG em `core/agent/theme.test.mjs` |
+| Largura da TUI | nenhuma linha acima de 72 colunas | ≤ 72 | `--render` + teste de moldura da resposta |
 | Tarefa real: app Node | 7,4 s, arquivos criados, tool calling OK | — | tarefa em workspace temporário |
 | Tarefa real: site HTML | 9,2 s, arquivos criados, tool calling OK | — | tarefa em workspace temporário |
 | Dois subagentes em paralelo | 3,1 s, ambos responderam | — | `runSwarmExecution` |

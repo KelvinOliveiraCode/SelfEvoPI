@@ -154,6 +154,7 @@ const en = {
 
   /* spinner, raciocínio, ferramentas */
   "spin.thinking": "thinking…",
+  "spin.verbs": "processing,analyzing,computing,evaluating,synthesizing",
   "spin.running": "running {name}",
   "spin.elapsed": "{s}s",
   "spin.tokens": "↓ {n} tokens",
@@ -357,6 +358,7 @@ const pt = {
   "engine.fallback": "o modelo padrão não respondeu; usei {model} nesta conversa.",
 
   "spin.thinking": "pensando…",
+  "spin.verbs": "processando,analisando,computando,avaliando,sintetizando",
   "spin.running": "executando {name}",
   "spin.elapsed": "{s}s",
   "spin.tokens": "↓ {n} tokens",

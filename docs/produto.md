@@ -75,17 +75,23 @@ skill — recair para CLI gerava sucesso com a interface errada.
 
 ### 4.1 Gramática da tela
 
-- Prompt sempre na última linha; resposta rola para cima.
-- Streaming real de markdown (negrito, listas, código, tabelas).
-- Atividade de ferramenta em uma linha: `⏺ read  arquivo` seguido de
-  `⎿ 120 linhas (2 KB)`; falha aparece como `1 failed`.
+- Prompt sempre na última linha; a resposta rola para cima dentro de um bloco
+  com rótulo (`╭─ ◆ SelfEvoPI`), borda lateral e fechamento.
+- Streaming real de markdown (negrito, listas, código, tabelas). Tabelas largas
+  viram pares rótulo/valor empilhados, sem colunas quebradas.
+- Atividade de ferramenta: `┊ 📄 read      arquivo`, com o resultado alinhado
+  na coluna seguinte; falha aparece como `1 failed`.
+- Spinner com asas e verbos rotativos (`⟪◈ ⠋ processando ◈⟫`); em pipe, um único
+  frame, sem spam de escapes.
 - Raciocínio em bloco discreto; `Alt+T` oculta ou mostra, restando uma linha de
   resumo com duração.
-- Barra de estado: modo, permissão, modelo, esforço, uso de contexto em % e
-  branch. Nunca há reticência: linhas longas quebram na largura real do terminal
-  (mínimo 72 colunas).
-- Sem dependência de truecolor: sem `COLORTERM`, a paleta degrada para ANSI-256.
-  Movimento reduzido troca o spinner por um indicador estático.
+- Barra de estado: modo, permissão, modelo, medidor `▰▱` de contexto, tempo do
+  turno, branch e id da sessão. Segmentos de baixa prioridade são descartados
+  inteiros antes de estourar a largura — nunca há "con…" na borda nem
+  sobreposição de texto.
+- Paleta quente bronze/ouro, com todos os papéis de texto acima de 7:1 de
+  contraste. Sem truecolor, degrada para ANSI-256. Movimento reduzido troca o
+  spinner por um indicador estático.
 
 ### 4.2 Comandos
 

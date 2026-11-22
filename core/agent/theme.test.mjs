@@ -73,8 +73,8 @@ test("cada tema tem as seis chaves semânticas", () => {
 
 test("getThemeColors devolve a paleta do tema", () => {
   const t = getThemeColors("violeta");
-  assert.equal(t.bg, "#000000");
-  assert.equal(t.fg, "#ffffff");
+  assert.equal(t.bg, THEMES.violeta.bg);
+  assert.equal(t.fg, THEMES.violeta.fg);
 });
 
 test("getThemeColors com nome inválido cai no padrão", () => {
@@ -89,12 +89,29 @@ test("themeToCss gera variáveis --fg, --muted, --accent, --ok, --warn, --fail",
   for (const v of ["--bg", "--fg", "--muted", "--accent", "--ok", "--warn", "--fail"]) {
     assert.ok(css.includes(v), `CSS sem ${v}`);
   }
-  assert.ok(css.includes("#ffffff"), "escuro deve ter fg branco");
+  assert.ok(css.includes(THEMES.escuro.fg), "CSS deve usar o fg do tema");
 });
 
 test("themeToCss do alto-contraste usa as cores do tema", () => {
   const css = themeToCss("alto-contraste");
-  assert.ok(css.includes("#00d4ff"), "accent do alto-contraste");
+  assert.ok(css.includes(THEMES["alto-contraste"].accent), "accent do alto-contraste");
+});
+
+test("temas têm contraste alto no texto (WCAG >= 4.5)", () => {
+  const lum = (hex) => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const contraste = (a, b) => {
+    const x = lum(a), y = lum(b);
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  for (const [nome, tema] of Object.entries(THEMES)) {
+    for (const papel of ["fg", "muted", "accent", "ok", "warn", "fail", "code", "tool"]) {
+      assert.ok(contraste(tema[papel], tema.bg) >= 4.5, `${nome}.${papel} com contraste baixo`);
+    }
+  }
 });
 
 /* --------------------------- ANSI --------------------------------------- */

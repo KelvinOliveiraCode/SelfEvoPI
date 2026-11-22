@@ -123,6 +123,13 @@ in `~/.pi/agent/cli-locale.json`; `SELFEOPI_LOCALE` overrides it for a single
 run. Nothing about the engine, the prompts sent to it, or the artifacts it
 writes depends on this setting.
 
+**Terminal look.** The TUI uses a warm bronze/gold palette with high-contrast
+text roles, a framed response block with a `◆ SelfEvoPI` label, a winged spinner
+with rotating verbs (`⟪◈ ⠋ processing ◈⟫`), tool rows in the `┊ 📄 read  file`
+shape and a status bar with a `▰▱` context meter, turn timer, branch and session
+id. Low-priority status segments are dropped whole instead of being cut, so text
+never breaks or overlaps at the edge.
+
 **Long answers and history.** Wide markdown tables are rendered as stacked
 label/value pairs instead of broken columns, and the live redraw counts visual
 rows so a long response never eats the prompt bar. `/history` keeps tools, tool

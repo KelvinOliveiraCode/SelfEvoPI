@@ -4,6 +4,28 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.2.7] - 2026-11-22
+
+**TUI reorganizada no estilo dos CLIs modernos: bloco de resposta, skins quentes e sem sobreposição.**
+
+- **Causa raiz da sobreposição corrigida:** o redraw da resposta terminava
+  movendo o cursor para dentro do próprio bloco; o texto seguinte pisava na
+  resposta. Agora o cursor fica logo após o bloco, e o `flush()` não adiciona
+  linha extra.
+- **Bloco de resposta** com rótulo `╭─ ◆ SelfEvoPI`, borda lateral e fechamento,
+  largura fixa e markdown renderizado — inclusive negrito dentro de tabelas.
+- **Paleta quente de alto contraste** (bronze/ouro) em todos os temas; cada papel
+  de texto passa de 7:1 de contraste sobre o fundo (teste WCAG no CI).
+- **Spinner com asas** `⟪◈ ◈⟫` e verbos rotativos (processando, analisando…),
+  space-padding em vez de `\x1b[K`, e um único frame quando a saída não é TTY.
+- **Barra de estado reorganizada:** modo, permissão, modelo, medidor de
+  contexto `▰▱`, tempo do turno, branch e id da sessão; segmentos de baixa
+  prioridade são descartados antes de estourar a largura — nunca há "con…" na
+  borda.
+- **Linhas de ferramenta** no padrão `┊ 📄 read      arquivo` com resultado
+  alinhado. Banner com a nova marca DNA.
+- Novas logos DNA adotadas (SVG claro/escuro, ícone e documentação de marca).
+
 ## [1.2.6] - 2026-11-21
 
 **Sessão nova por padrão; retomar é escolha do usuário.**
