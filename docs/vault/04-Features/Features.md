@@ -93,6 +93,14 @@ a saída é redigida antes de aparecer. Um hook que falha ou expira é registrad
 como observabilidade e **nunca** derruba o turno. `/hooks` mostra a config e os
 últimos resultados. Implementação em `core/agent/hooks.mjs`.
 
+## Equipes, eventos, memória e automação
+
+Equipes persistentes guardam quadro, mensagens e tarefas em arquivo próprio. A escrita é atômica e a máquina de estados recusa transições inválidas. O passo determinístico escolhe a próxima tarefa sem modelo e sem rede. Eventos externos do Forge usam deduplicação por nome e cursor persistido, então sobrevivem a reinício.
+
+Memória automática retira segredo antes de gravar, recupera por sobreposição de termos e produz resumo de sessão. Palavras de controle em prosa alteram esforço e papel sem tocar em código, endereço ou caminho. Células persistentes mantêm estado entre execuções dentro de interpretador restrito, com allowlist de ferramentas e limites de chamada e saída.
+
+A auditoria de refutação tenta derrubar afirmações do contexto fundacional. Juiz externo é a própria CLI executada em testes, não opinião do agente. Quando uma afirmação cai, o código é corrigido antes da publicação.
+
 ## Edição estrutural, advisor e DAP
 
 `core/agent/ast-edit.mjs` ancora edições por hash de linha: se o arquivo mudou,

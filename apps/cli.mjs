@@ -1345,6 +1345,10 @@ export const COMMANDS = [
   { name: "/advisor", args: "", description: tr("cmd.advisor"), run: runAdvisor },
   { name: "/ast-edit", args: "<arquivo> <símbolo> <novo> [--apply]", description: tr("cmd.astedit"), run: runAstEdit },
   { name: "/dap", args: "[arquivo]", description: tr("cmd.dap"), run: runDap },
+  { name: "/agents", args: "[id]", description: tr("cmd.agents"), run: runAgents },
+  { name: "/team", args: "[board:id|step:id|create:nome]", description: tr("cmd.team"), run: runTeam },
+  { name: "/bus", args: "[emit:tipo:texto|status]", description: tr("cmd.events"), run: runEvents },
+  { name: "/cell", args: "<código>", description: tr("cmd.cell"), run: runCell },
   { name: "/effort", args: "[off|low|medium|high]", description: tr("cmd.effort"), run: runEffort },
   {
     name: "/mode",
@@ -1633,7 +1637,12 @@ export function filterCommands(query) {
     else if (isSubsequence(q, n)) score = 1; // fuzzy
     if (score >= 0) scored.push({ c, score });
   }
-  scored.sort((a, b) => a.score - b.score || a.c.name.localeCompare(b.c.name));
+  // Em empate de prefixo, o comando mais curto vem primeiro. Isso mantém
+  // /evo à frente de /events quando o usuário digita /ev.
+  scored.sort((a, b) =>
+    a.score - b.score ||
+    a.c.name.length - b.c.name.length ||
+    a.c.name.localeCompare(b.c.name));
   return scored.map((s) => s.c);
 }
 
@@ -1675,24 +1684,31 @@ export function renderPalette(commands, selectedIndex, width) {
   const winEnd = Math.min(commands.length, winStart + MAX_ROWS);
 
   const lines = [top];
+  const owners = [-1];
+  const recuo = " ".repeat(3 + nameW);
   for (let i = winStart; i < winEnd; i++) {
     const c = commands[i];
     const isSel = i === sel;
-    const marker = isSel ? " > " : "   ";
+    const prefixo = isSel ? " > " : "   ";
     let name = label(c);
     name = visibleWidth(name) > nameW ? padVisible(name, nameW) : name + " ".repeat(nameW - visibleWidth(name));
-    // descrição = args (se houver) + descrição; args em dim para distinguir
-    let desc = c.args ? paint(c.args, "muted") + " " + c.description : c.description;
-    if (visibleWidth(desc) > descW) desc = truncateVisible(desc, descW);
-    const content = padVisible(marker + name + desc, inner);
-    if (isSel) {
-      // Seleção: seta ">" em accent (destacada), resto em bold — visível sem poluir.
-      lines.push("  │" + paint(" > ", "accent") + paint(content.slice(3), "bold") + "│");
-    } else {
-      lines.push("  │" + content + "│");
+    // Quebra args e descrição juntos na largura disponível. Nunca há reticência.
+    const descricaoCompleta = `${c.args ? c.args + " " : ""}${c.description || ""}`;
+    const partes = wrapPlain(descricaoCompleta, descW);
+    for (let p = 0; p < partes.length; p += 1) {
+      if (lines.length >= 9) break; // topo + no máximo 8 linhas visíveis
+      const cabeca = p === 0 ? prefixo + name : recuo;
+      const conteudo = padVisible(cabeca + partes[p], inner);
+      const linha = isSel && p === 0
+        ? "  │" + paint(" > ", "accent") + paint(conteudo.slice(3), "bold") + "│"
+        : "  │" + conteudo + "│";
+      lines.push(linha);
+      owners.push(i);
     }
   }
   lines.push(bottom);
+  owners.push(-1);
+  Object.defineProperty(lines, "owners", { value: owners, enumerable: false });
   return lines;
 }
 
@@ -1918,6 +1934,24 @@ async function runSkills({ out, arg }) {
 
 async function runMemory({ arg, out }) {
   const termo = arg.trim();
+  if (termo.startsWith("auto:")) {
+    const texto = termo.slice(5).trim();
+    if (!texto) { out(paint("  use: /memory auto:<texto>", "warn")); return 2; }
+    const { retain } = await import("../core/agent/memory-auto.mjs");
+    const r = retain(path.join(ROOT, ".pi", "harness", "memory"), { text: texto, scope: "project", source: "cli" });
+    out(r.ok ? paint("  fato retido.", "ok") : paint(`  falha: ${r.error}`, "fail"));
+    return r.ok ? 0 : 1;
+  }
+  if (termo.startsWith("recall:")) {
+    const consulta = termo.slice(7).trim();
+    const { recall } = await import("../core/agent/memory-auto.mjs");
+    const r = recall(path.join(ROOT, ".pi", "harness", "memory"), consulta, { limit: 8 });
+    if (!r.ok) { out(paint(`  falha: ${r.error}`, "fail")); return 1; }
+    const itens = r.results || [];
+    out(paint(`  memória automática: ${itens.length} resultado(s)`, itens.length ? "fg" : "muted"));
+    for (const item of itens.slice(0, 8)) out(`    ${String(item.text || "").replace(/\s+/g, " ").slice(0, 70)}`);
+    return 0;
+  }
   const { openStore } = await import("../core/memory/store.mjs");
   const { searchCapabilities } = await import("../core/memory/search.mjs");
   const store = openStore({ root: MEMORY });
@@ -3212,6 +3246,16 @@ async function carregarRegrasStream() {
   }
 }
 
+let keepAlive = null;
+
+/** Fecha processos de fundo segundo a política, com efeito real ligado ao killTree. */
+async function encerrarProcessosDeFundo() {
+  if (!keepAlive) return;
+  try {
+    await keepAlive.shutdown("cli-exit");
+  } catch { /* saída nunca deve travar por causa da política */ }
+}
+
 let currentRole = "default";
 let papelCooldown = null; // instanciado sob demanda (core/router/model-roles.mjs)
 let papelRegras = []; // regras path-scope do arquivo local, se houver
@@ -3315,6 +3359,112 @@ async function runSecurityLogCommand({ out }) {
     out(paint(`  ${String(err?.message || err).slice(0, 120)}`, "fail"));
     return 1;
   }
+}
+
+/** `/agents [id]` — definições de agente do projeto e do usuário. */
+async function runAgents({ arg, out }) {
+  const { readAgentDefs, resolveAgent } = await import("../core/agent/agent-defs.mjs");
+  const defs = await readAgentDefs(workspaceRoot);
+  const alvo = String(arg ?? "").trim();
+  if (alvo) {
+    const agente = resolveAgent(defs, alvo);
+    out(agente
+      ? paint(`  ${agente.id} · ${agente.mode} · ${agente.model || "(modelo do motor)"}`, "fg")
+      : paint(`  agente "${alvo}" não encontrado.`, "warn"));
+    return agente ? 0 : 1;
+  }
+  if (!defs.length) { out(paint("  nenhuma definição de agente encontrada.", "muted")); return 0; }
+  out(paint(`  agentes: ${defs.length}`, "fg"));
+  for (const d of defs.slice(0, 40)) out(`    ${d.id}  ${d.mode}  ${d.model || ""}`.trimEnd());
+  return 0;
+}
+
+/** `/team [board:id|step:id|create:nome]` */
+async function runTeam({ arg, out, pi }) {
+  void pi;
+  const { createTeam, board, runTeamStep, teamsDir } = await import("../core/agent/team.mjs");
+  const { readdir } = await import("node:fs/promises");
+  const partes = String(arg ?? "").trim().split(":");
+  const acao = partes[0] || "list";
+  const alvo = partes[1] || "";
+  const dir = teamsDir(workspaceRoot);
+  const listar = async () => {
+    const nomes = (await readdir(dir).catch(() => [])).filter((n) => n.endsWith(".json"));
+    out(paint(`  equipes: ${nomes.length ? nomes.map((n) => n.replace(/\.json$/, "")).join(", ") : "(nenhuma)"}`, nomes.length ? "fg" : "muted"));
+  };
+  if (acao === "create") {
+    if (!alvo) { out(paint("  use: /team create:nome", "warn")); return 2; }
+    const r = await createTeam({ name: alvo, root: workspaceRoot });
+    out(r.ok ? paint(`  equipe ${r.team.id} criada.`, "ok") : paint(`  falha: ${r.error}`, "fail"));
+    return r.ok ? 0 : 1;
+  }
+  if (acao === "board") {
+    if (!alvo) { out(paint("  use: /team board:id", "warn")); return 2; }
+    const r = await board(alvo, { root: workspaceRoot });
+    if (!r.ok) { out(paint(`  falha: ${r.error}`, "fail")); return 1; }
+    for (const [estado, itens] of Object.entries(r.board?.columns || {})) {
+      out(paint(`  ${estado}: ${itens.length}`, "fg"));
+      for (const t of itens.slice(0, 12)) out(`    ${String(t.agentId || "").slice(0, 12)}  ${String(t.goal || "").slice(0, 46)}`);
+    }
+    return 0;
+  }
+  if (acao === "step") {
+    if (!alvo) { out(paint("  use: /team step:id", "warn")); return 2; }
+    const r = await runTeamStep(alvo, { root: workspaceRoot });
+    out(r.ok ? paint(`  passo ${r.step?.step}: ${r.step?.message || "sem mudança"}`, "ok") : paint(`  falha: ${r.error}`, "fail"));
+    return r.ok ? 0 : 1;
+  }
+  await listar();
+  return 0;
+}
+
+/** `/cell <código>` — célula persistente com ferramentas internas mínimas. */
+let cellRuntime = null;
+async function runCell({ arg, out }) {
+  const codigo = String(arg ?? "").trim();
+  if (!codigo) { out(paint("  use: /cell <código>", "warn")); return 2; }
+  try {
+    if (!cellRuntime) {
+      const { createCellRuntime } = await import("../core/agent/cells.mjs");
+      cellRuntime = createCellRuntime({
+        tools: {
+          echo: async ({ text }) => ({ text: String(text ?? "") }),
+          soma: async ({ a, b }) => ({ total: Number(a) + Number(b) }),
+        },
+        allow: ["echo", "soma"],
+        timeoutMs: 5000,
+        maxCalls: 20,
+      });
+    }
+    const r = await cellRuntime.run(codigo.replace(/\\n/g, "\n"));
+    if (!r.ok) { out(paint(`  célula: ${r.error}`, "fail")); return 1; }
+    out(paint(`  célula ok · ${r.calls} chamada(s)`, "ok"));
+    out(paint("  " + JSON.stringify(r.value).slice(0, 500), "fg"));
+    return 0;
+  } catch (err) {
+    out(paint(`  célula: ${String(err?.message || err).slice(0, 160)}`, "fail"));
+    return 1;
+  }
+}
+
+/** `/events [emit:tipo:texto|status]` */
+async function runEvents({ arg, out }) {
+  const { emitEvent, defaultEventsDir } = await import("../core/forge/events.mjs");
+  const { readdir } = await import("node:fs/promises");
+  const dir = defaultEventsDir(workspaceRoot);
+  const texto = String(arg ?? "").trim();
+  if (texto.startsWith("emit:")) {
+    const partes = texto.slice(5).split(":");
+    const tipo = partes.shift() || "manual";
+    const payload = partes.join(":");
+    const r = await emitEvent({ dir, type: tipo, payload: { text: payload } });
+    out(r.ok ? paint(`  evento ${r.event.type} registrado.`, "ok") : paint(`  falha: ${r.error}`, "fail"));
+    return r.ok ? 0 : 1;
+  }
+  const arquivos = (await readdir(dir).catch(() => [])).filter((n) => n.endsWith(".jsonl"));
+  out(paint(`  eventos: ${arquivos.length}`, arquivos.length ? "fg" : "muted"));
+  for (const nome of arquivos.slice(-8)) out(`    ${nome}`);
+  return 0;
 }
 
 /** `/dap [arquivo]` — adaptadores DAP configurados em .pi/dap.json. */
@@ -4396,11 +4546,9 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       for (const linha of linhas) { belowLines.push(linha); belowTargets.push(alvo); }
     };
     if (open && paletteLines.length) {
-      const MAX_ROWS = 8;
-      const inicio = filtered.length > MAX_ROWS
-        ? Math.max(0, Math.min(sel - (MAX_ROWS >> 1), filtered.length - MAX_ROWS)) : 0;
+      const donos = paletteLines.owners || [];
       for (let j = 0; j < paletteLines.length; j += 1) {
-        const item = j === 0 || j === paletteLines.length - 1 ? null : inicio + j - 1;
+        const item = donos[j] == null ? null : donos[j];
         empilhar([paletteLines[j]], item == null ? null : () => escolherPaleta(item));
       }
     } else {
@@ -5278,6 +5426,19 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
 
   const submit = async (rawText) => {
     let text = rawText;
+    try {
+      const { parseMagicWords } = await import("../core/agent/magic-words.mjs");
+      const magicas = parseMagicWords(text);
+      text = magicas.textoLimpo;
+      for (const diretiva of magicas.diretivas) {
+        recordEvent("magic", `${diretiva.nome}${diretiva.alvo ? ":" : ""}${diretiva.alvo || ""}`);
+        const nivel = diretiva.nome === "ultrathink" ? "high" : diretiva.nome === "chillax" ? "low" : null;
+        if (nivel) await runSlash("/effort", nivel, () => {}, { pi });
+        if (diretiva.nome === "orchestrate" || diretiva.nome === "workflowz") {
+          currentRole = "task";
+        }
+      }
+    } catch { /* palavras de controle são opcionais */ }
     write("\n");
     history.push(text);
     histIdx = history.length;
@@ -5796,6 +5957,11 @@ async function main() {
   void carregarRegrasPapel();
   void carregarRegrasStream();
   void carregarCooldownPapel();
+  try {
+    const { KeepAlive } = await import("../core/sandbox/keepalive.mjs");
+    const { killTree } = await import("../core/sandbox/run-sandboxed.mjs");
+    keepAlive = new KeepAlive({ kill: async (pid) => { await killTree(Number(pid)); } });
+  } catch { keepAlive = null; }
   const args = process.argv.slice(2);
 
   // Sessão: nova por padrão. Retomar só com escolha explícita.
@@ -6008,6 +6174,7 @@ async function main() {
   }
   await repl({ pi: engineRef.current, engineRef, write: (s) => stdout.write(s), input: stdin, setRaw, data, sessionOpts });
   setRaw(false);
+  await encerrarProcessosDeFundo();
   if (engineRef.current) await engineRef.current.close().catch(() => {});
   process.exitCode = 0;
 }

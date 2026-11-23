@@ -13,6 +13,8 @@ created: 2026-11-19
 2. **Node Permission Model** — isolamento em runtime. Recusa `fs.readFile` fora do workdir, `fetch`, `net.connect`, `child_process`.
 3. **Job Objects** (Windows) — contenção de processos. Descartado com número na mesa (ver `docs/fase2/sandbox.md`).
 
+`core/sandbox/keepalive.mjs` registra processos de fundo e decide na saída entre manter e encerrar. A política usa relógio e executor injetáveis, e a CLI liga o executor ao `killTree`. Isso evita o erro medido em outras harnesses de matar ao sair um servidor que uma tarefa ainda precisava.
+
 ## Observabilidade
 
 `core/sandbox/telemetry.mjs` registra toda decisão `block`/`warn` em

@@ -26,6 +26,12 @@ created: 2026-11-19
 | `core/agent/ast-edit.mjs` | Edição estrutural com âncora por hash e preview | `hashTexto`, `localizarBloco`, `planejarEdicao`, `aplicarEdicao` |
 | `core/agent/advisor.mjs` | Notas de revisor e regras de stream com abort | `observeTurn`, `parseNotes`, `verificarStream` |
 | `core/agent/dap.mjs` | Cliente DAP zero-dep (launch, breakpoints, stepping, variables) | `DapClient`, `readDapConfig`, `adapterForFile` |
+| `core/agent/agent-defs.mjs` | Definições de agente, modos e permissões ordenadas | `readAgentDefs`, `resolveAgent`, `checkPermission` |
+| `core/agent/team.mjs` | Equipes persistentes com quadro, mensagens e tarefas | `createTeam`, `board`, `runTeamStep` |
+| `core/agent/memory-auto.mjs` | Memória automática com redação e recuperação | `retain`, `recall`, `digestSession` |
+| `core/agent/magic-words.mjs` | Palavras de controle somente em prosa | `parseMagicWords` |
+| `core/agent/cells.mjs` | Célula persistente restrita com reentrada de ferramenta | `createCellRuntime` |
+| `core/agent/refutation-audit.mjs` | Auditoria de afirmações com veredito | `audit` |
 | `core/agent/code-mode.mjs` | Executa programa curto com acesso restrito a tools (`node:vm`) | `runCode` |
 | `scripts/code-mode-mcp.mjs` | Gateway MCP opt-in que expõe apenas `run_code`; descobre servidores locais em runtime | (processostdio) |
 | `core/agent/mcp.mjs` | Inventaria MCPs do projeto (`.mcp.json` / `.pi/settings.json`) | `readMcpConfig`, `listMcpServers` |

@@ -4,6 +4,23 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.0.0] - 2026-11-23
+
+**Equipe de quatro agentes fecha os increments práticos do plano.**
+
+- `core/agent/agent-defs.mjs` (A1): definições de agente em Markdown com frontmatter simples, modos primary/subagent/all, modelo com variante, permissões ordenadas em que a última regra vence. 14 testes.
+- `core/sandbox/keepalive.mjs` (A1): política explícita de manutenção de processo de fundo, com relógio e executor injetáveis, ligada ao `killTree` na saída da CLI. 10 testes.
+- `core/agent/team.mjs` (A2): equipes persistentes com quadro, mensagens, caixa de entrada, tarefas e passo determinístico. Escrita atômica. 32 testes.
+- `core/forge/events.mjs` (A2): eventos externos no Forge com deduplicação e cursor persistido. 32 testes.
+- `core/agent/memory-auto.mjs` (A3): retenção, recuperação por sobreposição de termos, lições e resumo de sessão, com redação de segredo. 16 testes.
+- `core/agent/magic-words.mjs` (A3): palavras de controle em prosa, nunca dentro de código, URL ou caminho. 15 testes.
+- `core/agent/cells.mjs` (A3): célula persistente e restrita com reentrada de ferramenta. Refutação encontrou e corrigiu poluição de protótipo do host. 20 testes.
+- `core/agent/refutation-audit.mjs` (A4): auditoria de afirmações com veredito sustentada, refutada ou sem prova. Testes com servidores reais condicionais por variável de ambiente.
+- **Refutação real encontrada e corrigida:** a paleta truncava descrições com reticência. Agora quebra em linhas, preserva até oito linhas visíveis e mantém o clique por item. As outras quatro afirmações do `PROJECT.md` sobreviveram à tentativa de derrubada.
+- Novos comandos: `/agents`, `/team`, `/bus`, `/cell`. Palavras de controle e memória automática ligadas ao envio de mensagem e a `/memory`.
+- `npm test`: 1303 testes, 1296 passam, 7 pulados. `npm run verify`: 33/33.
+- Documentação: README, estado, produto, vault e `PROJECT.md` atualizados.
+
 ## [1.9.3] - 2026-11-23
 
 **Limites técnicos testados e polidos.**

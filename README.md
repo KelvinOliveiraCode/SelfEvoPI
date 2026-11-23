@@ -169,6 +169,12 @@ cursor. Mouse and cursor-position reports are parsed out of the input stream, so
 a click never becomes typed text. The frame follows `stdout.columns` and redraws
 on window resize; `--render` stays deterministic at 72 columns.
 
+**Teams, events and memory.** Persistent teams keep a board, messages and
+deterministic steps. A local event bus feeds the Forge with deduplication and a
+saved cursor. Auto memory retains redacted facts, recalls by term overlap and
+digest sessions. Magic words in prose change effort without touching code or
+paths. `/agents`, `/team`, `/bus` and `/cell` expose these in the terminal.
+
 **Editing and debugging.** `/ast-edit` previews structural edits anchored by
 line hashes and only writes with `--apply`. `/dap` lists debug adapters from
 `.pi/dap.json`; the DAP client also supports breakpoints, stepping and variable

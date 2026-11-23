@@ -107,6 +107,12 @@ skill — recair para CLI gerava sucesso com a interface errada.
   largura acompanha a janela (`SIGWINCH` redesenha); em pipe, 72 colunas fixas.
 - **Queda do modelo**: até 5 tentativas antes do erro; após 3 falhas a sessão do
   motor é reiniciada para que a conversa não fique presa repetindo a mensagem.
+- **Equipes e eventos**: `/team` mantém quadro, mensagens e tarefas entre sessões;
+  `/bus` emite e inspeciona eventos do Forge com cursor persistido. `/agents`
+  mostra definições de agente e permissões efetivas.
+- **Memória e automação**: `/memory auto` e `/memory recall` gravam e recuperam
+  fatos com redação de segredo. Palavras de controle em prosa ajustam esforço e
+  papel. `/cell` executa código persistente e restrito.
 - **Edição e debug**: `/ast-edit` faz edição estrutural com âncora por hash e
   prévia antes de gravar; `/dap` lista adaptadores de debug; regras de stream
   abortam o modelo no meio do token quando um padrão proibido aparece.

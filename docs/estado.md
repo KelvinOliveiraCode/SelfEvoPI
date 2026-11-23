@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-22 · **Versão:** 1.9.3 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-22 · **Versão:** 2.0.0 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
@@ -54,6 +54,11 @@ O produto é a CLI. Nada mais.
 | Edição estrutural | `/ast-edit` com âncora por hash, prévia e `--apply` | 0 gravações sem preview | `core/agent/ast-edit.test.mjs` (19) |
 | Advisor / stream rules | notas `NOTE/CONCERN/BLOCKER`, abort uma vez | 0 padrões perdidos entre deltas | `core/agent/advisor.test.mjs` (7) |
 | DAP | cliente zero-dep + `/dap`, breakpoints/stepping/variables/configurationDone | 0 segredos no filho | `core/agent/dap.test.mjs` (8, 1 real opcional) |
+| Definições de agente | frontmatter próprio, modos, permissões ordenadas | 0 dependências | `core/agent/agent-defs.test.mjs` (14) |
+| Keep alive | política explícita de processo de fundo ligada ao killTree | 0 processos órfãos na saída | `core/sandbox/keepalive.test.mjs` (10) |
+| Equipes e eventos | quadro, mensagens, passo determinístico, cursor persistido | 0 arquivos meio escritos | `core/agent/team.test.mjs` + `core/forge/events.test.mjs` (64) |
+| Memória e automação | fatos redigidos, palavras de controle em prosa, célula persistente | 0 poluição de host | 51 testes dos três módulos |
+| Refutação | auditoria de afirmações + testes condicionais com binário real | 1 afirmação corrigida | `core/agent/refutation-audit.test.mjs` (8) |
 
 > Os números são fotografias desta data, não garantia de desempenho. Cada linha
 > traz o comando que a produziu.

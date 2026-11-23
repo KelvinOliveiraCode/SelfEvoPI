@@ -39,6 +39,10 @@ Os comandos reais, conforme a lista `COMMANDS` em `apps/cli.mjs` (a fonte
 | `/ast-edit <arquivo> <símbolo> <novo> [--apply]` | Edição estrutural com preview e âncora por hash | `core/agent/ast-edit.mjs` |
 | `/advisor` | Notas do revisor e regras de stream | `core/agent/advisor.mjs` |
 | `/dap [arquivo]` | Adaptadores DAP de `.pi/dap.json` | `core/agent/dap.mjs` |
+| `/agents [id]` | Definições de agente e permissões efetivas | `core/agent/agent-defs.mjs` |
+| `/team [board:id\|step:id\|create:nome]` | Equipes persistentes com quadro e mensagens | `core/agent/team.mjs` |
+| `/bus [emit:tipo:texto\|status]` | Eventos do Forge com cursor persistido | `core/forge/events.mjs` |
+| `/cell <código>` | Célula persistente e restrita | `core/agent/cells.mjs` |
 | `/hooks` | Hooks de ciclo de vida do workspace e últimos resultados | `core/agent/hooks.mjs` |
 | `/security-log` | Últimas decisões `block`/`warn` do gate | `core/sandbox/telemetry.mjs` |
 | `/resume [id]` | Retoma sessão salva (nova é o padrão na abertura) | `apps/cli.mjs`, `core/agent/pi-rpc.mjs` |
