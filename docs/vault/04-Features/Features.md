@@ -93,6 +93,17 @@ a saída é redigida antes de aparecer. Um hook que falha ou expira é registrad
 como observabilidade e **nunca** derruba o turno. `/hooks` mostra a config e os
 últimos resultados. Implementação em `core/agent/hooks.mjs`.
 
+## LSP
+
+`core/agent/lsp.mjs` fala LSP sobre stdio com zero dependências: framing por
+`Content-Length` em bytes, parser incremental, `initialize`, `didOpen`,
+`didChange`, `publishDiagnostics` (com fallback de pull), `rename`, `hover` e
+`documentSymbols`. Servidores vêm de `.pi/lsp.json` e recebem um allowlist de
+variáveis de ambiente. `/lsp <arquivo> [ação]` expõe isso na TUI.
+
+Limite honesto: posições em UTF-16 code units não convertidas e nenhum teste
+com servidor real (tsserver/pyright/rust-analyzer).
+
 ## Papéis de modelo e rewind
 
 Nove papéis (`default`, `smol`, `slow`, `plan`, `commit`, `advisor`, `vision`,

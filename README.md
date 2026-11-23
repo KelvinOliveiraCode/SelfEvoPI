@@ -168,6 +168,11 @@ cursor. Mouse and cursor-position reports are parsed out of the input stream, so
 a click never becomes typed text. The frame follows `stdout.columns` and redraws
 on window resize; `--render` stays deterministic at 72 columns.
 
+**LSP.** A zero-dependency LSP client reads `.pi/lsp.json` and exposes
+diagnostics, symbols, hover and rename through `/lsp <file> [action]`. The child
+server gets an environment allowlist. Position encoding (UTF-16) is not yet
+converted — see the changelog for the honest limit.
+
 **Model roles and rewind.** Nine model roles (`default`, `smol`, `slow`, `plan`,
 `commit`, `advisor`, `vision`, `task`, `tiny`) select models by context, cost,
 image support and reasoning effort, with fallback chains, path-scoped rules and

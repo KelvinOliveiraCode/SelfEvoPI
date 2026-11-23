@@ -24,6 +24,7 @@ import {
   renderBanner,
   makeOut,
   parseTerminalReports,
+  currentModelRole,
   recordEvent,
   listEvents,
   clearEvents,
@@ -224,6 +225,32 @@ test("makeOut aplica o crivo da tela à saída de comandos longos", () => {
     const fechado = (linha.match(/\x1b\[0m/g) || []).length;
     assert.equal(aberto, fechado, "SGR deve fechar na mesma linha visual");
   }
+});
+
+test("/lsp sem argumentos lista servidores configurados sem lance", async () => {
+  const escrito = [];
+  const codigo = await runSlash("/lsp", "", (s) => escrito.push(s), {});
+  assert.equal(codigo, 0);
+  assert.match(stripAnsi(escrito.join("")), /servidores LSP/);
+});
+
+test("/role troca o papel e valida nome desconhecido", async () => {
+  const escrito = [];
+  const pi = {
+    setModel: async (provider, id) => { pi.ref = `${provider}/${id}`; },
+    getState: async () => ({ model: { provider: "kilo1", id: "modelo-grande:free" } }),
+  };
+  const codigo = await runSlash("/role", "slow", (s) => escrito.push(s), { pi });
+  assert.equal(codigo, 0);
+  assert.equal(currentModelRole(), "slow");
+  assert.match(stripAnsi(escrito.join("")), /slow/);
+  assert.ok(pi.ref, "deve ter aplicado um modelo");
+
+  escrito.length = 0;
+  const invalido = await runSlash("/role", "inexistente", (s) => escrito.push(s), { pi });
+  assert.equal(invalido, 2);
+  assert.equal(currentModelRole(), "slow", "papel inválido não muda o atual");
+  await runSlash("/role", "default", () => {}, { pi });
 });
 
 test("frameWidth e responseFrame acompanham uma janela estreita", () => {

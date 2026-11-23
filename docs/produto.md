@@ -107,6 +107,8 @@ skill — recair para CLI gerava sucesso com a interface errada.
   largura acompanha a janela (`SIGWINCH` redesenha); em pipe, 72 colunas fixas.
 - **Queda do modelo**: até 5 tentativas antes do erro; após 3 falhas a sessão do
   motor é reiniciada para que a conversa não fique presa repetindo a mensagem.
+- **LSP**: `/lsp` lista servidores de `.pi/lsp.json` e roda diagnósticos,
+  símbolos, hover ou rename num arquivo, com cliente zero-dependência.
 - **Papéis de modelo e rewind**: nove papéis (`default`, `smol`, `slow`, `plan`,
   `commit`, `advisor`, `vision`, `task`, `tiny`) escolhem o modelo por
   custo/contexto/raciocínio com fallback e cooldown. `/rewind` cria uma nova

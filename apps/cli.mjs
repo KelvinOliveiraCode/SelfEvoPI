@@ -1340,6 +1340,8 @@ export const COMMANDS = [
   { name: "/memory", args: "<termo>", description: tr("cmd.memory"), run: runMemory },
   { name: "/skills", args: "", description: tr("cmd.skills"), run: runSkills },
   { name: "/model", args: "[nome]", description: tr("cmd.model"), run: runModel },
+  { name: "/role", args: "[nome]", description: tr("cmd.role"), run: runRole },
+  { name: "/lsp", args: "<arquivo> [ação]", description: tr("cmd.lsp"), run: runLsp },
   { name: "/effort", args: "[off|low|medium|high]", description: tr("cmd.effort"), run: runEffort },
   {
     name: "/mode",
@@ -1418,6 +1420,7 @@ const ARG_TR = {
     "[list|add|rm|models]": "[list|add|rm|models]",
     "[list|discover|add|rm|models]": "[list|discover|add|rm|models]",
     "[drop-errors|last:N|id:<id>]": "[drop-errors|last:N|id:<id>]",
+    "<arquivo> [ação]": "<file> [action]",
   },
   pt: {},
 };
@@ -3189,6 +3192,33 @@ export function recordEvent(kind, text, meta = {}) {
   return sessionEvents[sessionEvents.length - 1];
 }
 
+/* ------------------------ papéis de modelo ------------------------------ */
+
+let currentRole = "default";
+let papelCooldown = null; // instanciado sob demanda (core/router/model-roles.mjs)
+let papelRegras = []; // regras path-scope do arquivo local, se houver
+
+/** Papel ativo, exposto para a barra de estado e para os testes. */
+export function currentModelRole() {
+  return currentRole;
+}
+
+/** Marca o modelo atual como falho; o próximo turno evita esse ref. */
+async function marcarModeloFalho(pi) {
+  try {
+    if (!papelCooldown) {
+      const { Cooldown } = await import("../core/router/model-roles.mjs");
+      papelCooldown = new Cooldown();
+    }
+    const st = pi && typeof pi.getState === "function" ? await pi.getState().catch(() => ({})) : {};
+    if (st?.model?.provider && st?.model?.id) {
+      papelCooldown.failure(`${st.model.provider}/${st.model.id}`);
+    }
+  } catch {
+    /* cooldown é observabilidade: nunca atrapalha o erro */
+  }
+}
+
 /* ------------------------ hooks de ciclo de vida ------------------------ */
 
 let hooksCache; // undefined = ainda não lido; null = indisponível
@@ -3242,6 +3272,120 @@ async function runSecurityLogCommand({ out }) {
     out(paint(`  ${String(err?.message || err).slice(0, 120)}`, "fail"));
     return 1;
   }
+}
+
+/** `/lsp <arquivo> [diagnostics|symbols|hover:L:C|rename:L:C:novo]` */
+async function runLsp({ arg, out }) {
+  const { readFile } = await import("node:fs/promises");
+  const { readLspConfig, serverForFile, LspClient } = await import("../core/agent/lsp.mjs");
+  const cfg = await readLspConfig(workspaceRoot);
+  const nomes = Object.keys(cfg.servers || {});
+  const partes = String(arg ?? "").trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) {
+    out(paint(`  servidores LSP: ${nomes.length ? nomes.join(", ") : "(nenhum em .pi/lsp.json)"}`, nomes.length ? "fg" : "muted"));
+    return 0;
+  }
+  const arquivo = path.resolve(workspaceRoot, partes[0]);
+  const servidor = serverForFile(cfg, arquivo);
+  if (!servidor) {
+    out(paint("  nenhum servidor LSP configurado para essa extensão.", "warn"));
+    return 1;
+  }
+  const acao = (partes[1] || "diagnostics").toLowerCase();
+  const uri = pathToFileURL(arquivo).href;
+  const extensao = path.extname(arquivo).slice(1) || "text";
+  let client;
+  try {
+    client = new LspClient({
+      command: servidor.command,
+      args: servidor.args || [],
+      cwd: workspaceRoot,
+      env: servidor.env || {},
+    });
+    await client.start();
+    const texto = await readFile(arquivo, "utf8");
+    client.openDocument(uri, extensao, texto);
+    if (acao === "symbols") {
+      const simbolos = await client.documentSymbols(uri);
+      out(paint(`  símbolos: ${simbolos.length}`, "fg"));
+      for (const s of simbolos.slice(0, 40)) {
+        out(`    ${String(s.kind ?? "?").padEnd(12)} ${s.name}`);
+      }
+    } else if (acao.startsWith("hover:")) {
+      const [, l, c] = acao.split(":");
+      const textoHover = await client.hover(uri, Number(l) - 1 || 0, Number(c) - 1 || 0);
+      out(textoHover ? paint("  " + String(textoHover).slice(0, 500), "fg") : paint("  sem hover.", "muted"));
+    } else if (acao.startsWith("rename:")) {
+      const [, l, c, ...resto] = acao.split(":");
+      const novo = resto.join(":");
+      if (!novo) { out(paint("  use rename:L:C:novoNome", "warn")); return 2; }
+      const r = await client.rename(uri, Number(l) - 1 || 0, Number(c) - 1 || 0, novo);
+      const total = r?.changes ? Object.values(r.changes).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0) : 0;
+      out(paint(`  rename: ${total} edição(ões) proposta(s) (${servidor.nome})`, total ? "ok" : "warn"));
+    } else {
+      const diagnosticos = await client.diagnostics(uri);
+      out(paint(`  diagnósticos: ${diagnosticos.length}`, diagnosticos.length ? "warn" : "ok"));
+      for (const d of diagnosticos.slice(0, 40)) {
+        const linha = (d.range?.start?.line ?? 0) + 1;
+        out(`    ${String(linha).padStart(4)}  ${String(d.severity ?? "?")}  ${d.message}`);
+      }
+    }
+    return 0;
+  } catch (err) {
+    out(paint(`  LSP: ${String(err?.message || err).slice(0, 160)}`, "fail"));
+    return 1;
+  } finally {
+    if (client) await client.close().catch(() => {});
+  }
+}
+
+/** Lê regras de papel por caminho de ~/.pi/agent/model-roles.json (opcional). */
+async function carregarRegrasPapel() {
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const os = await import("node:os");
+    const pathMod = await import("node:path");
+    const arquivo = pathMod.join(os.homedir(), ".pi", "agent", "model-roles.json");
+    const doc = JSON.parse(await readFile(arquivo, "utf8"));
+    papelRegras = Array.isArray(doc?.rules) ? doc.rules : [];
+    if (doc?.default && typeof doc.default === "string") {
+      const { normalizeRole } = await import("../core/router/model-roles.mjs");
+      currentRole = normalizeRole(doc.default);
+    }
+  } catch {
+    papelRegras = [];
+  }
+}
+
+async function runRole({ arg, out, pi }) {
+  const { ROLES, normalizeRole, resolveRole, pathScopedRoles } =
+    await import("../core/router/model-roles.mjs");
+  const alvo = String(arg ?? "").trim();
+  const escopo = pathScopedRoles(papelRegras, workspaceRoot);
+  if (!alvo) {
+    const linhas = [paint(`  ${tr("role.title")}: ${currentRole}`, "fg")];
+    linhas.push("  " + ROLES.join("  "));
+    if (Object.keys(escopo).length) linhas.push(paint(`  escopo: ${JSON.stringify(escopo)}`, "muted"));
+    out(linhas.join("\n"));
+    return 0;
+  }
+  if (!ROLES.includes(alvo.toLowerCase())) {
+    out(paint(`  ${tr("role.unknown", { roles: ROLES.join(" ") })}`, "warn"));
+    return 2;
+  }
+  const role = normalizeRole(alvo);
+  currentRole = escopo[role] ? normalizeRole(escopo[role]) : role;
+  const candidatos = listConfiguredModels().map((m) => ({ ...m, ref: `${m.provider}/${m.id}` }));
+  const escolha = resolveRole(currentRole, { models: candidatos, cooldown: papelCooldown });
+  if (!escolha) {
+    out(paint("  nenhum modelo disponível para esse papel.", "warn"));
+    return 1;
+  }
+  if (pi && typeof pi.setModel === "function") {
+    await pi.setModel(escolha.provider, escolha.id).catch(() => {});
+  }
+  out(paint(`  ${tr("role.changed", { role: currentRole, ref: escolha.ref })}`, "ok"));
+  return 0;
 }
 
 /**
@@ -3755,12 +3899,17 @@ export async function converseOrFallback(pi, text, write, opts = {}) {
         write(responseFrame(res.text).join("\n") + "\n\n");
         write("  " + paint(tr("engine.reset"), "muted") + "\n");
       }
+      try {
+        const st = await pi.getState().catch(() => ({}));
+        if (papelCooldown && st?.model) papelCooldown.restore(`${st.model.provider}/${st.model.id}`);
+      } catch { /* best-effort */ }
       return res;
     }
   }
 
   // Nenhuma tentativa no modelo atual funcionou. Deixa a sessão limpa para que
   // a PRÓXIMA mensagem (ou o /model do usuário) não herde o erro.
+  await marcarModeloFalho(pi);
   await pi.newSession?.().catch(() => {});
   if (!allowFallback || !Array.isArray(candidates) || candidates.length === 0) {
     write(engineErrorMessage(res?.error) + "\n");
@@ -3806,6 +3955,7 @@ export async function converseOrFallback(pi, text, write, opts = {}) {
     }
     if (r.error) lastErr = r.error; // guarda o último erro (p/ a mensagem final)
   }
+  await marcarModeloFalho(pi);
   await pi.newSession?.().catch(() => {});
   write(engineErrorMessage(lastErr) + "\n");
   write("  " + paint(tr("engine.reset"), "muted") + "\n");
@@ -4071,6 +4221,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       paint("◍ " + currentMode, "fg"),
       paint(permissionMode, "tool"),
     ];
+    if (currentRole !== "default") statusParts.push(paint("◇ " + currentRole, "tool"));
     const model = shortModel(statusInfo.model);
     if (model) statusParts.push(paint("⚡ " + model, "fg"));
     if (statusInfo.contextPct != null) {
@@ -5509,6 +5660,7 @@ function instalarFiltroAvisoSessao() {
 
 async function main() {
   instalarFiltroAvisoSessao();
+  void carregarRegrasPapel();
   const args = process.argv.slice(2);
 
   // Sessão: nova por padrão. Retomar só com escolha explícita.

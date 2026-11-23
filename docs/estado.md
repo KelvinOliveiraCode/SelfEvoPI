@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-22 · **Versão:** 1.6.0 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-22 · **Versão:** 1.7.0 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
@@ -49,6 +49,8 @@ O produto é a CLI. Nada mais.
 | Janela estreita | `frameWidth()` segue as colunas reais; 50 col → 48 úteis, 0 vazamento | ≤ janela | teste de `frameWidth` com `isTTY` simulado |
 | Papéis de modelo | 9 papéis, cadeia de fallback, cooldown e escopo por path | 0 mudanças no roteador | `core/router/model-roles.test.mjs` |
 | `/rewind` | recorta erros/turnos em nova sessão; original intacta | 0 sobrescritas | `core/agent/rewind.test.mjs` + `apps/cli-rewind.test.mjs` |
+| Papéis na TUI | `/role` troca papel, status mostra `◇`, falha alimenta cooldown | 0 erros de locale | `apps/cli-features.test.mjs` |
+| LSP | cliente zero-dep + `/lsp` (diagnostics/symbols/hover/rename) | 0 segredos no filho | `core/agent/lsp.test.mjs` (6 testes) |
 
 > Os números são fotografias desta data, não garantia de desempenho. Cada linha
 > traz o comando que a produziu.
@@ -118,6 +120,7 @@ A sonda pega isso antes.
 | `/btw`, keybindings customizáveis e barra de progresso no título | não implementados: exigem roteamento de modelo auxiliar ou camada de config que ainda não existe. Decisão registrada em `round2.md`. Hooks já existem (`.pi/hooks.json`). |
 | Recuperação de skills é lexical | busca por termo em texto e tags, sem embeddings. |
 | Auto-disparo do loop evolutivo | `core/forge/auto.mjs` já faz `--once`/`--watch` com dry-run por padrão e travas; falta reagir a eventos externos (webhook, fila, ticket). |
+| LSP em posições UTF-16 | cliente LSP novo não converte `character` para UTF-16 code units; servidores reais (tsserver/pyright) não verificados |
 | Grupo B do gate com chamadas reais de modelo | não roda no CI; fica local para quem tem credencial. |
 | 4 modelos do catálogo não devolvem texto ao prompt mínimo | `stealth/crouton-alpha`, `thinkingmachines/inkling-2-small`, `inclusionai/ling-3.2-flash` e `liquid/lfm-3-1.7b` terminam `settled` sem texto em parte dos provedores. A CLI recupera `get_last_assistant_text`; quando ainda assim vem vazio, é comportamento do provedor, não divergência de capacidade. |
 

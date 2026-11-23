@@ -4,6 +4,25 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.7.0] - 2026-11-23
+
+**Integração na TUI e LSP — segunda leva do plano.**
+
+- `/role [nome]`: mostra ou troca o papel de modelo ativo; a escolha aparece na
+  barra de estado (`◇ papel`). Falhas de modelo alimentam o `Cooldown` do papel,
+  então o próximo turno evita o ref que quebrou. Regras opcionais por caminho
+  em `~/.pi/agent/model-roles.json`.
+- `core/agent/lsp.mjs` (subagente `hy4-flash-free` high): cliente LSP mínimo,
+  zero-dependência, com `Content-Length` em bytes UTF-8, parser incremental,
+  `initialize`, `didOpen`/`didChange`, `publishDiagnostics` com fallback de pull,
+  `rename`, `hover` e `documentSymbols`. Ambiente do filho por allowlist.
+- `/lsp` lista servidores de `.pi/lsp.json`; `/lsp <arquivo> [diagnostics|symbols|hover:L:C|rename:L:C:novo]`
+  roda a ação e fecha o servidor. Nenhum segredo sai do config local.
+- Testes: 6 do cliente LSP (com servidor falso) + 1 de `/lsp` + 1 de `/role`.
+  `npm test`: 1103 testes / 1102 passam; `npm run verify`: 33/33.
+- **Limite conhecido:** posições LSP em UTF-16 code units ainda não convertidas;
+  compatibilidade com servidores reais (tsserver/pyright/rust-analyzer) não provada.
+
 ## [1.6.0] - 2026-11-23
 
 **Primeira leva do plano de capacidades: papéis de modelo e rewind.**
