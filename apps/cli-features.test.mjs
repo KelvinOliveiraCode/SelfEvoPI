@@ -23,6 +23,7 @@ import {
   contextBar,
   renderBanner,
   makeOut,
+  parseTerminalReports,
   recordEvent,
   listEvents,
   clearEvents,
@@ -223,6 +224,38 @@ test("makeOut aplica o crivo da tela à saída de comandos longos", () => {
     const fechado = (linha.match(/\x1b\[0m/g) || []).length;
     assert.equal(aberto, fechado, "SGR deve fechar na mesma linha visual");
   }
+});
+
+test("frameWidth e responseFrame acompanham uma janela estreita", () => {
+  const out = process.stdout;
+  const eraTty = out.isTTY;
+  const cols = out.columns;
+  try {
+    Object.defineProperty(out, "isTTY", { value: true, configurable: true });
+    Object.defineProperty(out, "columns", { value: 50, configurable: true });
+    assert.equal(frameWidth(), 48);
+    const quadro = responseFrame("Uma resposta longa que precisa caber na janela estreita sem sobrepor nada na tela do usuario.");
+    for (const linha of quadro) {
+      assert.ok(visibleWidth(stripAnsi(linha)) <= 48, `linha vazou: ${visibleWidth(stripAnsi(linha))}`);
+    }
+  } finally {
+    Object.defineProperty(out, "isTTY", { value: eraTty, configurable: true });
+    Object.defineProperty(out, "columns", { value: cols, configurable: true });
+  }
+});
+
+test("parseTerminalReports separa clique e posição do cursor do comando", () => {
+  const r = parseTerminalReports("\x1b[<0;12;7Mabc\x1b[9;1Rz");
+  assert.equal(r.text, "abcz");
+  assert.equal(r.cliques.length, 1);
+  assert.deepEqual(r.cliques[0], { button: 0, col: 12, row: 7, down: true });
+  assert.deepEqual(r.cursos, [{ row: 9, col: 1 }]);
+});
+
+test("parseTerminalReports ignora soltura de botão e mantém texto íntegro", () => {
+  const r = parseTerminalReports("oi\x1b[<0;3;4m");
+  assert.equal(r.text, "oi");
+  assert.equal(r.cliques[0].down, false);
 });
 
 test("nenhuma linha dos frames passa de 72 colunas em qualquer idioma", () => {

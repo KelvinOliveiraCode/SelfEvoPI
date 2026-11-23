@@ -250,7 +250,7 @@ test("reduceLine: enter/ctrl-c/ctrl-d viram efeitos", () => {
 
 function fakePi({ script } = {}) {
   const h = { text: new Set(), tool: new Set(), settled: new Set() };
-  const rec = { aborted: false, prompts: [] };
+  const rec = { aborted: false, prompts: [], sessions: 0 };
   const emit = (kind, arg) => {
     for (const cb of h[kind] || []) cb(arg);
   };
@@ -273,7 +273,7 @@ function fakePi({ script } = {}) {
     getAvailableModels: async () => [],
     setModel: async () => ({}),
     cycleModel: async () => null,
-    newSession: async () => ({ cancelled: false }),
+    newSession: async () => { rec.sessions += 1; return { cancelled: false }; },
   };
 }
 
@@ -354,6 +354,7 @@ test("converseOrFallback: sem fallback (SELFEOPI_MODEL) mostra o erro", async ()
   const chunks = [];
   const res = await converseOrFallback(pi, "oi", (s) => chunks.push(s), {
     allowFallback: false,
+    maxRetries: 1, // este teste é sobre a voz do erro, não sobre a recessão
     candidates: [{ provider: "kilo1", id: "x" }],
   });
   const out = stripAnsi(chunks.join(""));
@@ -384,6 +385,7 @@ test("converseOrFallback: com fallback, pula modelo vazio e usa o que responde",
   const chunks = [];
   const res = await converseOrFallback(pi, "oi", (s) => chunks.push(s), {
     allowFallback: true,
+    maxRetries: 1, // este teste é sobre o fallback entre modelos
     candidates: [
       { provider: "anthropic", id: "default" }, // pulado: é o atual
       { provider: "kilo1", id: "vazio:free" }, // responde vazio → segue
@@ -395,6 +397,51 @@ test("converseOrFallback: com fallback, pula modelo vazio e usa o que responde",
   assert.match(out, /usei kilo1\/modelo-bom:free/);
   assert.ok(out.includes("ola do modelo de reserva"));
   assert.ok(!/401/i.test(out), "não pode vazar 401");
+});
+
+test("converseOrFallback reconecta até 5 vezes e reinicia a sessão travada", async () => {
+  let attempt = 0;
+  const pi = fakePi({
+    script: (emit) => {
+      attempt += 1;
+      if (attempt < 4) {
+        emit("error", "429 Provider returned error");
+        emit("settled", { aborted: false });
+      } else {
+        emit("text", "resposta após reconexão");
+        emit("settled", { aborted: false });
+      }
+    },
+  });
+  const chunks = [];
+  const res = await converseOrFallback(pi, "oi", (s) => chunks.push(s), {
+    allowFallback: false,
+    candidates: [],
+  });
+  const out = stripAnsi(chunks.join(""));
+  assert.equal(res.ok, true);
+  assert.equal(res.text, "resposta após reconexão");
+  assert.equal(attempt, 4, "deve tentar de novo até responder");
+  assert.match(out, /reconectando \(2\/5\)/);
+  assert.ok(pi.rec.sessions >= 1, "deve reiniciar a sessão após falhas repetidas");
+});
+
+test("converseOrFallback: depois de 5 falhas deixa sessão limpa para a próxima", async () => {
+  const pi = fakePi({
+    script: (emit) => {
+      emit("error", "connect ETIMEDOUT");
+      emit("settled", { aborted: false });
+    },
+  });
+  const chunks = [];
+  const res = await converseOrFallback(pi, "oi", (s) => chunks.push(s), {
+    allowFallback: false,
+    candidates: [],
+  });
+  assert.equal(res.ok, false);
+  assert.equal(pi.rec.prompts.length, 5, "cinco tentativas no mesmo modelo");
+  assert.ok(pi.rec.sessions >= 1, "sessão reiniciada para destravar");
+  assert.match(stripAnsi(chunks.join("")), /sessão reiniciada|session reset/i);
 });
 
 test("isAuthError e fallbackNotice: classificação e voz do produto", () => {
@@ -424,6 +471,7 @@ test("converseOrFallback: orçamento total curto não pendura", async () => {
   const t0 = Date.now();
   const res = await converseOrFallback(pi, "oi", (s) => chunks.push(s), {
     allowFallback: true,
+    maxRetries: 1, // este teste é sobre o orçamento do fallback
     budgetMs: 60,
     perCandidateMs: 25,
     candidates: [

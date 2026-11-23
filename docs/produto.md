@@ -102,6 +102,11 @@ skill — recair para CLI gerava sucesso com a interface errada.
   ambiente mínimo. `/hooks` mostra a config e os últimos resultados.
 - Toda decisão `block`/`warn` do gate vai para um ledger append-only local;
   `/security-log` consulta as últimas entradas sem expor segredos.
+- **Mouse e janela**: em TTY, clique executa comando na paleta, escolhe item no
+  seletor, abre o modelo na barra de estado e posiciona o cursor no prompt. A
+  largura acompanha a janela (`SIGWINCH` redesenha); em pipe, 72 colunas fixas.
+- **Queda do modelo**: até 5 tentativas antes do erro; após 3 falhas a sessão do
+  motor é reiniciada para que a conversa não fique presa repetindo a mensagem.
 - **Code Mode opt-in**: um único tool `run_code` roda um programa curto que
   encadeia chamadas MCP. O contexto não tem `process`, `require`, `fetch`, `eval`
   ou `Function`; há allowlist, limite de chamadas, prazo e teto de saída. Os

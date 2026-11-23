@@ -93,6 +93,18 @@ a saída é redigida antes de aparecer. Um hook que falha ou expira é registrad
 como observabilidade e **nunca** derruba o turno. `/hooks` mostra a config e os
 últimos resultados. Implementação em `core/agent/hooks.mjs`.
 
+## Interação por clique e resiliência
+
+Em TTY a CLI habilita mouse SGR: clique na paleta executa o comando, no seletor
+escolhe o item, na barra de estado abre o seletor de modelo, nas dicas abre
+`/help` e no prompt posiciona o cursor. Relatórios de mouse e de posição são
+separados do fluxo de comando, então um clique nunca vira texto digitado.
+
+A moldura acompanha `stdout.columns` (com `SIGWINCH`), sem piso fixo de 72 em
+TTY; `--render` continua determinístico. Uma chamada ao modelo é tentada até
+cinco vezes antes do erro, e a sessão do motor é reiniciada após três falhas —
+isso evita a mensagem de erro se repetindo infinitamente mesmo após `/model`.
+
 ## Code Mode (opt-in)
 
 Para instalações com muitos servidores MCP, `core/agent/code-mode.mjs` permite

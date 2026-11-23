@@ -46,12 +46,13 @@ Regras:
 
 1. **Prompt na última linha, sempre.** O texto do agente rola para cima.
 2. **Streaming de verdade.** O texto aparece aos poucos, nunca em bloco.
-3. **Atividade de ferramenta como linha curta**: `⏺ read  arquivo` seguido de
-   `⎿ 120 linhas (2 KB)`. Falha aparece como `1 failed` em cor de falha.
+3. **Atividade de ferramenta como linha curta**: `┊ 📄 read      arquivo`, com o
+   resultado alinhado na coluna seguinte. Falha aparece como `1 failed`.
 4. **Raciocínio em bloco discreto**, ocultável com `Alt+T`; quando oculto, resta
    uma linha de resumo com duração.
 5. **Barra de estado sempre visível**: modo, permissão, modelo, esforço, uso de
-   contexto e branch. Nunca passa de 72 colunas.
+   contexto, tempo do turno e branch. Em TTY acompanha a janela; em pipe fica
+   em 72 colunas.
 6. **`Ctrl+O` mostra o estado**, `Ctrl+,` abre o editor de configuração,
    `Ctrl+K` abre sessões com busca e prévia, `Ctrl+P` abre atividade,
    `Ctrl+T` abre tarefas.
@@ -66,6 +67,11 @@ Regras:
 11. **Sem motor, uma linha diz o que fazer**; os comandos `/` continuam valendo.
 12. **Idioma**: inglês por padrão; `/language pt` troca a interface. Nada do que
     é enviado ao modelo depende dessa preferência.
+13. **Clique e janela**: mouse SGR em TTY — clique executa a paleta, escolhe no
+    seletor, abre o modelo na barra de estado, mostra `/help` nas dicas e
+    posiciona o cursor no prompt. O redesenho acompanha `SIGWINCH`.
+14. **Queda do modelo**: cinco tentativas antes do erro; sessão reiniciada após
+    três falhas para o turno não ficar preso repetindo a mensagem de falha.
 
 ## 4. O que medir para dizer que ficou pronto
 

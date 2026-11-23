@@ -4,6 +4,27 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.5.0] - 2026-11-22
+
+**A CLI sobrevive a queda de modelo e adapta a janela — com clique no terminal.**
+
+- **Reconexão antes do erro:** o modelo agora é tentado até **5 vezes** antes de
+  aparecer "não consegui falar com o modelo". Mensagens de retry são mostradas
+  durante a tentativa. Após 3 falhas, e também ao desistir, a sessão do motor é
+  reiniciada — antes, uma mensagem com `stopReason: error` envenenava o
+  histórico e **toda** mensagem seguinte falhava, inclusive após `/model`.
+- **Clique no terminal:** mouse SGR habilitado em TTY. Clique na paleta escolhe
+  e executa o comando; no seletor genérico escolhe o item; na barra de estado
+  abre o seletor de modelo; nas dicas abre `/help`; no prompt posiciona o cursor.
+  Relatórios de mouse e de posição do cursor são separados do comando, então um
+  clique nunca vira texto no prompt.
+- **Janela redimensionável:** `frameWidth()` deixou de ter piso de 72 colunas e
+  agora acompanha `stdout.columns` (com `SIGWINCH` redesenhando). A moldura da
+  resposta usa a mesma largura — numa janela de 50 colunas, nada vaza nem
+  sobrepõe. `--render` continua determinístico em 72.
+- Testes: recessão (4ª tentativa resolve; 5 falhas deixam sessão limpa), parser
+  de mouse e largura estreita. 1067+ testes; `npm run verify` 33/33.
+
 ## [1.4.0] - 2026-11-22
 
 **Code Mode opt-in para ambientes com muitos servidores MCP.**

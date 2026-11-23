@@ -78,8 +78,12 @@ const RULE = 64; // régua de ─ (marca §1.1)
  * "deferred wrap" que faz a linha seguinte subir e sobrepor.
  */
 export function frameWidth() {
-  const cols = process.stdout?.isTTY ? Number(process.stdout.columns) || 80 : WIDTH;
-  return Math.max(WIDTH, Math.min(cols - 2, 160));
+  if (!process.stdout?.isTTY) return WIDTH; // --render determinístico
+  const cols = Number(process.stdout.columns) || 80;
+  // Adapta à janela de verdade. Antes havia um piso de 72: numa janela de 50
+  // colunas as linhas vazavam, o terminal quebrava por conta própria e o
+  // \x1b[<n>A do redraw.desalinhava — era a causa da sobreposição em tela estreita.
+  return Math.max(24, Math.min(cols - 2, 160));
 }
 
 /**
@@ -87,6 +91,32 @@ export function frameWidth() {
  * sujo no log. Nesse modo a saída é escrita uma vez, em linhas normais.
  */
 const PLAIN_MODE = !process.stdout.isTTY;
+
+/**
+ * Separa relatórios do terminal (mouse SGR e resposta de posição do cursor) do
+ * texto que é comando. Sem isso, um clique viraria lixo no editor de linha.
+ */
+export function parseTerminalReports(chunk) {
+  let texto = String(chunk ?? "");
+  const cliques = [];
+  const cursos = [];
+  texto = texto.replace(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/g, (_todo, botao, col, row, fim) => {
+    cliques.push({ button: Number(botao), col: Number(col), row: Number(row), down: fim === "M" });
+    return "";
+  });
+  texto = texto.replace(/\x1b\[(\d+);(\d+)R/g, (_todo, row, col) => {
+    cursos.push({ row: Number(row), col: Number(col) });
+    return "";
+  });
+  return { text: texto, cliques, cursos };
+}
+
+/** Habilita/desabilita mouse SGR (coordenadas de 1 base, botão esquerdo). */
+export const MOUSE_ON = "\x1b[?1000h\x1b[?1015h\x1b[?1006h";
+export const MOUSE_OFF = "\x1b[?1000l\x1b[?1015l\x1b[?1006l";
+export const CURSOR_QUERY = "\x1b[6n";
+
+let resizeRedraw = null; // registrado pelo REPL quando há TTY
 
 /* ------------------------------------------------------------------ */
 /* Paleta (marca §1.1 / §2) — truecolor ou degradação honesta          */
@@ -570,7 +600,8 @@ export function renderMarkdown(md) {
 export function responseFrame(md, label = "SelfEvoPI") {
   const text = String(md ?? "");
   if (!text.trim()) return [];
-  const inner = Math.max(8, WIDTH - 4);
+  const largura = frameWidth();
+  const inner = Math.max(8, largura - 4);
   const titulo = ` ◆ ${label} `;
   const header = "  " + paint("╭─", "accent") + paint(titulo, "fg") +
     paint("─".repeat(Math.max(0, inner - [...titulo].length)), "rule");
@@ -583,7 +614,7 @@ export function responseFrame(md, label = "SelfEvoPI") {
       rows.push("  " + paint("│", "rule") + " " + padVisible(pedaco, inner));
     }
   }
-  rows.push("  " + paint("╰" + "─".repeat(Math.max(0, WIDTH - 3)), "rule"));
+  rows.push("  " + paint("╰" + "─".repeat(Math.max(0, largura - 3)), "rule"));
   return rows;
 }
 
@@ -1607,7 +1638,7 @@ export function filterCommands(query) {
  * @returns {string[]}
  */
 export function renderPalette(commands, selectedIndex, width) {
-  const W = Math.max(40, Math.floor(width));
+  const W = Math.max(24, Math.floor(width));
   const top = "  ╭" + "─".repeat(W - 4) + "╮";
   const bottom = "  ╰" + "─".repeat(W - 4) + "╯";
 
@@ -3619,14 +3650,44 @@ export async function converseOrFallback(pi, text, write, opts = {}) {
     budgetMs = 30_000, // teto TOTAL da varredura (evita "travamento" perceptível)
     perCandidateMs = 25_000, // teto por candidato (cobre um modelo real, ~13-20 s)
     images = [],
+    maxRetries = 5, // tentativas de reconexão no MESMO modelo antes de desistir
   } = opts;
   const usable = (x) => Boolean(x && x.ok && x.text && String(x.text).trim() !== "");
+  const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+  const descartar = () => {};
 
-  const res = await converse(pi, text, write, setBusy, { images });
-  if (res.aborted) return res; // usuário cancelou: silencioso, sem fallback
-  if (usable(res)) return res;
+  // Uma queda de conexão não pode matar a conversa: tenta de novo no mesmo
+  // modelo. Depois da terceira falha, reinicia a sessão do motor — uma
+  // mensagem de assistente com stopReason "error" envenena o histórico e faz
+  // todo prompt seguinte falhar, inclusive depois de /model e /provider.
+  let res = null;
+  for (let tentativa = 1; tentativa <= maxRetries; tentativa += 1) {
+    if (tentativa > 1) {
+      write("  " + paint(tr("engine.retry", { n: tentativa, max: maxRetries }), "warn") + "\n");
+      if (tentativa === 3) {
+        await pi.newSession?.().catch(() => {});
+        recordEvent("system", tr("engine.reset"));
+      }
+      await dormir(Math.min(1200, 220 * tentativa));
+    }
+    const saida = tentativa === 1 ? write : descartar;
+    res = await converse(pi, text, saida, setBusy, { images });
+    if (res.aborted) return res; // usuário cancelou: silencioso, sem fallback
+    if (usable(res)) {
+      if (tentativa > 1) {
+        write(responseFrame(res.text).join("\n") + "\n\n");
+        write("  " + paint(tr("engine.reset"), "muted") + "\n");
+      }
+      return res;
+    }
+  }
+
+  // Nenhuma tentativa no modelo atual funcionou. Deixa a sessão limpa para que
+  // a PRÓXIMA mensagem (ou o /model do usuário) não herde o erro.
+  await pi.newSession?.().catch(() => {});
   if (!allowFallback || !Array.isArray(candidates) || candidates.length === 0) {
-    write(engineErrorMessage(res.error) + "\n");
+    write(engineErrorMessage(res?.error) + "\n");
+    write("  " + paint(tr("engine.reset"), "muted") + "\n");
     return res;
   }
 
@@ -3668,7 +3729,9 @@ export async function converseOrFallback(pi, text, write, opts = {}) {
     }
     if (r.error) lastErr = r.error; // guarda o último erro (p/ a mensagem final)
   }
+  await pi.newSession?.().catch(() => {});
   write(engineErrorMessage(lastErr) + "\n");
+  write("  " + paint(tr("engine.reset"), "muted") + "\n");
   return { ok: false, error: lastErr };
 }
 
@@ -3894,12 +3957,15 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   let sessionsDirCache = null; // resolvido uma vez (sessionDir é varredura)
   let modelPicker = null; // seletor de /model: { stage, sel, grupos, flat, niveis, modelo }
   let valuePicker = null; // seletor genérico de valor único: { title, items, sel, onChoose }
+  let promptRow = null; // linha absoluta do prompt (via relatório do terminal)
+  let clickTargets = []; // ação por linha visual abaixo do prompt
+  let paletteAtual = []; // itens da paleta desenhada (para mapear o clique)
 
   const paletteWidth = () => {
     // Nunca passa de WIDTH: uma linha de paleta maior que a tela wrapa em 2
     // linhas visuais mas conta como 1, e o \x1b[<n>A do redraw desalinha
     // (causa do texto sobrepondo/acumulando ao navegar).
-    return Math.max(40, frameWidth() - 2);
+    return Math.max(24, frameWidth() - 2);
   };
 
   const shortModel = (m) => {
@@ -3911,10 +3977,15 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
 
   // Redesenho incremental: limpa SÓ da linha de entrada para baixo.
   const drawInput = () => {
+    // Pergunta ao terminal em que linha o cursor está. A resposta volta pelo
+    // stdin e é separada do comando em onData — com isso um clique sabe qual
+    // linha da tela foi atingida, mesmo depois de respostas longas.
+    if (!PLAIN_MODE) write(CURSOR_QUERY);
     const open = !line.dismissed && line.buf.startsWith("/") && !line.buf.includes(" ");
     const filtered = open ? filterCommands(line.buf.slice(1)) : [];
     const sel = filtered.length ? Math.max(0, Math.min(line.sel, filtered.length - 1)) : 0;
     const paletteLines = open ? renderPalette(filtered, sel, paletteWidth()) : [];
+    paletteAtual = filtered;
 
     // Linha de status (sempre visível): modo · permissão · modelo · goal.
     // permission/model em "fg" (branco, legível); think em "muted" (secundário).
@@ -3959,8 +4030,22 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
 
     // Linhas abaixo da entrada (redesenho incremental: limpa daqui para baixo).
     const belowLines = [];
-    for (const pl of paletteLines) belowLines.push(pl);
-    if (panelOpen) for (const pl of renderPanel(statusInfo, data)) belowLines.push(pl);
+    const belowTargets = [];
+    const empilhar = (linhas, alvo) => {
+      for (const linha of linhas) { belowLines.push(linha); belowTargets.push(alvo); }
+    };
+    if (open && paletteLines.length) {
+      const MAX_ROWS = 8;
+      const inicio = filtered.length > MAX_ROWS
+        ? Math.max(0, Math.min(sel - (MAX_ROWS >> 1), filtered.length - MAX_ROWS)) : 0;
+      for (let j = 0; j < paletteLines.length; j += 1) {
+        const item = j === 0 || j === paletteLines.length - 1 ? null : inicio + j - 1;
+        empilhar([paletteLines[j]], item == null ? null : () => escolherPaleta(item));
+      }
+    } else {
+      empilhar(paletteLines, null);
+    }
+    if (panelOpen) for (const pl of renderPanel(statusInfo, data)) empilhar([pl], null);
     if (taskOpen) {
       const rows = [
         paint("  tarefas", "fg"),
@@ -3970,14 +4055,24 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         "",
         paint("  ctrl+t fecha", "dim"),
       ];
-      for (const pl of capLinhas(rows)) belowLines.push(pl);
+      for (const pl of capLinhas(rows)) empilhar([pl], null);
     }
-    if (settingsOpen && settingsCache) for (const pl of settingsCache) belowLines.push(pl);
-    if (sessionsOpen && sessionsCache) for (const pl of sessionsCache) belowLines.push(pl);
-    for (const pl of modelPickerRows()) belowLines.push(pl);
-    for (const pl of valuePickerRows()) belowLines.push(pl);
-    belowLines.push(statusLine);
-    belowLines.push(keysLine);
+    if (settingsOpen && settingsCache) for (const pl of settingsCache) empilhar([pl], null);
+    if (sessionsOpen && sessionsCache) for (const pl of sessionsCache) empilhar([pl], null);
+    for (const pl of modelPickerRows()) empilhar([pl], null);
+    if (valuePicker) {
+      const vp = valuePicker;
+      const linhas = valuePickerRows();
+      const janela = windowBounds(vp.items.length, vp.sel, PICKER_ROWS);
+      const base = 1 + (janela.start > 0 ? 1 : 0);
+      for (let j = 0; j < linhas.length; j += 1) {
+        const idx = j >= base && j < base + (janela.end - janela.start)
+          ? janela.start + (j - base) : null;
+        empilhar([linhas[j]], idx == null ? null : () => escolherValor(idx));
+      }
+    }
+    empilhar([statusLine], () => { startModelPicker(); });
+    empilhar([keysLine], () => { void runSlash("help", "", makeOut(write), { pi: pi ?? undefined }); });
 
     // Janela horizontal: mostra a fatia do buffer que cabe, mantendo o cursor
     // visível. Assim um prompt grande NÃO corta com "…" nem some da tela — o
@@ -3996,7 +4091,11 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     // linhas VISUAIS resultantes — é isso que mantém o \x1b[<n>A alinhado sem
     // precisar cortar nenhuma palavra no meio.
     const visualLines = [];
-    for (const bl of belowLines) visualLines.push(...wrapBalanced(bl, fw));
+    clickTargets = [];
+    for (let i = 0; i < belowLines.length; i += 1) {
+      const pedacos = wrapBalanced(belowLines[i], fw);
+      for (const pedaco of pedacos) { visualLines.push(pedaco); clickTargets.push(belowTargets[i] ?? null); }
+    }
     for (const linha of visualLines) parts.push("\n" + linha);
     const below = visualLines.length;
     if (below > 0) parts.push(`\x1b[${below}A`);
@@ -4006,6 +4105,24 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     parts.push("\x1b[?25h"); // mostra o cursor na posição de entrada
     write(parts.join(""));
   };
+
+  /** Clique numa linha da paleta: substitui o comando e executa. */
+  function escolherPaleta(indice) {
+    const alvo = paletteAtual[indice];
+    if (!alvo) return;
+    const texto = "/" + alvo.name;
+    line = { buf: "", cur: 0, sel: 0, dismissed: false };
+    submit(texto);
+  }
+
+  /** Clique numa linha do seletor genérico: escolhe e fecha. */
+  async function escolherValor(indice) {
+    if (!valuePicker || indice < 0 || indice >= valuePicker.items.length) return;
+    valuePicker.sel = indice;
+    await chooseValuePicker();
+  }
+
+  resizeRedraw = () => drawInput(); // janela redimensionada: refaz a largura
 
   // ------------------------------------------------------------- overlays
   // Os dois são montados uma vez e guardados: o overlay é redesenhado a cada
@@ -4939,7 +5056,22 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
   };
 
   const onData = async (chunk) => {
-    for (const key of keymap(chunk)) {
+    const relatorio = parseTerminalReports(chunk);
+    for (const posicao of relatorio.cursos) promptRow = posicao.row;
+    for (const clique of relatorio.cliques) {
+      if (!clique.down || clique.button !== 0) continue;
+      if (promptRow == null) continue;
+      if (clique.row === promptRow) {
+        // Clique na linha do prompt: posiciona o cursor onde o usuário clicou.
+        line.cur = Math.max(0, Math.min(line.buf.length, clique.col - 4));
+        drawInput();
+        continue;
+      }
+      const indice = clique.row - promptRow - 1;
+      const alvo = clickTargets[indice];
+      if (typeof alvo === "function") await alvo();
+    }
+    for (const key of keymap(relatorio.text)) {
       if (quitting) return;
       if (key === "alt-t") {
         reasoningToggle = !reasoningOn();
@@ -5499,10 +5631,17 @@ async function main() {
   const setRaw = (on) => {
     try {
       if (stdin.isTTY) stdin.setRawMode(on);
+      if (stdout.isTTY) stdout.write(on ? MOUSE_ON : MOUSE_OFF);
     } catch {
       /* idem */
     }
   };
+  if (stdout.isTTY) {
+    stdout.on("resize", () => {
+      try { resizeRedraw?.(); } catch { /* redraw falho não mata o REPL */ }
+    });
+    stdout.write(CURSOR_QUERY);
+  }
   await repl({ pi: engineRef.current, engineRef, write: (s) => stdout.write(s), input: stdin, setRaw, data, sessionOpts });
   setRaw(false);
   if (engineRef.current) await engineRef.current.close().catch(() => {});

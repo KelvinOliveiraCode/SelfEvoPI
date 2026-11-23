@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-22 · **Versão:** 1.4.0 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-22 · **Versão:** 1.5.0 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
@@ -44,6 +44,9 @@ O produto é a CLI. Nada mais.
 | Hooks de ciclo de vida | 6 eventos, sem shell, timeout, redação; hook real disparou em turno real | 0 falhas fatais | `core/agent/hooks.test.mjs` + teste ponta a ponta |
 | Ledger de segurança | decisões `block`/`warn` registradas com excerpt redigido | 0 segredos | `core/sandbox/telemetry.test.mjs` |
 | Code Mode | gateway opt-in descobre tools locais em runtime; 7 testes de unidade + 1 de integração | 0 nomes de servidor no repo | `core/agent/code-mode.test.mjs`, `scripts/code-mode-mcp.test.mjs` |
+| Reconexão ao modelo | até 5 tentativas; sessão reiniciada após 3 falhas e ao desistir | 0 sessões presas | `apps/cli.test.mjs` |
+| Clique no terminal | paleta, seletor, barra de estado, dicas e prompt | 0 cliques virando texto | `parseTerminalReports` em `cli-features.test.mjs` |
+| Janela estreita | `frameWidth()` segue as colunas reais; 50 col → 48 úteis, 0 vazamento | ≤ janela | teste de `frameWidth` com `isTTY` simulado |
 
 > Os números são fotografias desta data, não garantia de desempenho. Cada linha
 > traz o comando que a produziu.

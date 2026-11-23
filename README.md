@@ -161,6 +161,17 @@ npm run models:prompt   # also sends one minimal prompt to each model
 the terminal does not announce truecolor, the palette degrades honestly to
 ANSI-256 — no "I changed the theme and nothing happened" bug.
 
+**Mouse and resizing.** In a real terminal the CLI enables SGR mouse reporting:
+click a palette row to run the command, a picker row to choose, the status bar
+to open the model picker, the hint line for `/help`, or the prompt to place the
+cursor. Mouse and cursor-position reports are parsed out of the input stream, so
+a click never becomes typed text. The frame follows `stdout.columns` and redraws
+on window resize; `--render` stays deterministic at 72 columns.
+
+**Resilience.** A failed model call is retried up to five times before the user
+sees an error. After three failures the engine session is reset — a poisoned
+assistant message used to make every later prompt fail, even after `/model`.
+
 **Hooks and security log.** Workspaces can declare lifecycle hooks in
 `.pi/hooks.json` (workspace-local, never your personal agent config). Events:
 `turn_start`, `turn_end`, `tool_start`, `tool_result`, `error`, `compact`. Each
