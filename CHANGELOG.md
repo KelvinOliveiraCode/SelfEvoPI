@@ -4,6 +4,25 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.6.0] - 2026-11-23
+
+**Primeira leva do plano de capacidades: papéis de modelo e rewind.**
+
+- `core/router/model-roles.mjs`: 9 papéis (`default`, `smol`, `slow`, `plan`,
+  `commit`, `advisor`, `vision`, `task`, `tiny`) com política determinística de
+  seleção, cadeia de fallback, regras por caminho e `Cooldown` em memória.
+  Camada pura sobre o roteador existente — nenhuma mudança em `router.mjs`.
+- `core/agent/rewind.mjs` (implementado em conjunto com subagente
+  `hy4-flash-free` high): recorte puro de JSONL de sessão nos modos
+  `dropErrors`, `beforeMessageId` e `keepLast`; linhas corrompidas preservadas.
+- Novo comando `/rewind [drop-errors|last:N|id:<id>]`: cria uma **nova** sessão
+  recortada, nunca sobrescreve a ativa, e troca para ela quando o motor permite.
+  RELATÓRIO em 72 colunas, sem reticências.
+- `SELFEOPI_SESSIONS_DIR` permite apontar outra pasta de sessões (testes e
+  isolamento).
+- Testes: 9 de papéis + 13 de rewind + 1 integração `/rewind` pela CLI.
+  `npm test`: 1095 testes / 1094 passam; `npm run verify`: 33/33.
+
 ## [1.5.0] - 2026-11-22
 
 **A CLI sobrevive a queda de modelo e adapta a janela — com clique no terminal.**

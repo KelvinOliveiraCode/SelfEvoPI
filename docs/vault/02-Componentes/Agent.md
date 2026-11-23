@@ -21,6 +21,7 @@ created: 2026-11-19
 | `core/agent/theme.mjs` | Tema da interface: 12 paletas de cor, 11 papéis de cor | `getTheme`, `setTheme`, `listThemes`, `themeToAnsi256` |
 | `core/agent/theme-custom.mjs` | 3 slots custom editáveis (`~/.pi/agent/custom-themes.json`) | `listCustomThemes`, `getCustomTheme`, `saveCustomTheme` |
 | `core/agent/hooks.mjs` | Hooks de ciclo de vida do workspace (`turn_start`…`compact`), sem shell e com redação de segredos | `readHooks`, `runHooks`, `EVENTS` |
+| `core/agent/rewind.mjs` | Recorte puro de JSONL de sessão (erros, antes de id, manter últimos) | `rewindSession`, `rewindReport`, `summarizeSession` |
 | `core/agent/code-mode.mjs` | Executa programa curto com acesso restrito a tools (`node:vm`) | `runCode` |
 | `scripts/code-mode-mcp.mjs` | Gateway MCP opt-in que expõe apenas `run_code`; descobre servidores locais em runtime | (processostdio) |
 | `core/agent/mcp.mjs` | Inventaria MCPs do projeto (`.mcp.json` / `.pi/settings.json`) | `readMcpConfig`, `listMcpServers` |

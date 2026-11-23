@@ -93,6 +93,18 @@ a saída é redigida antes de aparecer. Um hook que falha ou expira é registrad
 como observabilidade e **nunca** derruba o turno. `/hooks` mostra a config e os
 últimos resultados. Implementação em `core/agent/hooks.mjs`.
 
+## Papéis de modelo e rewind
+
+Nove papéis (`default`, `smol`, `slow`, `plan`, `commit`, `advisor`, `vision`,
+`task`, `tiny`) selecionam modelos por contexto, custo, suporte a imagem e
+esforço de raciocínio. Há cadeia de fallback, regras por caminho de repositório
+e cooldown para modelos que falharam — tudo em `core/router/model-roles.mjs`,
+sem tocar no roteador.
+
+`/rewind` recorta a sessão ativa em um **novo** arquivo JSONL, nos modos
+`drop-errors`, `last:N` ou `id:<id>`. A sessão original nunca é sobrescrita e o
+relatório cabe em 72 colunas sem reticências.
+
 ## Interação por clique e resiliência
 
 Em TTY a CLI habilita mouse SGR: clique na paleta executa o comando, no seletor

@@ -1386,6 +1386,7 @@ export const COMMANDS = [
   { name: "/history", args: "[n|clear]", description: tr("cmd.history"), run: runHistory },
   { name: "/hooks", args: "", description: tr("cmd.hooks"), run: runHooksCommand },
   { name: "/security-log", args: "", description: tr("cmd.securitylog"), run: runSecurityLogCommand },
+  { name: "/rewind", args: "[drop-errors|last:N|id:<id>]", description: tr("cmd.rewind"), run: runRewind },
   { name: "/resume", args: "[id]", description: tr("cmd.resume"), run: (ctx) => runSessions(ctx) },
   { name: "/swarm", args: "[n] <tarefa>", description: tr("cmd.swarm"), run: runSwarm },
   { name: "/subagent", args: "<nome> <tarefa> [--provider --model --effort --mode --persistent]", description: tr("cmd.subagent"), run: runSubagentCmd },
@@ -1416,6 +1417,7 @@ const ARG_TR = {
     "[n|clear]": "[n|clear]",
     "[list|add|rm|models]": "[list|add|rm|models]",
     "[list|discover|add|rm|models]": "[list|discover|add|rm|models]",
+    "[drop-errors|last:N|id:<id>]": "[drop-errors|last:N|id:<id>]",
   },
   pt: {},
 };
@@ -2318,7 +2320,9 @@ let currentMode = "build"; // modo de permissão da conversa (plan/build/ask)
 let goalState = {}; // estado da goal (core/forge/goal.mjs) — persistido pelo chamador
 let goalTag = null; // indicador cacheado (rodapé), atualizado quando a goal muda
 const HOME = process.env.USERPROFILE || process.env.HOME || ".";
-const SESSIONS_DIR = path.join(HOME, ".pi", "agent", "sessions");
+const SESSIONS_DIR = process.env.SELFEOPI_SESSIONS_DIR
+  ? path.resolve(process.env.SELFEOPI_SESSIONS_DIR)
+  : path.join(HOME, ".pi", "agent", "sessions");
 let pendingInit = null; // rascunho de AGENTS.md aguardando confirmação
 let pendingImport = null; // plano de /import aguardando confirmação (null = nenhum)
 
@@ -3238,6 +3242,79 @@ async function runSecurityLogCommand({ out }) {
     out(paint(`  ${String(err?.message || err).slice(0, 120)}`, "fail"));
     return 1;
   }
+}
+
+/**
+ * /rewind [drop-errors|last:N|id:<id>] — recorta a sessão ativa num NOVO
+ * arquivo. Nunca sobrescreve a sessão que o motor está usando.
+ */
+async function runRewind({ arg, out, pi }) {
+  const { readFile, readdir, writeFile } = await import("node:fs/promises");
+  const { randomUUID } = await import("node:crypto");
+  const { rewindSession, rewindReport, summarizeSession } = await import("../core/agent/rewind.mjs");
+
+  const dir = await sessionDir().catch(() => null);
+  if (!dir) { out(paint("  não encontrei o diretório de sessões.", "fail")); return 1; }
+
+  const alvo = String(arg ?? "").trim();
+  let arquivo = null;
+  const atual = statusInfo.sessionId ? String(statusInfo.sessionId) : null;
+  for (const nome of (await readdir(dir).catch(() => [])).filter((n) => n.endsWith(".jsonl"))) {
+    if (atual && nome.includes(atual)) { arquivo = path.join(dir, nome); break; }
+  }
+  if (!arquivo) {
+    const recentes = (await readdir(dir).catch(() => []))
+      .filter((n) => n.endsWith(".jsonl"))
+      .sort()
+      .reverse();
+    if (recentes[0]) arquivo = path.join(dir, recentes[0]);
+  }
+  if (!arquivo) { out(paint("  nenhuma sessão para recortar.", "warn")); return 1; }
+
+  const texto = await readFile(arquivo, "utf8").catch(() => null);
+  if (texto == null) { out(paint("  não consegui ler a sessão ativa.", "fail")); return 1; }
+  const resumo = summarizeSession(texto);
+
+  let opcoes;
+  if (/^drop-errors$/i.test(alvo) || alvo === "") opcoes = { dropErrors: true };
+  else if (/^last:\d+$/i.test(alvo)) opcoes = { keepLast: Number(alvo.split(":")[1]) };
+  else if (/^id:.+/i.test(alvo)) opcoes = { beforeMessageId: alvo.slice(3) };
+  else {
+    out(paint("  use: /rewind [drop-errors|last:N|id:<id>]", "warn"));
+    return 2;
+  }
+
+  const r = rewindSession(texto, opcoes);
+  if (!r.ok) { out(paint("  " + rewindReport(r.removidas, r.motivo), "warn")); return 2; }
+  if (r.removidas === 0) { out(paint("  " + rewindReport(0, r.motivo), "muted")); return 0; }
+
+  const novoId = randomUUID();
+  const linhas = r.jsonl.split(/\r?\n/);
+  const cabecalho = linhas.findIndex((l) => {
+    try { return JSON.parse(l)?.type === "session"; } catch { return false; }
+  });
+  if (cabecalho >= 0) {
+    try {
+      const obj = JSON.parse(linhas[cabecalho]);
+      obj.id = novoId;
+      linhas[cabecalho] = JSON.stringify(obj);
+    } catch { /* cabeçalho corrompido: mantém como veio */ }
+  }
+  const novoConteudo = linhas.join("\n");
+  const carimbo = new Date().toISOString().replace(/[:.]/g, "-");
+  const novoArquivo = path.join(dir, `${carimbo}_${novoId}.jsonl`);
+  await writeFile(novoArquivo, novoConteudo, "utf8");
+
+  out(paint("  " + rewindReport(r.removidas, r.motivo), "ok"));
+  out(paint(`  sessão anterior: ${resumo.mensagens} mensagem(ns), ${resumo.erros} erro(s)`, "muted"));
+  out(paint(`  nova sessão: ${novoId}`, "fg"));
+  if (pi?._rpc && typeof pi._rpc.switchSession === "function") {
+    const trocou = await pi._rpc.switchSession(novoArquivo).then(() => true).catch(() => false);
+    out(paint(trocou ? "  sessão recortada ativa." : `  use /resume ${novoId.slice(0, 8)} para abrir.`, trocou ? "ok" : "muted"));
+  } else {
+    out(paint(`  use /resume ${novoId.slice(0, 8)} para abrir.`, "muted"));
+  }
+  return 0;
 }
 
 async function runHooksCommand({ out }) {

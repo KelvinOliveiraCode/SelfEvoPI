@@ -33,6 +33,7 @@ Os comandos reais, conforme a lista `COMMANDS` em `apps/cli.mjs` (a fonte
 | `/diff` | Mostra mudanças git no workspace | `apps/cli.mjs` |
 | `/language [en\|pt]` | Idioma da interface (inglês por padrão) | `core/agent/i18n.mjs` |
 | `/history [n\|clear]` | Trilha da sessão: tools, resultados, raciocínio, respostas | `apps/cli.mjs` |
+| `/rewind [drop-errors\|last:N\|id:<id>]` | Recorta a sessão numa nova (original intacta) | `core/agent/rewind.mjs` |
 | `/hooks` | Hooks de ciclo de vida do workspace e últimos resultados | `core/agent/hooks.mjs` |
 | `/security-log` | Últimas decisões `block`/`warn` do gate | `core/sandbox/telemetry.mjs` |
 | `/resume [id]` | Retoma sessão salva (nova é o padrão na abertura) | `apps/cli.mjs`, `core/agent/pi-rpc.mjs` |

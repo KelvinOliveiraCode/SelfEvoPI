@@ -107,6 +107,10 @@ skill — recair para CLI gerava sucesso com a interface errada.
   largura acompanha a janela (`SIGWINCH` redesenha); em pipe, 72 colunas fixas.
 - **Queda do modelo**: até 5 tentativas antes do erro; após 3 falhas a sessão do
   motor é reiniciada para que a conversa não fique presa repetindo a mensagem.
+- **Papéis de modelo e rewind**: nove papéis (`default`, `smol`, `slow`, `plan`,
+  `commit`, `advisor`, `vision`, `task`, `tiny`) escolhem o modelo por
+  custo/contexto/raciocínio com fallback e cooldown. `/rewind` cria uma nova
+  sessão sem erros ou turnos antigos, preservando a original.
 - **Code Mode opt-in**: um único tool `run_code` roda um programa curto que
   encadeia chamadas MCP. O contexto não tem `process`, `require`, `fetch`, `eval`
   ou `Function`; há allowlist, limite de chamadas, prazo e teto de saída. Os

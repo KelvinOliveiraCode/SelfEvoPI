@@ -168,6 +168,12 @@ cursor. Mouse and cursor-position reports are parsed out of the input stream, so
 a click never becomes typed text. The frame follows `stdout.columns` and redraws
 on window resize; `--render` stays deterministic at 72 columns.
 
+**Model roles and rewind.** Nine model roles (`default`, `smol`, `slow`, `plan`,
+`commit`, `advisor`, `vision`, `task`, `tiny`) select models by context, cost,
+image support and reasoning effort, with fallback chains, path-scoped rules and
+a cooldown for failed models. `/rewind [drop-errors|last:N|id:<id>]` prunes a
+session into a **new** file — the active session is never overwritten.
+
 **Resilience.** A failed model call is retried up to five times before the user
 sees an error. After three failures the engine session is reset — a poisoned
 assistant message used to make every later prompt fail, even after `/model`.

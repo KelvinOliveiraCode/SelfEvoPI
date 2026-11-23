@@ -19,6 +19,12 @@ created: 2026-11-19
 - **Teto de tokens** por tarefa (`budget.mjs`)
 - **Reviewer** obrigatoriamente em provider diferente do autor
 
+`core/router/model-roles.mjs` adiciona uma camada pura de **papéis de modelo**
+(`default`, `smol`, `slow`, `plan`, `commit`, `advisor`, `vision`, `task`,
+`tiny`): escolha determinística por contexto/custo/imagem/raciocínio, cadeia de
+fallback, regras por caminho e `Cooldown` para modelos que falharam. Não altera
+`router.mjs`.
+
 ## Perfis
 
 | Perfil | Família preferida | Contexto mínimo | Regra |

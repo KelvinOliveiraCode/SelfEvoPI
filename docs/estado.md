@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-22 · **Versão:** 1.5.0 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-22 · **Versão:** 1.6.0 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
@@ -47,6 +47,8 @@ O produto é a CLI. Nada mais.
 | Reconexão ao modelo | até 5 tentativas; sessão reiniciada após 3 falhas e ao desistir | 0 sessões presas | `apps/cli.test.mjs` |
 | Clique no terminal | paleta, seletor, barra de estado, dicas e prompt | 0 cliques virando texto | `parseTerminalReports` em `cli-features.test.mjs` |
 | Janela estreita | `frameWidth()` segue as colunas reais; 50 col → 48 úteis, 0 vazamento | ≤ janela | teste de `frameWidth` com `isTTY` simulado |
+| Papéis de modelo | 9 papéis, cadeia de fallback, cooldown e escopo por path | 0 mudanças no roteador | `core/router/model-roles.test.mjs` |
+| `/rewind` | recorta erros/turnos em nova sessão; original intacta | 0 sobrescritas | `core/agent/rewind.test.mjs` + `apps/cli-rewind.test.mjs` |
 
 > Os números são fotografias desta data, não garantia de desempenho. Cada linha
 > traz o comando que a produziu.
@@ -60,9 +62,9 @@ O produto é a CLI. Nada mais.
 - **Barra de estado** com modo, permissão, modelo, esforço, uso de contexto em
   porcentagem e branch; painel de estado em `Ctrl+O`.
 - **Paleta** com filtro por prefixo e fuzzy; `/help` e paleta leem a mesma fonte.
-- **Sessões**: listar, carregar, bifurcar (`/fork`), exportar (`/export`),
-  desfazer/refazer trocas (`/undo`, `/redo`) e picker com busca e prévia
-  (`Ctrl+K`).
+- **Sessões**: listar, carregar, bifurcar (`/fork`), recortar (`/rewind`),
+  exportar (`/export`), desfazer/refazer trocas (`/undo`, `/redo`) e picker com
+  busca e prévia (`Ctrl+K`).
 - **Inspeção**: `/diff`, `/cost`, `/status`, `/context`, `/mcp`, `/plugins`,
   `/settings`, `/detect`, `/memory`, `/skills`.
 - **Enfileiramento**: digitar enquanto o agente trabalha não perde texto;
@@ -73,7 +75,9 @@ O produto é a CLI. Nada mais.
   sobrescrita por `SELFEOPI_LOCALE`. Inglês por padrão.
 - **Temas**: doze embutidos + três slots custom, degradação honesta para ANSI-256.
 - **Agentes**: `/swarm`, `/subagent`, A2A, lista de atividade (`Ctrl+P`),
-  worktrees (`/worktree`).
+  worktrees (`/worktree`). **Papéis de modelo** (`default`, `smol`, `slow`,
+  `plan`, `commit`, `advisor`, `vision`, `task`, `tiny`) escolhem o modelo por
+  contexto/custo/raciocínio, com fallback, cooldown e escopo por caminho.
 
 ---
 
