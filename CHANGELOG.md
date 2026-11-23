@@ -4,6 +4,14 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.9.2] - 2026-11-23
+
+**Correção de validação do `/rewind`.**
+
+- O argumento agora é validado **antes** de procurar a sessão. Antes, num
+  workspace sem sessões, `/rewind` sem argumento devolvia "nenhuma sessão" em
+  vez de "use: ..." — a causa da falha no repositório público.
+
 ## [1.9.1] - 2026-11-23
 
 **Correção de segurança no `/rewind`.**

@@ -3501,6 +3501,11 @@ async function runRole({ arg, out, pi }) {
  * arquivo. Nunca sobrescreve a sessão que o motor está usando.
  */
 async function runRewind({ arg, out, pi }) {
+  const alvoInicial = String(arg ?? "").trim();
+  if (!/^(drop-errors|last:\d+|id:.+)$/i.test(alvoInicial)) {
+    out(paint("  use: /rewind [drop-errors|last:N|id:<id>]", "warn"));
+    return 2;
+  }
   const { readFile, readdir, writeFile } = await import("node:fs/promises");
   const { randomUUID } = await import("node:crypto");
   const { rewindSession, rewindReport, summarizeSession } = await import("../core/agent/rewind.mjs");
@@ -3528,10 +3533,7 @@ async function runRewind({ arg, out, pi }) {
   const resumo = summarizeSession(texto);
 
   let opcoes;
-  if (!alvo) {
-    out(paint("  use: /rewind [drop-errors|last:N|id:<id>]", "warn"));
-    return 2;
-  } else if (/^drop-errors$/i.test(alvo)) opcoes = { dropErrors: true };
+  if (/^drop-errors$/i.test(alvo)) opcoes = { dropErrors: true };
   else if (/^last:\d+$/i.test(alvo)) opcoes = { keepLast: Number(alvo.split(":")[1]) };
   else if (/^id:.+/i.test(alvo)) opcoes = { beforeMessageId: alvo.slice(3) };
   else {

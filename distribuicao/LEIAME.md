@@ -1,4 +1,4 @@
-# SelfEvoPI 1.9.1 — pacote organizado
+# SelfEvoPI 1.9.2 — pacote organizado
 
 Harness de agente de código **agnóstico, agêntico, leve e auto-evolutivo**.
 Uma superfície: a CLI. Inglês por padrão; `/language pt` troca o idioma.
