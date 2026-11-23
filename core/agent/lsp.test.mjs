@@ -4,7 +4,28 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { encodeLspMessage, createLspParser, LspClient, readLspConfig, serverForFile } from "./lsp.mjs";
+import {
+  encodeLspMessage, createLspParser, LspClient, readLspConfig, serverForFile,
+  positionToLsp, positionFromLsp,
+} from "./lsp.mjs";
+
+test("posições: utf-16 é identidade, utf-8 conta bytes e utf-32 conta code points", () => {
+  const linha = "a🚀b é"; // 🚀 = 2 code units / 4 bytes / 1 code point
+  // índice JS 1 = depois de 'a', antes do emoji
+  assert.equal(positionToLsp(linha, 1, "utf-16"), 1);
+  assert.equal(positionToLsp(linha, 1, "utf-8"), 1);
+  assert.equal(positionToLsp(linha, 3, "utf-16"), 3);
+  assert.equal(positionToLsp(linha, 3, "utf-8"), 5, "a + emoji = 5 bytes");
+  assert.equal(positionToLsp(linha, 3, "utf-32"), 2, "a + emoji = 2 code points");
+  assert.equal(positionFromLsp(linha, 6, "utf-8"), 4, "volta para depois do é");
+  assert.equal(positionFromLsp(linha, 2, "utf-32"), 3);
+  assert.equal(positionFromLsp(linha, 3, "utf-16"), 3);
+});
+
+test("posições nunca passam do fim da linha", () => {
+  assert.equal(positionToLsp("abc", 99, "utf-8"), 3);
+  assert.equal(positionFromLsp("abc", 99, "utf-32"), 3);
+});
 
 /* ------------------------------------------------------------------ */
 /* Servidor LSP falso — escrito em arquivo temporário no próprio teste  */

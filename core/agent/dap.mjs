@@ -239,6 +239,22 @@ export class DapClient {
     return this.#request("attach", config);
   }
 
+  /**
+   * Fecha a sequência de configuração. Adaptadores reais (lldb-dap, debugpy,
+   * js-debug) podem bloquear breakpoints até receberem este request.
+   */
+  configurationDone() {
+    return this.#request("configurationDone", {});
+  }
+
+  /** launch → breakpoints → configurationDone, na ordem que adaptadores esperam. */
+  async launchAndConfigure(config = {}, { path = null, lines = [], breakpoints = true } = {}) {
+    const resultado = await this.launch(config);
+    if (breakpoints && path) await this.setBreakpoints({ path, lines });
+    await this.configurationDone();
+    return resultado;
+  }
+
   async setBreakpoints({ path, lines = [] } = {}) {
     const resultado = await this.#request("setBreakpoints", {
       source: { path: String(path ?? "") },

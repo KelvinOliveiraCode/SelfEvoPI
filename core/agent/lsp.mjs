@@ -31,6 +31,40 @@ import { readFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+/**
+ * LSP 3.17 permite utf-8/utf-16/utf-32; o padrão é utf-16. Índices de string
+ * do JS já são UTF-16 code units, então quando o servidor pede utf-8 precisamos
+ * contar BYTES do prefixo, e para utf-32 contamos CODE POINTS.
+ */
+export function positionToLsp(lineText, coluna, encoding = "utf-16") {
+  const linha = String(lineText ?? "");
+  const n = Math.max(0, Math.min(linha.length, Number(coluna) || 0));
+  if (encoding === "utf-8") return Buffer.byteLength(linha.slice(0, n), "utf8");
+  if (encoding === "utf-32") return [...linha.slice(0, n)].length;
+  return n; // utf-16 (padrão)
+}
+
+/** Inverso de positionToLsp: coluna do servidor → índice de string JS. */
+export function positionFromLsp(lineText, coluna, encoding = "utf-16") {
+  const linha = String(lineText ?? "");
+  const alvo = Math.max(0, Number(coluna) || 0);
+  if (encoding === "utf-16") return Math.min(linha.length, alvo);
+  if (encoding === "utf-32") {
+    let indice = 0, contador = 0;
+    for (const cp of linha) { if (contador >= alvo) break; indice += cp.length; contador += 1; }
+    return indice;
+  }
+  // utf-8: caminha pelos code points somando bytes até atingir a coluna
+  let indice = 0, bytes = 0;
+  for (const cp of linha) {
+    const b = Buffer.byteLength(cp, "utf8");
+    if (bytes + b > alvo) break;
+    bytes += b;
+    indice += cp.length;
+  }
+  return indice;
+}
+
 const JSONRPC = "2.0";
 const PROTOCOL_VERSION = "3.17.0";
 const SEPARADOR = Buffer.from("\r\n\r\n", "ascii");
@@ -171,6 +205,7 @@ export class LspClient {
   #proximoId = 1;
   #pendentes = new Map();
   #diagnosticos = new Map();
+  #documentos = new Map(); // uri -> texto, para conversão de posições
   #esperandoDiagnostico = new Map();
   #capabilities = null;
   #iniciado = false;
@@ -191,6 +226,12 @@ export class LspClient {
 
   get capabilities() {
     return this.#capabilities;
+  }
+
+  /** Encoding de posição negociado no initialize (padrão utf-16). */
+  get positionEncoding() {
+    const valor = this.#capabilities?.positionEncoding || this.#capabilities?.general?.positionEncoding;
+    return ["utf-8", "utf-16", "utf-32"].includes(valor) ? valor : "utf-16";
   }
 
   get running() {
@@ -248,17 +289,28 @@ export class LspClient {
 
   openDocument(uri, languageId, text) {
     this.#diagnosticos.delete(uri);
+    const conteudo = String(text ?? "");
+    this.#documentos.set(uri, conteudo);
     this.#notificar("textDocument/didOpen", {
-      textDocument: { uri, languageId, version: 1, text: String(text ?? "") },
+      textDocument: { uri, languageId, version: 1, text: conteudo },
     });
   }
 
   changeDocument(uri, text, version) {
     this.#diagnosticos.delete(uri);
+    const conteudo = String(text ?? "");
+    this.#documentos.set(uri, conteudo);
     this.#notificar("textDocument/didChange", {
       textDocument: { uri, version: Number.isFinite(version) ? version : 2 },
-      contentChanges: [{ text: String(text ?? "") }],
+      contentChanges: [{ text: conteudo }],
     });
+  }
+
+  /** Converte a coluna JS (UTF-16) para o encoding negociado com o servidor. */
+  #colunaServidor(uri, line, character) {
+    const linhas = String(this.#documentos.get(uri) ?? "").split(/\r?\n/);
+    const textoLinha = linhas[Number(line) || 0] ?? "";
+    return positionToLsp(textoLinha, character, this.positionEncoding);
   }
 
   /** Espera publishDiagnostics; usa pull diagnostics como fallback. */
@@ -296,7 +348,7 @@ export class LspClient {
     try {
       const res = await this.#request("textDocument/rename", {
         textDocument: { uri },
-        position: { line, character },
+        position: { line, character: this.#colunaServidor(uri, line, character) },
         newName: String(newName ?? ""),
       });
       if (!res) return null;
@@ -322,7 +374,7 @@ export class LspClient {
     try {
       const res = await this.#request("textDocument/hover", {
         textDocument: { uri },
-        position: { line, character },
+        position: { line, character: this.#colunaServidor(uri, line, character) },
       });
       if (!res) return null;
       const texto = textoHover(res.contents);
@@ -578,4 +630,7 @@ export function serverForFile(config, caminho) {
   return melhor;
 }
 
-export default { LspClient, encodeLspMessage, createLspParser, readLspConfig, serverForFile };
+export default {
+  LspClient, encodeLspMessage, createLspParser, readLspConfig, serverForFile,
+  positionToLsp, positionFromLsp,
+};

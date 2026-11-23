@@ -1,6 +1,6 @@
 # SelfEvoPI — estado do projeto
 
-> **Atualizado:** 2026-11-22 · **Versão:** 1.9.2 (`package.json` é a fonte única)
+> **Atualizado:** 2026-11-22 · **Versão:** 1.9.3 (`package.json` é a fonte única)
 > **Superfície:** apenas a CLI. Inglês é o idioma padrão da interface.
 > **Verificação:** todos os comandos abaixo foram executados nesta data.
 
@@ -50,10 +50,10 @@ O produto é a CLI. Nada mais.
 | Papéis de modelo | 9 papéis, cadeia de fallback, cooldown e escopo por path | 0 mudanças no roteador | `core/router/model-roles.test.mjs` |
 | `/rewind` | recorta erros/turnos em nova sessão; original intacta | 0 sobrescritas | `core/agent/rewind.test.mjs` + `apps/cli-rewind.test.mjs` |
 | Papéis na TUI | `/role` troca papel, status mostra `◇`, falha alimenta cooldown | 0 erros de locale | `apps/cli-features.test.mjs` |
-| LSP | cliente zero-dep + `/lsp` (diagnostics/symbols/hover/rename) | 0 segredos no filho | `core/agent/lsp.test.mjs` (6 testes) |
-| Edição estrutural | `/ast-edit` com âncora por hash, prévia e `--apply` | 0 gravações sem preview | `core/agent/ast-edit.test.mjs` (12) |
+| LSP | cliente zero-dep + `/lsp` (diagnostics/symbols/hover/rename), posições UTF-8/16/32 | 0 segredos no filho | `core/agent/lsp.test.mjs` (8 testes) |
+| Edição estrutural | `/ast-edit` com âncora por hash, prévia e `--apply` | 0 gravações sem preview | `core/agent/ast-edit.test.mjs` (19) |
 | Advisor / stream rules | notas `NOTE/CONCERN/BLOCKER`, abort uma vez | 0 padrões perdidos entre deltas | `core/agent/advisor.test.mjs` (7) |
-| DAP | cliente zero-dep + `/dap`, breakpoints/stepping/variables | 0 segredos no filho | `core/agent/dap.test.mjs` (6) |
+| DAP | cliente zero-dep + `/dap`, breakpoints/stepping/variables/configurationDone | 0 segredos no filho | `core/agent/dap.test.mjs` (8, 1 real opcional) |
 
 > Os números são fotografias desta data, não garantia de desempenho. Cada linha
 > traz o comando que a produziu.
@@ -123,9 +123,9 @@ A sonda pega isso antes.
 | `/btw`, keybindings customizáveis e barra de progresso no título | não implementados: exigem roteamento de modelo auxiliar ou camada de config que ainda não existe. Decisão registrada em `round2.md`. Hooks já existem (`.pi/hooks.json`). |
 | Recuperação de skills é lexical | busca por termo em texto e tags, sem embeddings. |
 | Auto-disparo do loop evolutivo | `core/forge/auto.mjs` já faz `--once`/`--watch` com dry-run por padrão e travas; falta reagir a eventos externos (webhook, fila, ticket). |
-| LSP em posições UTF-16 | cliente LSP novo não converte `character` para UTF-16 code units; servidores reais (tsserver/pyright) não verificados |
-| AST scanner | localizador é balanceador de chaves com estado, não AST: sem JSX, regex literals, decorators ou blocos por indentação |
-| DAP real | `configurationDone` não implementado; adaptadores reais (node/debugpy/lldb) e attach não testados |
+| LSP com servidor real | conversão de posições testada; nenhum servidor real (tsserver/pyright/rust-analyzer) disponível na máquina |
+| AST scanner | regex literals e JSX básico cobertos; ainda sem AST real (decorators, overloads, generics). Python/Ruby falham de propósito com `sem-chaves` |
+| DAP com adaptador real | `lldb-dap` real testado no handshake + capabilities; attach e debug de processo real não testados |
 | Grupo B do gate com chamadas reais de modelo | não roda no CI; fica local para quem tem credencial. |
 | 4 modelos do catálogo não devolvem texto ao prompt mínimo | `stealth/crouton-alpha`, `thinkingmachines/inkling-2-small`, `inclusionai/ling-3.2-flash` e `liquid/lfm-3-1.7b` terminam `settled` sem texto em parte dos provedores. A CLI recupera `get_last_assistant_text`; quando ainda assim vem vazio, é comportamento do provedor, não divergência de capacidade. |
 

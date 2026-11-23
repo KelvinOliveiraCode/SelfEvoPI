@@ -98,7 +98,9 @@ como observabilidade e **nunca** derruba o turno. `/hooks` mostra a config e os
 `core/agent/ast-edit.mjs` ancora edições por hash de linha: se o arquivo mudou,
 o plano falha com `stale` em vez de corromper o código. `/ast-edit` mostra a
 prévia e só grava com `--apply`. O localizador é um scanner de chaves com estado
-— não é uma AST de verdade (sem JSX, regex literals ou blocos por indentação).
+— regex literals e JSX básico já são tratados, mas continua sem AST real
+(decorators, overloads, generics). Python/Ruby falham de propósito com
+`sem-chaves` em vez de devolver um intervalo chutado.
 
 `core/agent/advisor.mjs` normaliza notas `NOTE/CONCERN/BLOCKER` de um revisor
 injetado e aplica regras de stream que detectam um padrão mesmo quando ele cruza
@@ -106,8 +108,10 @@ deltas, abortando uma vez e deixando a nota no histórico.
 
 `core/agent/dap.mjs` fala DAP sobre stdio com zero dependências: `launch`,
 `attach`, breakpoints, stepping, stack, variables e eventos `stopped`.
-`/dap [arquivo]` mostra os adaptadores de `.pi/dap.json`. Adaptadores reais e
-`configurationDone` não foram testados.
+`/dap [arquivo]` mostra os adaptadores de `.pi/dap.json`. `configurationDone`
+e `launchAndConfigure()` fecham a sequência na ordem esperada por adaptadores
+reais. Handshake com **`lldb-dap` real** testado quando a variável
+`SELFEOPI_TEST_LLDB_DAP` aponta para o binário; sem ela, o teste é pulado.
 
 ## LSP
 
@@ -117,8 +121,9 @@ deltas, abortando uma vez e deixando a nota no histórico.
 `documentSymbols`. Servidores vêm de `.pi/lsp.json` e recebem um allowlist de
 variáveis de ambiente. `/lsp <arquivo> [ação]` expõe isso na TUI.
 
-Limite honesto: posições em UTF-16 code units não convertidas e nenhum teste
-com servidor real (tsserver/pyright/rust-analyzer).
+Posições são convertidas entre UTF-16/UTF-8/UTF-32 conforme o `positionEncoding`
+negociado — incluindo emoji, com teste de ida e volta. Limite restante: nenhum
+servidor real (tsserver/pyright/rust-analyzer) disponível para teste.
 
 ## Papéis de modelo e rewind
 

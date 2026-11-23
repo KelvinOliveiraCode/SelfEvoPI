@@ -4,6 +4,24 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.9.3] - 2026-11-23
+
+**Limites técnicos testados e polidos.**
+
+- **LSP**: conversão de posições UTF-16 ↔ UTF-8 ↔ UTF-32 negociada pelo
+  `positionEncoding` do servidor. `rename`/`hover` agora convertem a coluna
+  antes de enviar. Testes com emoji em todos os encodings e ida/volta.
+- **DAP**: `configurationDone()` e `launchAndConfigure()` na ordem que
+  adaptadores reais esperam (launch → breakpoints → configurationDone).
+  Teste de integração com **adaptador real `lldb-dap`** (initialize +
+  capabilities), habilitado por `SELFEOPI_TEST_LLDB_DAP` e pulado sem a variável.
+- **AST** (subagente `hy4-flash-free` high): scanner agora reconhece regex
+  literals com chaves, tem modo JSX básico e falha explicitamente com
+  `sem-chaves` em blocos por indentação em vez de absorver o arquivo.
+  19 testes, incluindo regressão dos 12 anteriores.
+- `npm test`: 1150 testes / 1148 passam / 2 pulados (um deles o adaptador real
+  quando a env var não está definida). `npm run verify`: 33/33.
+
 ## [1.9.2] - 2026-11-23
 
 **Correção de validação do `/rewind`.**

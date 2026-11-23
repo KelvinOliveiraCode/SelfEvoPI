@@ -37,6 +37,9 @@ function tratar(msg) {
     case "initialize":
       responder(seq, cmd, { supportsConfigurationDoneRequest: true });
       return;
+    case "configurationDone":
+      responder(seq, cmd, {});
+      return;
     case "launch":
     case "attach":
     case "disconnect":
@@ -194,6 +197,22 @@ test("fluxo completo: start, launch, breakpoints, continue, stopped, stack, vari
   assert.equal(cliente.running, false);
 });
 
+test("configurationDone e launchAndConfigure fecham a sequência na ordem", async (t) => {
+  const { dir, arquivo } = await scriptTemp(ADAPTADOR_FALSO);
+  const cliente = new DapClient({ command: process.execPath, args: [arquivo], timeoutMs: 1000 });
+  t.after(async () => {
+    await cliente.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+  await cliente.start();
+  assert.deepEqual(await cliente.configurationDone(), {});
+  const r = await cliente.launchAndConfigure(
+    { program: "fonte.js" },
+    { path: "fonte.js", lines: [3, 999] },
+  );
+  assert.deepEqual(r, {});
+});
+
 test("waitForEvent resolve um evento que ainda não chegou", async (t) => {
   const { dir, arquivo } = await scriptTemp(ADAPTADOR_FALSO);
   const cliente = new DapClient({ command: process.execPath, args: [arquivo], timeoutMs: 1000 });
@@ -257,6 +276,20 @@ test("readDapConfig: ausente, válido, quebrado e formato inesperado", async () 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("adaptador DAP real: initialize + capabilities (SELFEOPI_TEST_LLDB_DAP)", { skip: !process.env.SELFEOPI_TEST_LLDB_DAP }, async (t) => {
+  const cliente = new DapClient({
+    command: process.env.SELFEOPI_TEST_LLDB_DAP,
+    args: [],
+    timeoutMs: 8000,
+  });
+  t.after(async () => { await cliente.close().catch(() => {}); });
+  const caps = await cliente.start();
+  assert.ok(caps && typeof caps === "object", "adaptador real deve devolver capabilities");
+  assert.equal(caps.supportsConfigurationDoneRequest, true, "lldb-dap anuncia configurationDone");
+  await cliente.close();
+  assert.equal(cliente.running, false);
 });
 
 test("adapterForFile escolhe por extensão, respeita config e prefere a mais longa", () => {

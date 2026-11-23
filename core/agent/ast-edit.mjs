@@ -8,10 +8,14 @@
  * O scanner de chaves é DELIBERADAMENTE simples, não é um AST:
  *  - respeita aspas simples, duplas e crases, comentários de linha e de bloco
  *    e interpolação de template;
+ *  - reconhece regex literals (/[{}]/) por contexto e as distingue de divisão;
+ *  - ignora tags JSX, mas conta chaves de expressão dentro delas;
+ *  - em arquivos .py/.rb (ou indentado: true) exige chaves e falha com
+ *    "sem-chaves" em vez de absorver o arquivo todo;
  *  - conta chaves e parênteses para achar o corpo da declaração;
- *  - NÃO entende regex literals, JSX, Python por indentação, nem TypeScript
- *    avançado (decorators, overloads). Quando não consegue, falha com motivo
- *    explícito em vez de devolver um intervalo chutado.
+ *  - NÃO entende TypeScript avançado (decorators, overloads), nem resolve
+ *    escopo/semântica. Quando não consegue, falha com motivo explícito em vez
+ *    de devolver um intervalo chutado.
  *
  * API:
  *   hashTexto(texto) -> hex de 8 caracteres (FNV-1a 32 bits sobre bytes UTF-8)
@@ -103,9 +107,123 @@ function quebrar(texto, largura = LARGURA) {
 
 function tokensPorPath(path) {
   const p = String(path || "").toLowerCase();
-  if (/\.(py|rb|sh|bash|zsh|ya?ml|toml)$/.test(p)) return { line: ["#"] };
-  if (/\.(sql|lua)$/.test(p)) return { line: ["--"] };
-  return { line: ["//"] };
+  if (/\.(py|rb)$/.test(p)) return { line: ["#"], jsx: false, indentado: true };
+  if (/\.(sh|bash|zsh|ya?ml|toml)$/.test(p)) return { line: ["#"], jsx: false, indentado: false };
+  if (/\.(sql|lua)$/.test(p)) return { line: ["--"], jsx: false, indentado: false };
+  return { line: ["//"], jsx: true, indentado: false };
+}
+
+/** Contexto imediatamente antes de um `/` ou `<`, sem whitespace. */
+function contextoAnterior(texto, indice) {
+  let j = indice - 1;
+  while (j >= 0 && /\s/.test(texto[j])) j -= 1;
+  const char = j >= 0 ? texto[j] : "";
+  let inicio = j;
+  while (inicio >= 0 && /[A-Za-z0-9_$]/.test(texto[inicio])) inicio -= 1;
+  return { char, palavra: texto.slice(inicio + 1, j + 1) };
+}
+
+const REGEX_DEPOIS_DE = "([{,:;!?&|+-*%<>~^=";
+const REGEX_DEPOIS_DE_PALAVRA = new Set([
+  "return", "throw", "case", "typeof", "instanceof", "in", "of",
+  "new", "delete", "void", "yield", "await",
+]);
+
+/** Heurística conservadora: distingue regex literal de divisão. */
+function regexPodeAbrir(texto, indice) {
+  const { char, palavra } = contextoAnterior(texto, indice);
+  if (char && REGEX_DEPOIS_DE.includes(char)) return true;
+  return REGEX_DEPOIS_DE_PALAVRA.has(palavra);
+}
+
+/** Pula /.../flags com classes [ ] e escapes. Um `/` órfão não vira regex. */
+function pularRegex(texto, inicio) {
+  let i = inicio + 1;
+  let classe = false;
+  while (i < texto.length) {
+    const ch = texto[i];
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === "[") classe = true;
+    else if (ch === "]") classe = false;
+    else if (ch === "/" && !classe) {
+      i += 1;
+      while (i < texto.length && /[a-z]/i.test(texto[i])) i += 1;
+      return i;
+    } else if (ch === "\n" && !classe) return i + 1;
+    i += 1;
+  }
+  return texto.length;
+}
+
+/** Pula um par { ... } já balanceado, qualquer que seja o conteúdo. */
+function pularChave(texto, abertura) {
+  let profundidade = 0;
+  let i = abertura;
+  while (i < texto.length) {
+    const ch = texto[i];
+    const prox = texto[i + 1];
+    if (ch === "/" && prox === "/") {
+      const fim = texto.indexOf("\n", i);
+      i = fim < 0 ? texto.length : fim + 1;
+      continue;
+    }
+    if (ch === "/" && prox === "*") {
+      const fim = texto.indexOf("*/", i + 2);
+      i = fim < 0 ? texto.length : fim + 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      i = pularString(texto, i, ch);
+      continue;
+    }
+    if (ch === "`") {
+      i = pularTemplate(texto, i);
+      continue;
+    }
+    if (ch === "{") profundidade += 1;
+    else if (ch === "}") {
+      profundidade -= 1;
+      if (profundidade === 0) return i + 1;
+    }
+    i += 1;
+  }
+  return texto.length;
+}
+
+/** Tag JSX de abertura/fechamento: ignora atributos e expressões { ... }. */
+function pularTagJsx(texto, inicio) {
+  let i = inicio + 1 + (texto[inicio + 1] === "/" ? 1 : 0);
+  while (i < texto.length) {
+    const ch = texto[i];
+    if (ch === "'" || ch === '"') {
+      i = pularString(texto, i, ch);
+      continue;
+    }
+    if (ch === "`") {
+      i = pularTemplate(texto, i);
+      continue;
+    }
+    if (ch === "{") {
+      i = pularChave(texto, i);
+      continue;
+    }
+    if (ch === ">") return i + 1;
+    i += 1;
+  }
+  return texto.length;
+}
+
+/** `<div ...>` em contexto de expressão, e não uma comparação `a<b`. */
+function pareceJsx(texto, indice) {
+  if (!/^<\/?[A-Za-z][A-Za-z0-9.:-]*/.test(texto.slice(indice))) return false;
+  if (texto.startsWith("</", indice)) return true;
+  const { char, palavra } = contextoAnterior(texto, indice);
+  if (char && "=({[,:!?".includes(char)) return true;
+  if (REGEX_DEPOIS_DE_PALAVRA.has(palavra)) return true;
+  return false;
 }
 
 function pularString(texto, inicio, aspas) {
@@ -161,30 +279,46 @@ function pularTemplate(texto, inicio) {
 }
 
 /**
- * Próximo caractere estrutural (){} em código, ignorando strings/comentários.
- * Chaves dentro de templates (inclusive ${}) são ignoradas de propósito: elas
- * pertencem à expressão interna e não ao bloco que está sendo recortado.
+ * Próximo caractere estrutural (){} em código. Ignora strings, comentários,
+ * regex literais, templates e tags JSX. Chaves de texto JSX ({valor}) continuam
+ * contando — são expressões reais dentro do componente.
  */
-function proximoStructural(texto, de, tokens) {
+function proximoStructural(texto, de, tokens, estado) {
   let i = Math.max(0, de);
   while (i < texto.length) {
     const ch = texto[i];
     const prox = texto[i + 1];
-    if (ch === "/" && prox === "/") {
-      const fim = texto.indexOf("\n", i);
-      i = fim < 0 ? texto.length : fim + 1;
+
+    if (tokens.jsx && ch === "<" && pareceJsx(texto, i)) {
+      const depois = pularTagJsx(texto, i);
+      if (texto.startsWith("</", i)) estado.emJsxTexto = false;
+      else if (depois > i && texto[depois - 2] !== "/") estado.emJsxTexto = true;
+      i = depois;
       continue;
     }
-    if (ch === "/" && prox === "*") {
-      const fim = texto.indexOf("*/", i + 2);
-      i = fim < 0 ? texto.length : fim + 2;
-      continue;
+
+    if (!estado.emJsxTexto) {
+      if (ch === "/" && prox === "/") {
+        const fim = texto.indexOf("\n", i);
+        i = fim < 0 ? texto.length : fim + 1;
+        continue;
+      }
+      if (ch === "/" && prox === "*") {
+        const fim = texto.indexOf("*/", i + 2);
+        i = fim < 0 ? texto.length : fim + 2;
+        continue;
+      }
+      if (tokens.line.some((marca) => texto.startsWith(marca, i))) {
+        const fim = texto.indexOf("\n", i);
+        i = fim < 0 ? texto.length : fim;
+        continue;
+      }
+      if (ch === "/" && regexPodeAbrir(texto, i)) {
+        i = pularRegex(texto, i);
+        continue;
+      }
     }
-    if (tokens.line.some((marca) => texto.startsWith(marca, i))) {
-      const fim = texto.indexOf("\n", i);
-      i = fim < 0 ? texto.length : fim;
-      continue;
-    }
+
     if (ch === "'" || ch === '"') {
       i = pularString(texto, i, ch);
       continue;
@@ -201,10 +335,11 @@ function proximoStructural(texto, de, tokens) {
 
 /** Acha a chave de abertura do corpo ignorando default params entre parênteses. */
 function encontrarAbertura(texto, de, tokens) {
+  const estado = { emJsxTexto: false };
   let paren = 0;
   let atual = de;
   for (;;) {
-    const item = proximoStructural(texto, atual, tokens);
+    const item = proximoStructural(texto, atual, tokens, estado);
     if (!item) return null;
     if (item.ch === "(") paren += 1;
     else if (item.ch === ")") paren = Math.max(0, paren - 1);
@@ -216,10 +351,11 @@ function encontrarAbertura(texto, de, tokens) {
 
 /** Acha a chave de fechamento que casa com `abertura`. */
 function encontrarFechamento(texto, abertura, tokens) {
+  const estado = { emJsxTexto: false };
   let profundidade = 0;
   let atual = abertura;
   for (;;) {
-    const item = proximoStructural(texto, atual, tokens);
+    const item = proximoStructural(texto, atual, tokens, estado);
     if (!item) return null;
     if (item.ch === "{") profundidade += 1;
     else if (item.ch === "}") {
@@ -238,7 +374,7 @@ function regexSimbolo(nome) {
   const n = escaparRegistro(nome);
   return new RegExp(
     `(?:^|[\\s;])(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?` +
-      `(?:function\\s*\\*?\\s*${n}\\b|class\\s+${n}\\b|(?:const|let|var)\\s+${n}\\s*=)`,
+      `(?:function\\s*\\*?\\s*${n}\\b|class\\s+${n}\\b|def\\s+${n}\\b|(?:const|let|var)\\s+${n}\\s*=)`,
     "g",
   );
 }
@@ -269,6 +405,8 @@ export function localizarBloco(texto, opcoes = {}) {
   const opts = opcoes && typeof opcoes === "object" ? opcoes : {};
   const linhas = dividirLinhas(t);
   const tokens = tokensPorPath(opts.path);
+  if (opts.indentado === true) tokens.indentado = true;
+  if (opts.indentado === false) tokens.indentado = false;
   const hashesPedidas = Array.isArray(opts.hashes) && opts.hashes.length
     ? opts.hashes.map((h) => String(h))
     : null;
@@ -306,7 +444,7 @@ export function localizarBloco(texto, opcoes = {}) {
     const espacoInicial = /^\s+/.exec(encontrada[0]);
     const inicioDeclaracao = encontrada.index + (espacoInicial ? espacoInicial[0].length : 0);
     const abertura = encontrarAbertura(t, encontrada.index + encontrada[0].length, tokens);
-    if (abertura == null) return falha("sem-abertura");
+    if (abertura == null) return falha(tokens.indentado ? "sem-chaves" : "sem-abertura");
     const fechamento = encontrarFechamento(t, abertura, tokens);
     if (fechamento == null) return falha("bloco-nao-fechado");
     const primeira = linhaDeOffset(linhas, inicioDeclaracao);

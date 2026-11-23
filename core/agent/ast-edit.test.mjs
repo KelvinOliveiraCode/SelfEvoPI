@@ -203,3 +203,125 @@ test("plano inválido falha sem mudar nada", () => {
   assert.equal(r.texto, CODIGO);
   assert.equal(aplicarEdicao(CODIGO, { ok: false, edicoes: [] }).motivo, "plano-invalido");
 });
+
+/* --------------------------- limites do scanner ------------------------- */
+
+const REGEX_CODIGO = [
+  "function validar(texto) {",
+  "  const r = /[{}]/;",
+  "  const x = 1 / 2;",
+  "  return r.test(texto) && x;",
+  "}",
+].join("\n");
+
+test("regex literal com chaves não desbalanceia; divisão não vira regex", () => {
+  const r = localizarBloco(REGEX_CODIGO, { simbolo: "validar" });
+  assert.equal(r.ok, true, r.motivo);
+  assert.equal(r.linhaInicio, 1);
+  assert.equal(r.linhaFim, 5);
+  assert.ok(r.trecho.includes("const r = /[{}]/;"));
+  assert.ok(r.trecho.includes("const x = 1 / 2;"));
+
+  const comFlags = "function checar() {\n  const r = /a\\/{\\}[b]/gi;\n  return r;\n}\n";
+  const f = localizarBloco(comFlags, { simbolo: "checar" });
+  assert.equal(f.ok, true, f.motivo);
+  assert.equal(f.linhaFim, 4);
+});
+
+const JSX_CODIGO = [
+  "function Painel(valor) {",
+  "  const cls = \"caixa\";",
+  "  return <div className={cls}>{valor}</div>;",
+  "}",
+  "function Link() {",
+  "  return <div>http://exemplo</div>;",
+  "}",
+].join("\n");
+
+test("JSX: chaves de atributo e de texto não confundem o fim do bloco", () => {
+  const painel = localizarBloco(JSX_CODIGO, { simbolo: "Painel" });
+  assert.equal(painel.ok, true, painel.motivo);
+  assert.equal(painel.linhaInicio, 1);
+  assert.equal(painel.linhaFim, 4);
+  assert.ok(painel.trecho.includes("className={cls}>{valor}</div>"));
+
+  const link = localizarBloco(JSX_CODIGO, { simbolo: "Link" });
+  assert.equal(link.ok, true, link.motivo);
+  assert.equal(link.linhaFim, 7, "http:// dentro de texto JSX não é comentário");
+});
+
+test("comparação a<b não é confundida com tag JSX", () => {
+  const codigo = "function cmp(a, b) {\n  if (a<b) { return 1; }\n  return 0;\n}\n";
+  const r = localizarBloco(codigo, { simbolo: "cmp" });
+  assert.equal(r.ok, true, r.motivo);
+  assert.equal(r.linhaFim, 4);
+  assert.ok(r.trecho.includes("if (a<b)"));
+});
+
+test("blocos por indentação falham com sem-chaves, não absorvem o arquivo", () => {
+  const py = "def soma(a, b):\n    return a + b\n";
+  const r = localizarBloco(py, { path: "arquivo.py", simbolo: "soma" });
+  assert.equal(r.ok, false);
+  assert.equal(r.motivo, "sem-chaves");
+  assert.equal(r.inicio, null);
+  assert.equal(r.fim, null);
+  assert.equal(r.trecho, "");
+
+  const explicito = localizarBloco(py, { indentado: true, simbolo: "soma" });
+  assert.equal(explicito.motivo, "sem-chaves");
+
+  const rb = "def soma(a, b)\n  a + b\nend\n";
+  assert.equal(localizarBloco(rb, { path: "arquivo.rb", simbolo: "soma" }).motivo, "sem-chaves");
+});
+
+test("template malformado falha com bloco-nao-fechado e nenhum intervalo parcial", () => {
+  const quebrado = "function quebrado() {\n  const s = `não fecha;\n  return 1;\n";
+  const r = localizarBloco(quebrado, { simbolo: "quebrado" });
+  assert.equal(r.ok, false);
+  assert.equal(r.motivo, "bloco-nao-fechado");
+  assert.equal(r.inicio, null);
+  assert.equal(r.fim, null);
+  assert.equal(r.trecho, "");
+
+  const plano = planejarEdicao(quebrado, { simbolo: "quebrado", depois: "x" });
+  assert.equal(plano.ok, false);
+  assert.equal(plano.motivo, "bloco-nao-fechado");
+  assert.deepEqual(plano.edicoes, []);
+});
+
+const MISTO = [
+  "function misto(texto) {",
+  '  const s = "{ não chave";',
+  "  // } comentário enganoso",
+  "  const r = /[{}]/;",
+  '  return <div className={s}>{r.test(texto) ? "sim" : "não"}</div>;',
+  "}",
+].join("\n");
+
+test("regressão: string, comentário, regex e JSX juntos preservam o limite", () => {
+  const r = localizarBloco(MISTO, { simbolo: "misto" });
+  assert.equal(r.ok, true, r.motivo);
+  assert.equal(r.linhaInicio, 1);
+  assert.equal(r.linhaFim, 6);
+
+  const maior = MISTO + "\nfunction fora() { return 1; }\n";
+  assert.equal(localizarBloco(maior, { simbolo: "misto" }).trecho, r.trecho);
+});
+
+test("planejar/aplicar permanece estável em código com regex e JSX", () => {
+  const plano = planejarEdicao(JSX_CODIGO, {
+    edicoes: [
+      { simbolo: "Painel", depois: "function Painel() { return null; }" },
+      { simbolo: "Link", depois: "function Link() { return null; }" },
+    ],
+  });
+  assert.equal(plano.ok, true, plano.motivo);
+  for (const linha of plano.preview.split("\n")) {
+    assert.ok(linha.length <= 72, `preview com ${linha.length} colunas`);
+    assert.ok(!linha.includes("…") && !linha.includes("..."));
+  }
+  const r = aplicarEdicao(JSX_CODIGO, plano);
+  assert.equal(r.ok, true, r.motivo);
+  assert.ok(r.texto.includes("function Painel() { return null; }"));
+  assert.ok(r.texto.includes("function Link() { return null; }"));
+});
