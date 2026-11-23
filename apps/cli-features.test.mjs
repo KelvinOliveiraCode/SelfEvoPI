@@ -227,6 +227,21 @@ test("makeOut aplica o crivo da tela à saída de comandos longos", () => {
   }
 });
 
+test("/dap sem argumentos lista adaptadores sem lance", async () => {
+  const escrito = [];
+  assert.equal(await runSlash("/dap", "", (s) => escrito.push(s), {}), 0);
+  assert.match(stripAnsi(escrito.join("")), /adaptadores DAP/);
+});
+
+test("/advisor e /ast-edit respondem sem argumentos", async () => {
+  const a = [];
+  assert.equal(await runSlash("/advisor", "", (s) => a.push(s), {}), 0);
+  assert.match(stripAnsi(a.join("")), /regras de stream|stream rules/i);
+  const b = [];
+  assert.equal(await runSlash("/ast-edit", "", (s) => b.push(s), {}), 2);
+  assert.match(stripAnsi(b.join("")), /ast-edit/);
+});
+
 test("/lsp sem argumentos lista servidores configurados sem lance", async () => {
   const escrito = [];
   const codigo = await runSlash("/lsp", "", (s) => escrito.push(s), {});

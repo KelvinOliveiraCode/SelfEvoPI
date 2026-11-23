@@ -169,6 +169,12 @@ cursor. Mouse and cursor-position reports are parsed out of the input stream, so
 a click never becomes typed text. The frame follows `stdout.columns` and redraws
 on window resize; `--render` stays deterministic at 72 columns.
 
+**Editing and debugging.** `/ast-edit` previews structural edits anchored by
+line hashes and only writes with `--apply`. `/dap` lists debug adapters from
+`.pi/dap.json`; the DAP client also supports breakpoints, stepping and variable
+inspection. An advisor can watch turns and stream rules can abort mid-token
+when a forbidden pattern appears.
+
 **LSP.** A zero-dependency LSP client reads `.pi/lsp.json` and exposes
 diagnostics, symbols, hover and rename through `/lsp <file> [action]`. The child
 server gets an environment allowlist. Position encoding (UTF-16) is not yet

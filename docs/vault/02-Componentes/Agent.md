@@ -23,6 +23,9 @@ created: 2026-11-19
 | `core/agent/hooks.mjs` | Hooks de ciclo de vida do workspace (`turn_start`…`compact`), sem shell e com redação de segredos | `readHooks`, `runHooks`, `EVENTS` |
 | `core/agent/rewind.mjs` | Recorte puro de JSONL de sessão (erros, antes de id, manter últimos) | `rewindSession`, `rewindReport`, `summarizeSession` |
 | `core/agent/lsp.mjs` | Cliente LSP zero-dep sobre stdio (`Content-Length`, diagnostics, rename, hover, symbols) | `LspClient`, `readLspConfig`, `serverForFile` |
+| `core/agent/ast-edit.mjs` | Edição estrutural com âncora por hash e preview | `hashTexto`, `localizarBloco`, `planejarEdicao`, `aplicarEdicao` |
+| `core/agent/advisor.mjs` | Notas de revisor e regras de stream com abort | `observeTurn`, `parseNotes`, `verificarStream` |
+| `core/agent/dap.mjs` | Cliente DAP zero-dep (launch, breakpoints, stepping, variables) | `DapClient`, `readDapConfig`, `adapterForFile` |
 | `core/agent/code-mode.mjs` | Executa programa curto com acesso restrito a tools (`node:vm`) | `runCode` |
 | `scripts/code-mode-mcp.mjs` | Gateway MCP opt-in que expõe apenas `run_code`; descobre servidores locais em runtime | (processostdio) |
 | `core/agent/mcp.mjs` | Inventaria MCPs do projeto (`.mcp.json` / `.pi/settings.json`) | `readMcpConfig`, `listMcpServers` |

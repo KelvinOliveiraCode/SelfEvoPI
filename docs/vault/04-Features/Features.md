@@ -93,6 +93,22 @@ a saída é redigida antes de aparecer. Um hook que falha ou expira é registrad
 como observabilidade e **nunca** derruba o turno. `/hooks` mostra a config e os
 últimos resultados. Implementação em `core/agent/hooks.mjs`.
 
+## Edição estrutural, advisor e DAP
+
+`core/agent/ast-edit.mjs` ancora edições por hash de linha: se o arquivo mudou,
+o plano falha com `stale` em vez de corromper o código. `/ast-edit` mostra a
+prévia e só grava com `--apply`. O localizador é um scanner de chaves com estado
+— não é uma AST de verdade (sem JSX, regex literals ou blocos por indentação).
+
+`core/agent/advisor.mjs` normaliza notas `NOTE/CONCERN/BLOCKER` de um revisor
+injetado e aplica regras de stream que detectam um padrão mesmo quando ele cruza
+deltas, abortando uma vez e deixando a nota no histórico.
+
+`core/agent/dap.mjs` fala DAP sobre stdio com zero dependências: `launch`,
+`attach`, breakpoints, stepping, stack, variables e eventos `stopped`.
+`/dap [arquivo]` mostra os adaptadores de `.pi/dap.json`. Adaptadores reais e
+`configurationDone` não foram testados.
+
 ## LSP
 
 `core/agent/lsp.mjs` fala LSP sobre stdio com zero dependências: framing por

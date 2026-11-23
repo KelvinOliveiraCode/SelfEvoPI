@@ -1342,6 +1342,9 @@ export const COMMANDS = [
   { name: "/model", args: "[nome]", description: tr("cmd.model"), run: runModel },
   { name: "/role", args: "[nome]", description: tr("cmd.role"), run: runRole },
   { name: "/lsp", args: "<arquivo> [ação]", description: tr("cmd.lsp"), run: runLsp },
+  { name: "/advisor", args: "", description: tr("cmd.advisor"), run: runAdvisor },
+  { name: "/ast-edit", args: "<arquivo> <símbolo> <novo> [--apply]", description: tr("cmd.astedit"), run: runAstEdit },
+  { name: "/dap", args: "[arquivo]", description: tr("cmd.dap"), run: runDap },
   { name: "/effort", args: "[off|low|medium|high]", description: tr("cmd.effort"), run: runEffort },
   {
     name: "/mode",
@@ -1421,6 +1424,7 @@ const ARG_TR = {
     "[list|discover|add|rm|models]": "[list|discover|add|rm|models]",
     "[drop-errors|last:N|id:<id>]": "[drop-errors|last:N|id:<id>]",
     "<arquivo> [ação]": "<file> [action]",
+    "<arquivo> <símbolo> <novo> [--apply]": "<file> <symbol> <new> [--apply]",
   },
   pt: {},
 };
@@ -3194,6 +3198,20 @@ export function recordEvent(kind, text, meta = {}) {
 
 /* ------------------------ papéis de modelo ------------------------------ */
 
+let streamRules = []; // regras de stream do workspace (.pi/stream-rules.json)
+
+/** Carrega regras de stream do workspace. Nunca lança. */
+async function carregarRegrasStream() {
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const { compilarRegras } = await import("../core/agent/advisor.mjs");
+    const doc = JSON.parse(await readFile(path.join(workspaceRoot, ".pi", "stream-rules.json"), "utf8"));
+    streamRules = compilarRegras(Array.isArray(doc?.rules) ? doc.rules : doc);
+  } catch {
+    streamRules = [];
+  }
+}
+
 let currentRole = "default";
 let papelCooldown = null; // instanciado sob demanda (core/router/model-roles.mjs)
 let papelRegras = []; // regras path-scope do arquivo local, se houver
@@ -3297,6 +3315,71 @@ async function runSecurityLogCommand({ out }) {
     out(paint(`  ${String(err?.message || err).slice(0, 120)}`, "fail"));
     return 1;
   }
+}
+
+/** `/dap [arquivo]` — adaptadores DAP configurados em .pi/dap.json. */
+async function runDap({ arg, out }) {
+  const { readDapConfig, adapterForFile } = await import("../core/agent/dap.mjs");
+  const cfg = await readDapConfig(workspaceRoot);
+  const nomes = Object.keys(cfg.adapters || {});
+  if (arg && String(arg).trim()) {
+    const alvo = adapterForFile(cfg, path.resolve(workspaceRoot, String(arg).trim()));
+    out(alvo
+      ? paint(`  adaptador: ${alvo.nome}`, "fg")
+      : paint("  nenhum adaptador para essa extensão.", "muted"));
+    return alvo ? 0 : 1;
+  }
+  out(paint(`  adaptadores DAP: ${nomes.length ? nomes.join(", ") : "(nenhum em .pi/dap.json)"}`, nomes.length ? "fg" : "muted"));
+  return 0;
+}
+
+/** `/ast-edit <arquivo> <símbolo> <novo> [--apply]` */
+async function runAstEdit({ arg, out }) {
+  const { readFile, writeFile } = await import("node:fs/promises");
+  const { planejarEdicao, aplicarEdicao, resumoEdicao } = await import("../core/agent/ast-edit.mjs");
+  const partes = String(arg ?? "").trim().split(/\s+/);
+  if (partes.length < 3) {
+    out(paint("  use: /ast-edit <arquivo> <símbolo> <novo texto> [--apply]", "warn"));
+    return 2;
+  }
+  const aplicar = partes[partes.length - 1] === "--apply";
+  if (aplicar) partes.pop();
+  const alvo = path.resolve(workspaceRoot, partes[0]);
+  if (!alvo.startsWith(path.resolve(workspaceRoot))) {
+    out(paint("  arquivo fora do workspace.", "fail"));
+    return 2;
+  }
+  const simbolo = partes[1];
+  const novo = partes.slice(2).join(" ").replace(/\\n/g, "\n");
+  const texto = await readFile(alvo, "utf8").catch(() => null);
+  if (texto == null) { out(paint("  não consegui ler o arquivo.", "fail")); return 1; }
+  const plano = planejarEdicao(texto, { simbolo, depois: novo });
+  if (!plano.ok) {
+    out(paint(`  edição recusada: ${plano.motivo}`, "fail"));
+    return 1;
+  }
+  out(paint("  " + resumoEdicao(plano, alvo), "fg"));
+  for (const linha of plano.preview.split("\n")) out("    " + linha);
+  if (!aplicar) {
+    out(paint("  prévia apenas. Rode com --apply para aplicar.", "muted"));
+    return 0;
+  }
+  const r = aplicarEdicao(texto, plano);
+  if (!r.ok) { out(paint(`  falha ao aplicar: ${r.motivo}`, "fail")); return 1; }
+  await writeFile(alvo, r.texto, "utf8");
+  out(paint("  edição aplicada.", "ok"));
+  return 0;
+}
+
+/** `/advisor` — notas registradas e regras de stream do workspace. */
+async function runAdvisor({ out }) {
+  const notas = listEvents(200).filter((e) => e.kind === "advisor").slice(-10);
+  const linhas = [paint(`  regras de stream: ${streamRules.length}`, "fg")];
+  for (const r of streamRules.slice(0, 10)) linhas.push(`    ${r.name} → ${r.action}`);
+  linhas.push(paint(`  notas do advisor: ${notas.length}`, "fg"));
+  for (const n of notas.slice(-5)) linhas.push(`    ${String(n.text).replace(/\s+/g, " ").slice(0, 66)}`);
+  out(linhas.join("\n"));
+  return 0;
 }
 
 /** `/lsp <arquivo> [diagnostics|symbols|hover:L:C|rename:L:C:novo]` */
@@ -3649,6 +3732,8 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
   const settleTimeoutMs = opts.settleTimeoutMs ?? 120_000;
   const images = Array.isArray(opts.images) ? opts.images : [];
   let buf = "";
+  let carryStream = "";
+  let regraStreamAplicada = false;
   let drawn = 0;
   let hadError = false;
   let rawError = "";
@@ -3727,6 +3812,21 @@ export async function converse(pi, text, write, setBusy = () => {}, opts = {}) {
     spin.stop();
     buf += delta;
     redraw();
+    if (streamRules.length && !regraStreamAplicada) {
+      // Regra de stream: padrão detectado no meio do token → aborta uma vez e
+      // deixa a nota no histórico para o próximo turno corrigir o rumo.
+      void import("../core/agent/advisor.mjs").then(({ verificarStream, formatNote }) => {
+        const r = verificarStream(streamRules, delta, carryStream);
+        carryStream = r.carry;
+        if (!r.rule || regraStreamAplicada) return;
+        regraStreamAplicada = true;
+        const nota = { severity: r.rule.action === "warn" ? "concern" : "blocker", text: r.rule.note || r.rule.name };
+        recordEvent("advisor", formatNote(nota).replace(/\x1b\[[0-9;]*m/g, "").slice(0, 600), { rule: r.rule.name, action: r.rule.action });
+        if (r.rule.action === "abort" && pi && typeof pi.abort === "function") {
+          pi.abort().catch(() => {});
+        }
+      }).catch(() => {});
+    }
   });
   const toolStart = new Map();
   const offTool = pi.on("tool", (call) => {
@@ -5689,6 +5789,7 @@ function instalarFiltroAvisoSessao() {
 async function main() {
   instalarFiltroAvisoSessao();
   void carregarRegrasPapel();
+  void carregarRegrasStream();
   void carregarCooldownPapel();
   const args = process.argv.slice(2);
 

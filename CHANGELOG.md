@@ -4,6 +4,27 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.9.0] - 2026-11-23
+
+**Edição estrutural, advisor, regras de stream e DAP.**
+
+- `core/agent/ast-edit.mjs` (subagente `hy4-flash-free` high): hash FNV-1a por
+  linha, âncoras que detectam arquivo stale, localização de função/classe/arrow
+  com strings e comentários, preview em 72 colunas e aplicação em ordem reversa.
+  `/ast-edit <arquivo> <símbolo> <novo> [--apply]` — prévia por padrão.
+- `core/agent/advisor.mjs`: notas de um revisor (`NOTE/CONCERN/BLOCKER`),
+  `observeTurn` com timeout e regras de stream que detectam um padrão atravessando
+  deltas e abortam uma vez com a nota no histórico. `/advisor` mostra notas e
+  regras; regras vêm de `.pi/stream-rules.json`.
+- `core/agent/dap.mjs` (subagente): cliente DAP zero-dep — `initialize`,
+  `launch`/`attach`, breakpoints, stepping, stack/variables e eventos, com o
+  mesmo framing UTF-8 do LSP. `/dap [arquivo]` lista adaptadores de `.pi/dap.json`.
+- Testes: 12 AST + 7 advisor + 6 DAP + 3 de comandos. `npm test`: 1138 testes /
+  1137 passam; `npm run verify`: 33/33.
+- **Limites honestos:** scanner de chaves não é AST real (sem JSX/regex literals);
+  adaptadores DAP reais e `configurationDone` não testados; compatibilidade LSP
+  com servidores reais segue sem prova.
+
 ## [1.8.0] - 2026-11-23
 
 **Temas em inglês e cooldown persistente.**
