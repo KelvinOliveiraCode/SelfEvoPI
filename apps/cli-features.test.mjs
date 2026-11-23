@@ -227,6 +227,13 @@ test("makeOut aplica o crivo da tela à saída de comandos longos", () => {
   }
 });
 
+test("/rewind sem argumentos mostra uso e não corta nada", async () => {
+  const escrito = [];
+  const codigo = await runSlash("/rewind", "", (s) => escrito.push(s), {});
+  assert.equal(codigo, 2);
+  assert.match(stripAnsi(escrito.join("")), /use: \/rewind/);
+});
+
 test("/dap sem argumentos lista adaptadores sem lance", async () => {
   const escrito = [];
   assert.equal(await runSlash("/dap", "", (s) => escrito.push(s), {}), 0);

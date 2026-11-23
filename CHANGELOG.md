@@ -4,6 +4,15 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.9.1] - 2026-11-23
+
+**Correção de segurança no `/rewind`.**
+
+- `/rewind` sem argumento mostrava uso e **executava** `dropErrors` por padrão.
+  Agora exige argumento explícito (`drop-errors`, `last:N` ou `id:<id>`) e sai
+  com código 2 sem tocar em nenhuma sessão. Teste adicionado.
+- Versão 1.9.0 continua com as funcionalidades de AST, advisor, stream rules e DAP.
+
 ## [1.9.0] - 2026-11-23
 
 **Edição estrutural, advisor, regras de stream e DAP.**

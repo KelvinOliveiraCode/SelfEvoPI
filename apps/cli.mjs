@@ -3528,7 +3528,10 @@ async function runRewind({ arg, out, pi }) {
   const resumo = summarizeSession(texto);
 
   let opcoes;
-  if (/^drop-errors$/i.test(alvo) || alvo === "") opcoes = { dropErrors: true };
+  if (!alvo) {
+    out(paint("  use: /rewind [drop-errors|last:N|id:<id>]", "warn"));
+    return 2;
+  } else if (/^drop-errors$/i.test(alvo)) opcoes = { dropErrors: true };
   else if (/^last:\d+$/i.test(alvo)) opcoes = { keepLast: Number(alvo.split(":")[1]) };
   else if (/^id:.+/i.test(alvo)) opcoes = { beforeMessageId: alvo.slice(3) };
   else {
