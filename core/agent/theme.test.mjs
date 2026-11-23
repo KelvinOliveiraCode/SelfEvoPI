@@ -19,29 +19,72 @@ import {
 
 /* --------------------------- estrutura ---------------------------------- */
 
-test("THEMES tem padrão, violeta e várias cores", () => {
-  assert.ok(THEMES.padrao, "falta padrao");
-  assert.ok(THEMES.violeta, "falta violeta");
-  for (const cor of ["azul", "ciano", "verde", "rosa", "vermelho", "grafite"]) {
+test("THEMES tem default, violet e várias cores", () => {
+  assert.ok(THEMES.default, "falta default");
+  assert.ok(THEMES.violet, "falta violet");
+  for (const cor of ["blue", "cyan", "green", "pink", "red", "graphite"]) {
     assert.ok(THEMES[cor], `falta ${cor}`);
   }
-  assert.equal(THEMES.escuro, undefined, "escuro foi renomeado para padrao");
+  assert.equal(THEMES.escuro, undefined, "escuro foi renomeado para default");
   assert.equal(THEMES["alto-contraste"], undefined, "alto-contraste saiu do conjunto");
+  assert.equal(THEMES.padrao, undefined, "padrao foi renomeado para default");
 });
 
-test("listThemes devolve pelo menos doze nomes", () => {
-  const names = listThemes();
-  assert.ok(names.length >= 12, `esperados >=12 temas, veio ${names.length}`);
-  assert.ok(names.includes("padrao"));
-  assert.ok(names.includes("violeta"));
+test("listThemes devolve os doze nomes em inglês", () => {
+  const nomes = listThemes();
+  assert.deepEqual(nomes, [
+    "default",
+    "violet",
+    "blue",
+    "cyan",
+    "green",
+    "emerald",
+    "orange",
+    "pink",
+    "red",
+    "magenta",
+    "gold",
+    "graphite",
+  ]);
+  for (const nome of nomes) {
+    assert.equal(THEMES[nome].name, nome, `campo name divergente em ${nome}`);
+  }
 });
 
-test("nomes antigos migram para padrão", () => {
-  assert.equal(getThemeColors("escuro"), THEMES.padrao);
-  assert.equal(getThemeColors("alto-contraste"), THEMES.padrao);
+test("nomes antigos migram para default", () => {
+  assert.equal(getThemeColors("escuro"), THEMES.default);
+  assert.equal(getThemeColors("alto-contraste"), THEMES.default);
   assert.equal(setTheme("escuro"), true);
-  assert.equal(getTheme(), "padrao");
-  setTheme("padrao");
+  assert.equal(getTheme(), "default");
+  setTheme("default");
+});
+
+test("todo nome antigo em português migra para o tema em inglês", () => {
+  const antigos = {
+    padrao: "default",
+    violeta: "violet",
+    azul: "blue",
+    ciano: "cyan",
+    verde: "green",
+    esmeralda: "emerald",
+    laranja: "orange",
+    rosa: "pink",
+    vermelho: "red",
+    magenta: "magenta",
+    dourado: "gold",
+    grafite: "graphite",
+    claro: "violet",
+  };
+  for (const [antigo, novo] of Object.entries(antigos)) {
+    assert.strictEqual(getThemeColors(antigo), THEMES[novo], `${antigo} deve migrar para ${novo}`);
+  }
+});
+
+test("migração: getThemeColors('violeta') é o mesmo objeto que getThemeColors('violet')", () => {
+  const antigo = getThemeColors("violeta");
+  const novo = getThemeColors("violet");
+  assert.strictEqual(antigo, novo);
+  assert.equal(novo.name, "violet");
 });
 
 test("getTheme devolve um tema válido por padrão", () => {
@@ -58,16 +101,32 @@ test("setTheme aceita e persiste um tema válido", () => {
   const orig = process.env.USERPROFILE;
   process.env.USERPROFILE = tmp; // redireciona ~/.pi/agent/theme.json
   try {
-    assert.equal(setTheme("violeta"), true);
-    assert.equal(getTheme(), "violeta");
+    assert.equal(setTheme("violet"), true);
+    assert.equal(getTheme(), "violet");
     // arquivo persistido
     const file = join(tmp, ".pi", "agent", "theme.json");
     const doc = JSON.parse(readFileSync(file, "utf8"));
-    assert.equal(doc.theme, "violeta");
+    assert.equal(doc.theme, "violet");
   } finally {
     process.env.USERPROFILE = orig;
     rmSync(tmp, { recursive: true, force: true });
-    setTheme("padrao"); // restaura
+    setTheme("default"); // restaura
+  }
+});
+
+test("migração: setTheme('azul') persiste 'blue'", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "selfevopi-theme-"));
+  const orig = process.env.USERPROFILE;
+  process.env.USERPROFILE = tmp;
+  try {
+    assert.equal(setTheme("azul"), true);
+    assert.equal(getTheme(), "blue");
+    const doc = JSON.parse(readFileSync(join(tmp, ".pi", "agent", "theme.json"), "utf8"));
+    assert.equal(doc.theme, "blue", "não pode persistir o nome antigo");
+  } finally {
+    process.env.USERPROFILE = orig;
+    rmSync(tmp, { recursive: true, force: true });
+    setTheme("default");
   }
 });
 
@@ -83,29 +142,30 @@ test("cada tema tem as seis chaves semânticas", () => {
 });
 
 test("getThemeColors devolve a paleta do tema", () => {
-  const t = getThemeColors("violeta");
-  assert.equal(t.bg, THEMES.violeta.bg);
-  assert.equal(t.fg, THEMES.violeta.fg);
+  const t = getThemeColors("violet");
+  assert.equal(t.bg, THEMES.violet.bg);
+  assert.equal(t.fg, THEMES.violet.fg);
 });
 
 test("getThemeColors com nome inválido cai no padrão", () => {
   const t = getThemeColors("nao-existe");
   assert.ok(t.fg, "deveria cair no padrão");
+  assert.strictEqual(t, THEMES.default);
 });
 
 /* --------------------------- CSS ---------------------------------------- */
 
 test("themeToCss gera variáveis --fg, --muted, --accent, --ok, --warn, --fail", () => {
-  const css = themeToCss("padrao");
+  const css = themeToCss("default");
   for (const v of ["--bg", "--fg", "--muted", "--accent", "--ok", "--warn", "--fail"]) {
     assert.ok(css.includes(v), `CSS sem ${v}`);
   }
-  assert.ok(css.includes(THEMES.padrao.fg), "CSS deve usar o fg do tema");
+  assert.ok(css.includes(THEMES.default.fg), "CSS deve usar o fg do tema");
 });
 
 test("themeToCss de uma cor usa as cores do tema", () => {
-  const css = themeToCss("azul");
-  assert.ok(css.includes(THEMES.azul.accent), "accent do tema azul");
+  const css = themeToCss("blue");
+  assert.ok(css.includes(THEMES.blue.accent), "accent do tema blue");
 });
 
 test("temas têm contraste alto no texto (WCAG >= 4.5)", () => {
@@ -128,13 +188,13 @@ test("temas têm contraste alto no texto (WCAG >= 4.5)", () => {
 /* --------------------------- ANSI --------------------------------------- */
 
 test("themeToAnsi gera sequências truecolor", () => {
-  const ansi = themeToAnsi("padrao");
+  const ansi = themeToAnsi("default");
   assert.ok(ansi.fg.startsWith("\x1b[38;2;"), "fg não é truecolor");
   assert.ok(ansi.ok.startsWith("\x1b[38;2;"), "ok não é truecolor");
 });
 
 test("themeToAnsi256 gera sequências ANSI-256 (38;5;N) e é distinta por tema", () => {
-  const a = themeToAnsi256("padrao");
+  const a = themeToAnsi256("default");
   assert.ok(a.accent.startsWith("\x1b[38;5;"), "accent não é 256 cores");
   const idx = (seq) => { const n = (seq.match(/\d+/g) || []); return Number(n[n.length - 1]); };
   // temas diferentes não podem cair todos no mesmo índice ANSI-256
@@ -146,7 +206,7 @@ test("themeToAnsi256 gera sequências ANSI-256 (38;5;N) e é distinta por tema",
 });
 
 test("applyAnsiTheme define variáveis SELFEVOPI_ANSI_*", () => {
-  applyAnsiTheme("violeta");
+  applyAnsiTheme("violet");
   assert.ok(process.env.SELFEVOPI_ANSI_FG, "falta SELFEVOPI_ANSI_FG");
   assert.ok(process.env.SELFEVOPI_ANSI_OK, "falta SELFEVOPI_ANSI_OK");
   // limpa
@@ -181,8 +241,8 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-test("padrão: fg, accent e muted passam AA", () => {
-  const t = THEMES.padrao;
+test("default: fg, accent e muted passam AA", () => {
+  const t = THEMES.default;
   const bg = t.bg;
   for (const k of ["fg", "accent", "muted"]) {
     assert.ok(contrast(t[k], bg) >= 4.5, `${k} = ${t[k]} contrast ${contrast(t[k], bg).toFixed(2)} < 4.5`);
@@ -190,7 +250,7 @@ test("padrão: fg, accent e muted passam AA", () => {
 });
 
 test("temas de cor têm accents distintos uns dos outros", () => {
-  const cores = listThemes().filter((n) => n !== "padrao" && n !== "grafite");
+  const cores = listThemes().filter((n) => n !== "default" && n !== "graphite");
   const accents = new Set(cores.map((n) => THEMES[n].accent));
   assert.equal(accents.size, cores.length, "duas cores compartilham o mesmo accent");
 });

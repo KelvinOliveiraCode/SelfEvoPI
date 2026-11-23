@@ -4,6 +4,22 @@ Todas as mudanças notáveis neste projeto são documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.8.0] - 2026-11-23
+
+**Temas em inglês e cooldown persistente.**
+
+- Os 12 temas pré-definidos agora têm nomes em inglês: `default`, `violet`,
+  `blue`, `cyan`, `green`, `emerald`, `orange`, `pink`, `red`, `magenta`,
+  `gold`, `graphite`. Cores hex inalteradas. Todos os nomes antigos em
+  português (`padrao`, `violeta`, `azul`, …) continuam como aliases legados e
+  migram ao carregar `theme.json`/localStorage.
+- `core/router/cooldown-store.mjs`: cooldown dos papéis de modelo persistido em
+  `~/.pi/agent/model-cooldown.json`. Só `ref → timestamp`; entradas com
+  `apiKey`/token/secret e refs inválidos são descartadas. Best-effort: disco
+  corrompido ou cheio nunca derruba o turno.
+- Testes: 20 de temas (renomeação + migração) e 5 de persistência de cooldown.
+  `npm test` e `npm run verify` verdes nos dois repositórios.
+
 ## [1.7.0] - 2026-11-23
 
 **Integração na TUI e LSP — segunda leva do plano.**

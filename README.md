@@ -92,7 +92,7 @@ A conversation, not a menu. Type `/` at any time for the command palette.
 | `/mcp` / `/plugins [name\|test]` | list MCP servers; probe one or all |
 | `/init` / `/import` | draft `AGENTS.md`; reversible config migration |
 | `/model [name]` / `/effort [level]` | model and reasoning effort |
-| `/theme [dark\|violet\|high-contrast]` | interface theme |
+| `/theme [theme]` | interface theme |
 | `/language [en\|pt]` | interface language — **English by default** |
 | `/providers [list\|add\|rm\|models]` | manage providers and models |
 | `/swarm [n] <task>` / `/subagent …` | shape and run subagents |
@@ -154,9 +154,10 @@ npm run models:check    # capabilities of every configured model, no API call
 npm run models:prompt   # also sends one minimal prompt to each model
 ```
 
-**Themes.** Twelve built-in palettes (`padrao`, `violeta`, `azul`, `ciano`,
-`verde`, `esmeralda`, `laranja`, `rosa`, `vermelho`, `magenta`, `dourado`,
-`grafite`) plus three editable custom slots, each with 11 semantic color roles.
+**Themes.** Twelve built-in palettes (`default`, `violet`, `blue`, `cyan`,
+`green`, `emerald`, `orange`, `pink`, `red`, `magenta`, `gold`, `graphite`)
+plus three editable custom slots, each with 11 semantic color roles. Old
+Portuguese names saved in `theme.json` migrate automatically.
 `/theme` opens a picker; every palette passes WCAG AA on its own background. If
 the terminal does not announce truecolor, the palette degrades honestly to
 ANSI-256 — no "I changed the theme and nothing happened" bug.

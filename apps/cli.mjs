@@ -149,7 +149,7 @@ let _customHex = null; // paleta hex do tema custom ativo (pré-carregada)
 /** Paleta hex do tema ativo (built-in ou custom). */
 function currentPaletteHex() {
   const name = getTheme();
-  if (String(name).startsWith("custom")) return _customHex || getThemeColors("padrao");
+  if (String(name).startsWith("custom")) return _customHex || getThemeColors("default");
   return getThemeColors(name);
 }
 
@@ -189,7 +189,7 @@ async function refreshThemeCache() {
     try {
       const { getCustomTheme } = await import("../core/agent/theme-custom.mjs");
       const c = await getCustomTheme(slot);
-      _customHex = { ...getThemeColors("padrao"), ...(c?.colors || {}) };
+      _customHex = { ...getThemeColors("default"), ...(c?.colors || {}) };
     } catch {
       _customHex = null;
     }
@@ -3197,6 +3197,33 @@ export function recordEvent(kind, text, meta = {}) {
 let currentRole = "default";
 let papelCooldown = null; // instanciado sob demanda (core/router/model-roles.mjs)
 let papelRegras = []; // regras path-scope do arquivo local, se houver
+let cooldownArquivo = null; // ~/.pi/agent/model-cooldown.json
+
+/** Hidrata o cooldown do papel com o que está no disco (best-effort). */
+async function carregarCooldownPapel() {
+  try {
+    const os = await import("node:os");
+    const pathMod = await import("node:path");
+    const { Cooldown } = await import("../core/router/model-roles.mjs");
+    const { readCooldown, COOLDOWN_FILE } = await import("../core/router/cooldown-store.mjs");
+    cooldownArquivo = pathMod.join(os.homedir(), ".pi", "agent", COOLDOWN_FILE);
+    papelCooldown = new Cooldown();
+    for (const [ref, timestamp] of await readCooldown(cooldownArquivo)) {
+      papelCooldown.ate.set(ref, timestamp);
+    }
+  } catch {
+    papelCooldown = null;
+  }
+}
+
+/** Persista depois de marcar/restaurar um ref. */
+async function salvarCooldownPapel() {
+  try {
+    if (!cooldownArquivo || !papelCooldown) return;
+    const { writeCooldown } = await import("../core/router/cooldown-store.mjs");
+    await writeCooldown(cooldownArquivo, papelCooldown.ate);
+  } catch { /* disco não pode derrubar o turno */ }
+}
 
 /** Papel ativo, exposto para a barra de estado e para os testes. */
 export function currentModelRole() {
@@ -3206,13 +3233,11 @@ export function currentModelRole() {
 /** Marca o modelo atual como falho; o próximo turno evita esse ref. */
 async function marcarModeloFalho(pi) {
   try {
-    if (!papelCooldown) {
-      const { Cooldown } = await import("../core/router/model-roles.mjs");
-      papelCooldown = new Cooldown();
-    }
+    if (!papelCooldown) await carregarCooldownPapel();
     const st = pi && typeof pi.getState === "function" ? await pi.getState().catch(() => ({})) : {};
     if (st?.model?.provider && st?.model?.id) {
-      papelCooldown.failure(`${st.model.provider}/${st.model.id}`);
+      papelCooldown?.failure(`${st.model.provider}/${st.model.id}`);
+      await salvarCooldownPapel();
     }
   } catch {
     /* cooldown é observabilidade: nunca atrapalha o erro */
@@ -3901,7 +3926,10 @@ export async function converseOrFallback(pi, text, write, opts = {}) {
       }
       try {
         const st = await pi.getState().catch(() => ({}));
-        if (papelCooldown && st?.model) papelCooldown.restore(`${st.model.provider}/${st.model.id}`);
+        if (papelCooldown && st?.model) {
+          papelCooldown.restore(`${st.model.provider}/${st.model.id}`);
+          await salvarCooldownPapel();
+        }
       } catch { /* best-effort */ }
       return res;
     }
@@ -4535,7 +4563,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     const tc = await import("../core/agent/theme-custom.mjs");
     // getThemeColors devolve { name, bg, fg, ... }; "name" não é papel de cor,
     // então separa antes de compor a paleta (senão validateColors rejeita).
-    const { name: _nomeBase, ...baseCores } = getThemeColors("padrao");
+    const { name: _nomeBase, ...baseCores } = getThemeColors("default");
     const custom = (await tc.getCustomTheme(slot)) || { name: `meu tema ${slot}`, colors: {} };
     let colors = { ...baseCores, ...(custom.colors || {}) };
     let nome = custom.name || `meu tema ${slot}`;
@@ -5661,6 +5689,7 @@ function instalarFiltroAvisoSessao() {
 async function main() {
   instalarFiltroAvisoSessao();
   void carregarRegrasPapel();
+  void carregarCooldownPapel();
   const args = process.argv.slice(2);
 
   // Sessão: nova por padrão. Retomar só com escolha explícita.

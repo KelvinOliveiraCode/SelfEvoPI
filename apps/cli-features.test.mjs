@@ -214,11 +214,11 @@ test("makeOut aplica o crivo da tela à saída de comandos longos", () => {
   const escrito = [];
   const out = makeOut((s) => escrito.push(s), 40);
   const longo = "disponíveis: " +
-    "padrao, violeta, azul, ciano, verde, esmeralda, laranja, rosa, vermelho, magenta, dourado, grafite";
+    "default, violet, blue, cyan, green, emerald, orange, pink, red, magenta, gold, graphite";
   out("\x1b[38;2;255;200;87m" + longo + "\x1b[0m");
   const bruto = escrito.join("");
   assert.ok(!bruto.includes("…"), "nunca pode truncar com reticência");
-  assert.ok(bruto.includes("grafite"), "última palavra não pode se perder");
+  assert.ok(bruto.includes("graphite"), "última palavra não pode se perder");
   for (const linha of bruto.split("\n")) {
     assert.ok(visibleWidth(stripAnsi(linha)) <= 40, `linha > 40: ${visibleWidth(stripAnsi(linha))}`);
     const aberto = (linha.match(/\x1b\[(?!0m)[0-9;]*m/g) || []).length;

@@ -1,8 +1,8 @@
 /**
  * selfevopi-theme — paleta da TUI.
  *
- * Doze temas: `padrao` (padrão), `violeta`, `azul`, `ciano`, `verde`,
- * `esmeralda`, `laranja`, `rosa`, `vermelho`, `magenta`, `dourado`, `grafite`.
+ * Doze temas: `default` (padrão), `violet`, `blue`, `cyan`, `green`,
+ * `emerald`, `orange`, `pink`, `red`, `magenta`, `gold`, `graphite`.
  * O tema muda a **paleta** (fg, muted, accent, ok, warn, fail), não a estrutura.
  *
  * Persistência dupla:
@@ -23,10 +23,26 @@ import process from "node:process";
 
 const HOME = process.env.USERPROFILE || process.env.HOME || ".";
 const THEME_KEY = "selfevopi.theme";
-const DEFAULT_THEME = "padrao";
+const DEFAULT_THEME = "default";
 
-/** Nomes antigos ainda podem estar em theme.json/localStorage de quem atualizou. */
-const LEGACY_NAMES = { escuro: "padrao", "alto-contraste": "padrao", claro: "violeta" };
+/** Nomes antigos (pt-BR) ainda podem estar em theme.json/localStorage. */
+const LEGACY_NAMES = {
+  escuro: "default",
+  "alto-contraste": "default",
+  claro: "violet",
+  padrao: "default",
+  violeta: "violet",
+  azul: "blue",
+  ciano: "cyan",
+  verde: "green",
+  esmeralda: "emerald",
+  laranja: "orange",
+  rosa: "pink",
+  vermelho: "red",
+  magenta: "magenta",
+  dourado: "gold",
+  grafite: "graphite",
+};
 function nomeAtual(value) {
   const raw = String(value || "");
   return LEGACY_NAMES[raw] || raw;
@@ -48,8 +64,8 @@ function themeFile() {
  * sobre o respectivo fundo); o teste em `theme.test.mjs` verifica isso.
  */
 export const THEMES = {
-  padrao: {
-    name: "padrao",
+  default: {
+    name: "default",
     bg: "#0b0908",
     fg: "#fff6e5",
     muted: "#d6b978",
@@ -62,8 +78,8 @@ export const THEMES = {
     link: "#ffc857",
     rule: "#8a6e3c",
   },
-  violeta: {
-    name: "violeta",
+  violet: {
+    name: "violet",
     bg: "#0a0710",
     fg: "#f7f2ff",
     muted: "#cbb8f5",
@@ -76,16 +92,16 @@ export const THEMES = {
     link: "#c4a7ff",
     rule: "#6b588e",
   },
-  azul: { name: "azul", bg: "#0c0d0e", fg: "#f4f5f6", muted: "#b7c2cd", accent: "#6ea8e2", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e3e6", tool: "#afcce9", link: "#6ea8e2", rule: "#404d59" },
-  ciano: { name: "ciano", bg: "#0c0d0e", fg: "#f4f5f6", muted: "#b6cacd", accent: "#6cd1e5", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e5e6", tool: "#ade0eb", link: "#6cd1e5", rule: "#3f565a" },
-  verde: { name: "verde", bg: "#0c0e0d", fg: "#f4f6f5", muted: "#b7cdc0", accent: "#70e19f", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e6e2", tool: "#b0e8c7", link: "#70e19f", rule: "#41584b" },
-  esmeralda: { name: "esmeralda", bg: "#0c0e0d", fg: "#f4f6f5", muted: "#b7cdc7", accent: "#70e1c4", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e6e4", tool: "#b0e8da", link: "#70e1c4", rule: "#415852" },
-  laranja: { name: "laranja", bg: "#0e0d0c", fg: "#f6f5f4", muted: "#cfc1b5", accent: "#e8a469", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e3e0", tool: "#eccaac", link: "#e8a469", rule: "#5b4c3e" },
-  rosa: { name: "rosa", bg: "#0e0c0d", fg: "#f6f4f5", muted: "#cdb6c2", accent: "#e56ca8", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e0e3", tool: "#ebadcc", link: "#e56ca8", rule: "#5a3f4d" },
-  vermelho: { name: "vermelho", bg: "#0e0c0c", fg: "#f6f4f4", muted: "#cfb6b5", accent: "#e86d69", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e0e0", tool: "#ecaeac", link: "#e86d69", rule: "#5b3f3e" },
+  blue: { name: "blue", bg: "#0c0d0e", fg: "#f4f5f6", muted: "#b7c2cd", accent: "#6ea8e2", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e3e6", tool: "#afcce9", link: "#6ea8e2", rule: "#404d59" },
+  cyan: { name: "cyan", bg: "#0c0d0e", fg: "#f4f5f6", muted: "#b6cacd", accent: "#6cd1e5", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e5e6", tool: "#ade0eb", link: "#6cd1e5", rule: "#3f565a" },
+  green: { name: "green", bg: "#0c0e0d", fg: "#f4f6f5", muted: "#b7cdc0", accent: "#70e19f", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e6e2", tool: "#b0e8c7", link: "#70e19f", rule: "#41584b" },
+  emerald: { name: "emerald", bg: "#0c0e0d", fg: "#f4f6f5", muted: "#b7cdc7", accent: "#70e1c4", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e6e4", tool: "#b0e8da", link: "#70e1c4", rule: "#415852" },
+  orange: { name: "orange", bg: "#0e0d0c", fg: "#f6f5f4", muted: "#cfc1b5", accent: "#e8a469", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e3e0", tool: "#eccaac", link: "#e8a469", rule: "#5b4c3e" },
+  pink: { name: "pink", bg: "#0e0c0d", fg: "#f6f4f5", muted: "#cdb6c2", accent: "#e56ca8", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e0e3", tool: "#ebadcc", link: "#e56ca8", rule: "#5a3f4d" },
+  red: { name: "red", bg: "#0e0c0c", fg: "#f6f4f4", muted: "#cfb6b5", accent: "#e86d69", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e0e0", tool: "#ecaeac", link: "#e86d69", rule: "#5b3f3e" },
   magenta: { name: "magenta", bg: "#0e0c0e", fg: "#f6f4f6", muted: "#cdb6cd", accent: "#e46ce4", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e6e0e6", tool: "#eaaeea", link: "#e46ce4", rule: "#5a3f5a" },
-  dourado: { name: "dourado", bg: "#0e0d0c", fg: "#f6f6f4", muted: "#d1ccb3", accent: "#eed763", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e7e6df", tool: "#f0e4a8", link: "#eed763", rule: "#5e583b" },
-  grafite: { name: "grafite", bg: "#0c0d0e", fg: "#f4f5f6", muted: "#b7c0cd", accent: "#83a2ce", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e2e6", tool: "#bbc9dd", link: "#83a2ce", rule: "#454b54" },
+  gold: { name: "gold", bg: "#0e0d0c", fg: "#f6f6f4", muted: "#d1ccb3", accent: "#eed763", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e7e6df", tool: "#f0e4a8", link: "#eed763", rule: "#5e583b" },
+  graphite: { name: "graphite", bg: "#0c0d0e", fg: "#f4f5f6", muted: "#b7c0cd", accent: "#83a2ce", ok: "#7bd5a1", warn: "#f8b659", fail: "#f17a74", code: "#e0e2e6", tool: "#bbc9dd", link: "#83a2ce", rule: "#454b54" },
 };
 
 /* ------------------------------------------------------------------ */
