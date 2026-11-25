@@ -213,7 +213,7 @@ limit, deadline and output cap. `scripts/code-mode-mcp.mjs` is an opt-in MCP
 gateway exposing a single `run_code` tool; it discovers servers and tools from
 the **local** config at runtime, so no server name, command or secret lives in
 this repository. The gateway is registered locally by the user, with a backup
-of the config. See `docs/agent-guides/hooks-e-seguranca.md`.
+of the config. Hooks live in `.pi/hooks.json` in the workspace and are shown by `/hooks`.
 
 ## Install
 
@@ -298,19 +298,14 @@ node core/forge/cli.mjs status          # harness state
 | Document | What's in it |
 |:--|:--|
 | [`AGENTS.md`](AGENTS.md) | first read for any coding agent: rules, map, verification |
-| [`docs/agent-guides/`](docs/agent-guides/README.md) | practical guides to change providers, tools, commands, language and integrations |
-| [`docs/produto.md`](docs/produto.md) | full product dossier: thesis, architecture, CLI, models, security |
-| [`docs/estado.md`](docs/estado.md) | measured state, honest gaps |
-| [`docs/fase1/decisoes.md`](docs/fase1/decisoes.md) | decisions with evidence and re-evaluation triggers |
-| [`docs/fase2/forge.md`](docs/fase2/forge.md) | the evolutionary core |
-| [`docs/fase2/sandbox.md`](docs/fase2/sandbox.md) | the isolation layers |
-| [`docs/fase2/governanca.md`](docs/fase2/governanca.md) | verified rollback and approval |
-| [`docs/fase3/grafo.md`](docs/fase3/grafo.md) | execution graph runtime |
-| [`docs/design/marca.md`](docs/design/marca.md) | brand system |
-| [`docs/design/superficies.md`](docs/design/superficies.md) | CLI surface grammar |
-| [`docs/research/cli-landscape/matriz.md`](docs/research/cli-landscape/matriz.md) | competitor capability matrix |
-| [`docs/research/cli-landscape/round2.md`](docs/research/cli-landscape/round2.md) | second-pass gap analysis |
 | [`SECURITY.md`](SECURITY.md) | security model in one page |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | how to propose a change |
+| [`CHANGELOG.md`](CHANGELOG.md) | released versions and what changed |
+| [`config/verified-sources.md`](config/verified-sources.md) | public source URLs checked by `npm run verify:urls` |
+
+Development records, internal dossiers, phase notes, the research vault and the
+harness ledger live in the private repository. The public release contains the
+software, not the process that produced it.
 
 
 ## License

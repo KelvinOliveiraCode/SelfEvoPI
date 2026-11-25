@@ -46,6 +46,22 @@ yarn-error.log*
 # Worktrees isolados dos subagentes
 .worktrees/
 
+# Registros de desenvolvimento ficam só no repositório privado
+.pi/harness/
+.pi/settings.json
+docs/agent-guides/
+docs/design/
+docs/estado.md
+docs/fase0/
+docs/fase1/
+docs/fase2/
+docs/fase3/
+docs/fase5/
+docs/fase6/
+docs/produto.md
+docs/research/
+docs/vault/
+
 # Estado efemero do harness
 .pi/harness/tmp/
 .pi/harness/*.tmp

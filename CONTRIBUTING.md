@@ -197,6 +197,6 @@ ele fala com um modelo — não é um teste unitário disfarçado.
 - [ ] commit em Conventional Commits, com escopo
 - [ ] mudança de comportamento com baseline atualizada e justificativa no arquivo
 
-Dúvida sobre o desenho: leia `docs/estado.md` primeiro. Ele registra as decisões
-que carregam o projeto e o que ficou honestamente por fazer — inclusive para
-evitar que você refaça algo que já foi avaliado e descartado com número na mesa.
+Dúvida sobre o desenho: leia `README.md` e `CHANGELOG.md` primeiro. Eles registram
+o que carrega o projeto e o que mudou em cada versão, inclusive para evitar que
+você refaça algo que já foi avaliado e descartado.
