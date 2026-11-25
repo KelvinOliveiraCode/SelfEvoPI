@@ -878,6 +878,39 @@ test("REPL: ctrl+o abre e fecha o painel; ctrl+c não mata", async () => {
   await p;
 });
 
+test("REPL: o rodapé fica sempre abaixo do prompt, inclusive com paleta aberta", async () => {
+  const input = new EventEmitter();
+  input.setEncoding = () => {};
+  input.isTTY = true;
+  let all = "";
+  const p = repl({ pi: null, write: (s) => (all += s), input, setRaw: () => {}, data: {} });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  await sleep(20);
+
+  const abaixoDoPrompt = (texto) => {
+    const linhas = stripAnsi(texto).split("\n");
+    const i = linhas.findIndex((l) => l.includes("›"));
+    assert.ok(i >= 0, "prompt não encontrado no frame");
+    return { status: linhas[i + 1], dica: linhas[i + 2] };
+  };
+
+  // Sem overlay, estado na primeira linha e dica na segunda.
+  let linhas = abaixoDoPrompt(all);
+  assert.match(linhas.status, /build\s+full access/);
+  assert.match(linhas.dica, /ctrl\+o painel/);
+
+  // Com a paleta aberta, o rodapé não desce: o overlay vem depois dele.
+  all = "";
+  input.emit("data", "/");
+  await sleep(20);
+  linhas = abaixoDoPrompt(all);
+  assert.match(linhas.status, /build\s+full access/);
+  assert.match(linhas.dica, /ctrl\+o painel/);
+
+  input.emit("data", "\x04");
+  await p;
+});
+
 /* ------------------------------------------------------------------ */
 /* Sessões — origem (client) e título derivado                         */
 /* ------------------------------------------------------------------ */

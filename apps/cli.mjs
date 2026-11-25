@@ -4545,6 +4545,13 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     const empilhar = (linhas, alvo) => {
       for (const linha of linhas) { belowLines.push(linha); belowTargets.push(alvo); }
     };
+
+    // Rodapé fixo: estado e dica ocupam sempre as duas primeiras linhas abaixo
+    // do prompt. Paleta, fila e overlays vêm depois, para não deslocar a dica
+    // nem sobrepor a linha de escrita quando a janela redesenha.
+    empilhar([statusLine], () => { startModelPicker(); });
+    empilhar([keysLine], () => { void runSlash("help", "", makeOut(write), { pi: pi ?? undefined }); });
+
     if (open && paletteLines.length) {
       const donos = paletteLines.owners || [];
       for (let j = 0; j < paletteLines.length; j += 1) {
@@ -4580,8 +4587,6 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         empilhar([linhas[j]], idx == null ? null : () => escolherValor(idx));
       }
     }
-    empilhar([statusLine], () => { startModelPicker(); });
-    empilhar([keysLine], () => { void runSlash("help", "", makeOut(write), { pi: pi ?? undefined }); });
 
     // Janela horizontal: mostra a fatia do buffer que cabe, mantendo o cursor
     // visível. Assim um prompt grande NÃO corta com "…" nem some da tela — o
