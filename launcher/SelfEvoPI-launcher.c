@@ -44,10 +44,14 @@ int main(int argc, char **argv) {
     if (ultimo != NULL) *ultimo = '\0';
     SetCurrentDirectoryA(raiz);
 
-    if (SearchPathA(NULL, "node.exe", NULL, MAX_PATH, node, NULL) == 0) {
-        fprintf(stderr, "SelfEvoPI: node.exe nao encontrado no PATH.\n");
-        fprintf(stderr, "Instale Node 22.19.1 ou mais novo e rode de novo.\n");
-        return 2;
+    /* O zip traz node.exe na raiz. Se estiver ausente, cai para o PATH. */
+    snprintf(node, sizeof(node), "%s\\node.exe", raiz);
+    if (GetFileAttributesA(node) == INVALID_FILE_ATTRIBUTES) {
+        if (SearchPathA(NULL, "node.exe", NULL, MAX_PATH, node, NULL) == 0) {
+            fprintf(stderr, "SelfEvoPI: node.exe nao encontrado no pacote nem no PATH.\n");
+            fprintf(stderr, "Instale Node 22.19.1 ou mais novo e rode de novo.\n");
+            return 2;
+        }
     }
 
     /* Na pasta distribuida o exe esta ao lado de apps/. No repositorio ele
