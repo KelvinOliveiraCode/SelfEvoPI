@@ -1041,6 +1041,53 @@ async function runProviders({ arg, out, pi }) {
         return 2;
       }
     }
+    if (sub === "quick") {
+      // /providers quick <url> [ENV_DA_CHAVE]: descobre e grava TODOS os modelos.
+      const [baseUrl, envVar] = resto;
+      if (!baseUrl) {
+        out(paint("  " + tr("prov.quickUsage"), "muted"));
+        return 2;
+      }
+      const key = envVar ? process.env[envVar] : null;
+      if (envVar && !key) {
+        out(paint("  " + tr("prov.quickNoEnv", { name: envVar }), "warn"));
+        return 2;
+      }
+      try {
+        const cfg = await import("../core/agent/models-config.mjs");
+        const { discoverModels } = await import("../core/agent/provider-discovery.mjs");
+        const doc = await cfg.readModels(cfg.modelsPath());
+        out(paint("  " + tr("prov.quickWorking"), "muted"));
+        const found = await discoverModels({ baseUrl, apiKey: key });
+        if (found.models.length === 0) {
+          out(paint("  " + tr("prov.quickEmpty"), "fail"));
+          return 2;
+        }
+        let base = "gateway";
+        try {
+          const host = new URL(baseUrl).hostname.replace(/^\[|\]$/g, "");
+          const primeiro = host.split(".")[0] || "gateway";
+          base = /^\d+$/.test(primeiro) || host === "localhost" ? "gateway" : primeiro;
+        } catch { /* mantém gateway */ }
+        const id = cfg.nextProviderId(base, doc);
+        cfg.upsertProvider(doc, { id, name: id, baseUrl, apiKey: key, models: [] });
+        cfg.upsertModels(doc, id, found.models.map((m) => ({
+          id: m.id,
+          name: m.name || m.id,
+          ...(m.reasoning ? { reasoning: true } : {}),
+          ...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap, compat: { supportsReasoningEffort: true } } : {}),
+          input: Array.isArray(m.input) ? m.input : ["text"],
+          ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}),
+          ...(m.maxTokens ? { maxTokens: m.maxTokens } : {}),
+        })), { mode: "replace" });
+        await cfg.writeModels(doc, { file: cfg.modelsPath() });
+        out(paint("  " + tr("prov.quickReady", { id, n: found.models.length }), "ok"));
+        return 0;
+      } catch (err) {
+        out(paint(`  ${String(err?.message || err).slice(0, 160)}`, "fail"));
+        return 2;
+      }
+    }
     if (sub === "add") {
       // /providers add <id> <baseUrl> <apiKey>  (apiKey pode ficar de fora p/ colar depois)
       const [id, baseUrl, apiKey] = resto;

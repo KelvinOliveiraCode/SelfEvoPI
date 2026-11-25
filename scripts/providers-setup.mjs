@@ -2,11 +2,13 @@
 /**
  * providers-setup.mjs — configurar providers e modelos no SelfEvoPI.
  *
- * Dois modos:
+ * Três modos:
+ *  - rápido: --quick pede endpoint e chave, puxa todos os modelos e já grava;
  *  - humano: rode sem argumentos num TTY e responda às perguntas;
  *  - agente: use --base-url/--api-key-env/--json e --apply para gravar.
  *
- * A chave nunca é impressa. O padrão é dry-run: sem --apply nada é escrito.
+ * A chave nunca é impressa. Fora do modo rápido, o padrão é dry-run:
+ * sem --apply nada é escrito.
  * A config real fica em ~/.pi/agent/models.json (fora do repositório).
  */
 
@@ -48,6 +50,7 @@ const opts = {
   freeOnly: has("--free-only"),
   image: has("--image"),
   apply: has("--apply"),
+  quick: has("--quick"),
   list: has("--list"),
   replaceKey: has("--replace-key"),
 };
@@ -69,7 +72,9 @@ function baseIdFromUrl(url) {
   try {
     const parsed = new URL(url);
     const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
-    const host = /^\d+$/.test(hostname) ? "gateway" : hostname.split(".")[0];
+    const primeiro = hostname.split(".")[0] || "";
+    const host = /^\d+$/.test(hostname) || /^\d+$/.test(primeiro) || hostname === "localhost"
+      ? "gateway" : primeiro;
     return host.replace(/[^a-z0-9_-]/gi, "-").toLowerCase() || "gateway";
   } catch {
     return "gateway";
@@ -111,6 +116,73 @@ function selectModels(models) {
 async function ask(question) {
   const rl = readline.createInterface({ input, output });
   try { return (await rl.question(question)).trim(); } finally { rl.close(); }
+}
+
+/** Lê uma chave sem repetir os caracteres na tela. Nunca a devolve em log. */
+async function askSecret(label) {
+  if (!input.isTTY || !input.setRawMode) return ask(label);
+  return new Promise((resolve) => {
+    output.write(label);
+    const anterior = input.isRaw;
+    let valor = "";
+    input.setRawMode(true);
+    input.resume();
+    const aoDado = (chunk) => {
+      for (const ch of chunk.toString()) {
+        if (ch === "\r" || ch === "\n") {
+          input.off("data", aoDado);
+          input.setRawMode(Boolean(anterior));
+          output.write("\n");
+          resolve(valor);
+          return;
+        }
+        if (ch === "\u0003" || ch === "\u0004") {
+          input.off("data", aoDado);
+          input.setRawMode(Boolean(anterior));
+          output.write("\n");
+          resolve("");
+          return;
+        }
+        if (ch === "\u007f" || ch === "\b") {
+          valor = valor.slice(0, -1);
+          output.write("\b \b");
+          continue;
+        }
+        if (ch >= " ") { valor += ch; output.write("*"); }
+      }
+    };
+    input.on("data", aoDado);
+  });
+}
+
+/**
+ * Caminho curto: endpoint + chave entram, todos os modelos do gateway são
+ * descobertos e gravados, e a config fica pronta para /model. Sem perguntas
+ * de seleção e sem dry-run.
+ */
+async function quickSetup(doc) {
+  const baseUrl = opts.baseUrl || (await ask("Endpoint do gateway (ex.: https://openrouter.ai/api/v1): "));
+  if (!baseUrl) { console.error("Endpoint não informado."); process.exitCode = 2; return; }
+  const key = opts.apiKeyRaw || (opts.apiKeyEnv ? apiKey() : await askSecret("Chave de API (enter para nenhuma): "));
+  if (opts.apiKeyEnv && !key) return;
+
+  process.stdout.write("Puxando modelos do endpoint... ");
+  const found = await discoverModels({ baseUrl, apiKey: key || null });
+  if (found.models.length === 0) {
+    console.error("nenhum modelo devolvido pelo endpoint");
+    process.exitCode = 2;
+    return;
+  }
+  console.log(`${found.models.length} modelo(s).`);
+
+  const id = opts.provider || providerIdFor(baseUrl, doc);
+  cfg.upsertProvider(doc, { id, name: id, baseUrl, apiKey: key || null, models: [] });
+  cfg.upsertModels(doc, id, found.models.map(toModelEntry), { mode: "replace" });
+  const saved = await cfg.writeModels(doc, { file: modelsFile });
+
+  console.log(`\nPronto. Provider "${id}" com ${found.models.length} modelo(s) gravado em ${saved.file}.`);
+  console.log(`Chave: ${key ? cfg.keyInfo(key).fingerprint : "ausente"}. A chave não aparece em log.`);
+  console.log("Na CLI, use /model para escolher e começar.");
 }
 
 async function interactiveSetup(doc) {
@@ -191,6 +263,8 @@ function toModelEntry(m) {
 
 async function main() {
   const doc = await cfg.readModels(modelsFile);
+
+  if (opts.quick) { await quickSetup(doc); return; }
 
   if (opts.list) {
     const providers = Object.keys(doc.providers);
