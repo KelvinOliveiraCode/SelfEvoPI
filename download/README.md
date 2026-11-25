@@ -2,17 +2,19 @@
 
 ## O que está aqui
 
-`SelfEvoPI.exe` abre a CLI do SelfEvoPI no Windows. Ele só localiza o Node,
-entra na pasta da aplicação e chama `apps/cli.mjs`. Não tem menu próprio,
-não guarda chave e não faz rede por conta própria.
+`SelfEvoPI.exe` abre a CLI do SelfEvoPI no Windows. Ele entra na pasta da
+aplicação e chama `apps/cli.mjs` com o `node.exe` incluído no zip. Se o zip
+não trouxer o Node, ele usa o `node.exe` do PATH. Não tem menu próprio, não
+guarda chave e não faz rede por conta própria.
 
 Para usar fora do repositório, baixe `SelfEvoPI-2.0.0.zip` da página de
 release. O zip já traz a aplicação inteira com o executável na raiz.
 
 ## Requisitos
 
-Windows, Node 22.19.1 ou mais novo no PATH, e o motor CLI instalado à parte.
-Sem Docker, WSL ou máquina virtual. O SelfEvoPI não faz fork do motor.
+Windows e o motor CLI instalado à parte. O zip inclui Node 22.19.1, então não
+é preciso instalar Node separadamente. Sem Docker, WSL ou máquina virtual.
+O SelfEvoPI não faz fork do motor.
 
 ## Como abrir
 
