@@ -4546,9 +4546,10 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       for (const linha of linhas) { belowLines.push(linha); belowTargets.push(alvo); }
     };
 
-    // Rodapé fixo: estado e dica ocupam sempre as duas primeiras linhas abaixo
-    // do prompt. Paleta, fila e overlays vêm depois, para não deslocar a dica
-    // nem sobrepor a linha de escrita quando a janela redesenha.
+    // Rodapé fixo: uma linha livre separa o prompt do estado, que fica na
+    // segunda linha abaixo dele, com a dica na terceira. Paleta, fila e overlays
+    // vêm depois, para não deslocar o rodapé nem sobrepor a linha de escrita.
+    empilhar([""], null);
     empilhar([statusLine], () => { startModelPicker(); });
     empilhar([keysLine], () => { void runSlash("help", "", makeOut(write), { pi: pi ?? undefined }); });
 

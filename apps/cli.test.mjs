@@ -878,7 +878,7 @@ test("REPL: ctrl+o abre e fecha o painel; ctrl+c não mata", async () => {
   await p;
 });
 
-test("REPL: o rodapé fica sempre abaixo do prompt, inclusive com paleta aberta", async () => {
+test("REPL: o rodapé fica duas linhas abaixo do prompt, inclusive com paleta aberta", async () => {
   const input = new EventEmitter();
   input.setEncoding = () => {};
   input.isTTY = true;
@@ -891,11 +891,12 @@ test("REPL: o rodapé fica sempre abaixo do prompt, inclusive com paleta aberta"
     const linhas = stripAnsi(texto).split("\n");
     const i = linhas.findIndex((l) => l.includes("›"));
     assert.ok(i >= 0, "prompt não encontrado no frame");
-    return { status: linhas[i + 1], dica: linhas[i + 2] };
+    return { livre: linhas[i + 1], status: linhas[i + 2], dica: linhas[i + 3] };
   };
 
-  // Sem overlay, estado na primeira linha e dica na segunda.
+  // Sem overlay, uma linha livre, estado na segunda e dica na terceira.
   let linhas = abaixoDoPrompt(all);
+  assert.equal(linhas.livre.trim(), "");
   assert.match(linhas.status, /build\s+full access/);
   assert.match(linhas.dica, /ctrl\+o painel/);
 
