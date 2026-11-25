@@ -3753,7 +3753,9 @@ export function clearEvents() {
   sessionEvents.length = 0;
 }
 
-let queued = [];
+let queued = []; // [{ id, text }] mensagens enviadas durante um turno
+let queueSeq = 0;
+let escAt = 0;
 let turnStartedAt = null;
 let lastTurnMs = null;
 let lastAnswer = "";
@@ -4485,6 +4487,22 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
     return tail.length > 24 ? tail.slice(0, 23) + "…" : tail;
   };
 
+  async function steerQueued(id) {
+    const indice = queued.findIndex((item) => item.id === id);
+    if (indice < 0) return;
+    const [item] = queued.splice(indice, 1);
+    const enviar = typeof pi?.steer === "function"
+      ? pi.steer.bind(pi)
+      : typeof pi?._rpc?.steer === "function"
+        ? pi._rpc.steer.bind(pi._rpc)
+        : null;
+    if (enviar) {
+      await enviar(item.text).catch(() => null);
+      write(paint("  " + tr("queue.steered"), "muted") + "\n");
+    }
+    drawInput();
+  }
+
   // Redesenho incremental: limpa SÓ da linha de entrada para baixo.
   const drawInput = () => {
     // Pergunta ao terminal em que linha o cursor está. A resposta volta pelo
@@ -4561,6 +4579,12 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       }
     } else {
       empilhar(paletteLines, null);
+    }
+    if (queued.length) {
+      for (const item of queued) {
+        empilhar([`  · ${paint(item.text.slice(0, 64), "warn")}`], () => steerQueued(item.id));
+      }
+      empilhar([paint("  " + tr("queue.click"), "dim")], null);
     }
     if (panelOpen) for (const pl of renderPanel(statusInfo, data)) empilhar([pl], null);
     if (taskOpen) {
@@ -5424,7 +5448,7 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
       const next = queued.shift();
       write(paint("  " + tr("queue.sent"), "muted") + "\n");
       drawInput();
-      await submit(next);
+      await submit(next.text);
       return;
     }
     prompt();
@@ -5696,6 +5720,20 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
         drawInput();
         continue;
       }
+      if (running && key === "esc") {
+        const agora = Date.now();
+        if (agora - escAt < 1500) {
+          escAt = 0;
+          if (pi) pi.abort().catch(() => {});
+          write(paint("  " + tr("session.stopped"), "warn") + "\n");
+          drawInput();
+        } else {
+          escAt = agora;
+          write(paint("  " + tr("esc.again"), "warn") + "\n");
+          drawInput();
+        }
+        continue;
+      }
       if (running) {
         if (key === "ctrl-c") {
           if (pi) pi.abort().catch(() => {});
@@ -5705,14 +5743,27 @@ export async function repl({ pi, engineRef, write, input, setRaw, data = {}, ses
           continue;
         }
         // Enquanto o agente trabalha, o usuário pode continuar digitando.
-        // Enter enfileira a mensagem (ctrl+enter envia imediato, quando o
-        // terminal manda a sequência) em vez de descartar o que foi escrito.
+        // Uma barra executa o comando agora. Outras mensagens ficam na fila
+        // até o fim do turno, e um clique nelas transforma a mensagem em steer.
         if (key === "enter" || key === "ctrl-enter") {
           const text = line.buf.trim();
           if (text) {
-            queued.push(text);
             line = { buf: "", cur: 0, sel: 0, dismissed: false };
-            write(paint(`  ${tr("queue.hint", { n: queued.length })}`, "muted") + "\n");
+            const parsed = parseInput(text);
+            if (parsed.type === "quit") {
+              write("\n");
+              quitting = true;
+              if (pi) pi.abort().catch(() => {});
+              continue;
+            }
+            if (parsed.type === "slash") {
+              write("\n");
+              recordEvent("command", text, { name: parsed.name, duringTurn: true });
+              await runSlash(parsed.name, parsed.arg, makeOut(write), { pi });
+            } else {
+              queued.push({ id: ++queueSeq, text });
+              write(paint(`  ${tr("queue.hint", { n: queued.length })}`, "muted") + "\n");
+            }
           }
           drawInput();
           continue;

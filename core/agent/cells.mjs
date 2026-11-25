@@ -213,7 +213,11 @@ export function createCellRuntime(opts = {}) {
         return falha("a célula não retornou uma promessa");
       }
     } catch (err) {
-      return falha(String(err?.message || err));
+      const mensagem = String(err?.message || err);
+      // O VM do Node lança "Script execution timed out after Nms" quando o
+      // relógio está atrasado sob carga. Normalizamos para o mesmo motivo da
+      // célula, para que a interface não mostre dois textos para a mesma falha.
+      return falha(/timed out|timeout/i.test(mensagem) ? ERRO_TEMPO : mensagem);
     }
 
     let timer;

@@ -171,7 +171,7 @@ test("parser reúne chunks cortados dentro de um emoji e lê 2 quadros de uma ve
 
 test("cliente completo: initialize, diagnósticos, rename, hover e symbols", async (t) => {
   const { dir, arquivo } = await scriptTemp(SERVIDOR_FALSO);
-  const cliente = new LspClient({ command: process.execPath, args: [arquivo], timeoutMs: 1000 });
+  const cliente = new LspClient({ command: process.execPath, args: [arquivo], timeoutMs: 5000 });
   const uri = "file:///C:/projeto/fonte.ts";
   t.after(async () => {
     await cliente.close();

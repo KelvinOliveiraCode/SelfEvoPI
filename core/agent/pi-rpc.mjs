@@ -283,6 +283,26 @@ class PiClient {
     });
   }
 
+  /** Injeta uma mensagem no turno em curso, antes da próxima chamada ao modelo. */
+  steer(message, images) {
+    if (typeof this._rpc?.steer !== "function") return Promise.resolve("unavailable");
+    return this._rpc.steer(message, images);
+  }
+
+  /** Guarda uma mensagem para depois que o turno atual terminar. */
+  followUp(message, images) {
+    if (typeof this._rpc?.followUp !== "function") return Promise.resolve("unavailable");
+    return this._rpc.followUp(message, images);
+  }
+
+  /** Limpa as mensagens pendentes do motor. */
+  clearQueue() {
+    if (typeof this._rpc?.clearQueue !== "function") {
+      return Promise.resolve({ steering: [], followUp: [] });
+    }
+    return this._rpc.clearQueue();
+  }
+
   /** Cancela a execução em curso (Ctrl+C), sem encerrar a sessão. */
   abort() {
     return this._rpc.abort();

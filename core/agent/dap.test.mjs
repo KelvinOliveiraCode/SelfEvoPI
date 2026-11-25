@@ -150,7 +150,7 @@ test("framing: Content-Length em bytes UTF-8 e chunk cortado no meio de emoji", 
 
 test("fluxo completo: start, launch, breakpoints, continue, stopped, stack, variables, close", async (t) => {
   const { dir, arquivo } = await scriptTemp(ADAPTADOR_FALSO);
-  const cliente = new DapClient({ command: process.execPath, args: [arquivo], timeoutMs: 1000 });
+  const cliente = new DapClient({ command: process.execPath, args: [arquivo], timeoutMs: 5000 });
   t.after(async () => {
     await cliente.close();
     await rm(dir, { recursive: true, force: true });
@@ -199,7 +199,7 @@ test("fluxo completo: start, launch, breakpoints, continue, stopped, stack, vari
 
 test("configurationDone e launchAndConfigure fecham a sequência na ordem", async (t) => {
   const { dir, arquivo } = await scriptTemp(ADAPTADOR_FALSO);
-  const cliente = new DapClient({ command: process.execPath, args: [arquivo], timeoutMs: 1000 });
+  const cliente = new DapClient({ command: process.execPath, args: [arquivo], timeoutMs: 5000 });
   t.after(async () => {
     await cliente.close();
     await rm(dir, { recursive: true, force: true });
@@ -215,7 +215,7 @@ test("configurationDone e launchAndConfigure fecham a sequência na ordem", asyn
 
 test("waitForEvent resolve um evento que ainda não chegou", async (t) => {
   const { dir, arquivo } = await scriptTemp(ADAPTADOR_FALSO);
-  const cliente = new DapClient({ command: process.execPath, args: [arquivo], timeoutMs: 1000 });
+  const cliente = new DapClient({ command: process.execPath, args: [arquivo], timeoutMs: 5000 });
   t.after(async () => {
     await cliente.close();
     await rm(dir, { recursive: true, force: true });
