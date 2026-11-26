@@ -24,7 +24,7 @@ import { createEvolutionLoop } from "./loop.mjs";
 import { promoteArtifact } from "./promote.mjs";
 
 export const ROOT = path.resolve(import.meta.dirname, "..", "..");
-export const LEDGER = path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
+export const LEDGER = process.env.SELFEOPI_LEDGER || path.join(ROOT, ".pi", "harness", "ledger", "evals.jsonl");
 export const BASELINE = path.join(ROOT, "evals", "baseline.json");
 export const TASKS_DIR = path.join(ROOT, "evals", "tasks");
 const DEFAULT_MODEL = process.env.SELFEOPI_MODEL || "kilo1/nvidia/nemotron-3-ultra-550b-a55b:free";

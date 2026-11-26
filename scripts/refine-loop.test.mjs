@@ -12,6 +12,7 @@ import {
   summarizeLedger,
 } from "./refine-loop.mjs";
 import { aggregateMetrics, countOutcomes, renderWeeklyReport } from "./weekly-report.mjs";
+import { ledgerForTests } from "../core/forge/ledger-fixture.mjs";
 
 /* --------------------------- helpers de teste --------------------------- */
 
@@ -264,7 +265,7 @@ test("renderWeeklyReport contém as seções esperadas", () => {
 });
 
 test("weekly-report lê o ledger real do projeto sem quebrar", () => {
-  const { rows } = readLedger(join(process.cwd(), ".pi", "harness", "ledger", "evals.jsonl"));
+  const { rows } = readLedger(ledgerForTests(process.cwd()));
   const metrics = aggregateMetrics(rows);
   assert.ok(metrics.totalRuns > 0, "ledger real tem execuções");
   assert.ok(metrics.rate >= 0 && metrics.rate <= 1);

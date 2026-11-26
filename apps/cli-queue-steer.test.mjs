@@ -106,10 +106,18 @@ test("REPL: clique em mensagem enfileirada envia steer e limpa a fila", async ()
   await h.press("pergunta\r", 80);
   h.take();
   await h.press("mude para azul" + ENTER, 80);
-  assert.match(h.take(), /queued: 1|fila: 1/);
+  const quadro = h.take();
+  assert.match(quadro, /queued: 1|fila: 1/);
+  // O rodapé ocupa três linhas abaixo do prompt. Descobre a linha da mensagem
+  // enfileirada no último frame em vez de fixar uma linha absoluta.
+  const linhas = quadro.split("\n");
+  const prompt = linhas.findLastIndex((l) => l.includes("›"));
+  const enfileirada = linhas.findLastIndex((l) => l.includes("mude para azul"));
+  assert.ok(prompt >= 0 && enfileirada > prompt);
+  const linhaClique = 10 + (enfileirada - prompt);
   await h.press("\x1b[10;1R", 30); // posição do prompt
   h.take();
-  await h.press("\x1b[<0;5;11M", 90); // clique na primeira linha abaixo
+  await h.press(`\x1b[<0;5;${linhaClique}M`, 90);
   assert.deepEqual(pi.chamadas.filter((c) => c[0] === "steer"), [["steer", "mude para azul"]]);
   assert.doesNotMatch(h.take(), /queued: 1|fila: 1/);
   await h.close();

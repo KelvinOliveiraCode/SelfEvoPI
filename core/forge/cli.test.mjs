@@ -7,12 +7,18 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { realRunEvals } from "./cli.mjs";
+import { ledgerForTests } from "./ledger-fixture.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, "cli.mjs");
+const ROOT = path.resolve(HERE, "..", "..");
 
 function run(args) {
-  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", cwd: path.resolve(HERE, "..", "..") });
+  const r = spawnSync(process.execPath, [CLI, ...args], {
+    encoding: "utf8",
+    cwd: ROOT,
+    env: { ...process.env, SELFEOPI_LEDGER: ledgerForTests(ROOT) },
+  });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 

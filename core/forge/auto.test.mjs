@@ -425,11 +425,12 @@ test("evalTaskIds como array também funciona", async () => {
 /* ------------------------------------------------------------------ */
 
 test("ledger real: D1 aparece como ignorada e zero acionável", async () => {
-  // Usa o ledger e o tasksDir reais do projeto (via caminhos relativos ao worktree).
+  // Usa o ledger real quando presente e uma fixture equivalente no release público.
   const { fileURLToPath } = await import("node:url");
+  const { ledgerForTests } = await import("./ledger-fixture.mjs");
   const here = path.dirname(fileURLToPath(import.meta.url));
   const root = path.resolve(here, "..", "..");
-  const ledger = path.join(root, ".pi", "harness", "ledger", "evals.jsonl");
+  const ledger = ledgerForTests(root);
   const tasksDir = path.join(root, "evals", "tasks");
 
   const out = await runAutoPass({ ledger, tasksDir, auto: false, threshold: 3 });
@@ -444,9 +445,10 @@ test("ledger real: D1 aparece como ignorada e zero acionável", async () => {
 
 test("--include-eval (evalTaskIds vazio) faz D1 voltar a ser acionável", async () => {
   const { fileURLToPath } = await import("node:url");
+  const { ledgerForTests } = await import("./ledger-fixture.mjs");
   const here = path.dirname(fileURLToPath(import.meta.url));
   const root = path.resolve(here, "..", "..");
-  const ledger = path.join(root, ".pi", "harness", "ledger", "evals.jsonl");
+  const ledger = ledgerForTests(root);
 
   const out = await runAutoPass({ ledger, tasksDir: null, evalTaskIds: new Set(), auto: false, threshold: 3 });
   // Sem o filtro, a falha de D1 aparece como lacuna acionável (comportamento cru).
